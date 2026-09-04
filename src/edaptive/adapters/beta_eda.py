@@ -1,16 +1,16 @@
 import numpy as np
-from edaptive.core.adapter import BaseAdapter
+from edaptive.core.adapter import EDAAdapter
 from scipy.stats import beta, norm
 
-class BetaMarginalsEDA(BaseAdapter):
-    def __init__(self, search_space, eta, kappa_max, n_elite, rng):
+class BetaMarginalsEDA(EDAAdapter):
+    def __init__(self, search_space, eta, kappa_max, n_elite, update_freq, rng):
         super().__init__(search_space)
-        self.initialize(eta, kappa_max, n_elite, rng)
+        self.initialize(eta, kappa_max, n_elite, update_freq, rng)
 
     def required_data(self):
         return ["problem_lb", "problem_ub", "t", "X", "f_X", "CP"]
 
-    def initialize(self, eta, kappa_max, n_elite, rng):
+    def initialize(self, eta, kappa_max, n_elite, update_freq, rng):
         self.rng = rng
 
         self.a = np.ones(shape=self.n_x, dtype=np.float32) 
@@ -19,6 +19,7 @@ class BetaMarginalsEDA(BaseAdapter):
         self.eta = eta
         self.kappa_max = kappa_max
         self.n_elite = int(n_elite)
+        self.update_freq = update_freq
 
     def sample(self, N):
         samples = np.column_stack(
@@ -36,28 +37,41 @@ class BetaMarginalsEDA(BaseAdapter):
         return samples
 
     def check_update(self, problem_lb, problem_ub, t, X, f_X, CP):
+        if (t + 1) % self.update_freq != 0:
+            return None
+
         feasible = np.all((X >= problem_lb) & (X <= problem_ub), axis=1)
+        if feasible.sum() < 2:
+            return None
+
         f_X_feasible = f_X[feasible]
         X_feasible = X[feasible]
         CP_feasible = CP[feasible]
 
-        if len(X_feasible) < 2:
-            return None
+        elite_CPs = self.get_elite_CPs(f_X_feasible, X_feasible, CP_feasible)
+        return elite_CPs
 
-        samples = CP_feasible[np.argsort(f_X_feasible)[:min(len(X_feasible), self.n_elite)]]
-        return samples
+    def get_elite_CPs(self, f_X_feasible, X_feasible, CP_feasible):
+        return CP_feasible[np.argsort(f_X_feasible)[:min(len(X_feasible), self.n_elite)]]
 
-    def update(self, samples):
-        scaled_CP = (samples - self.CP_lb) / (self.CP_ub - self.CP_lb)
+    def update(self, elite_CPs):
+        scaled_CP = (elite_CPs - self.CP_lb) / (self.CP_ub - self.CP_lb)
         eps = 1e-6
         scaled_CP = np.clip(scaled_CP, eps, 1 - eps)
 
         # Step 1 (Fit marginals):
         eps = 1e-8          # numerical stability
 
-        mu = np.mean(scaled_CP, axis=0)
+        weights = self.compute_weights(scaled_CP)
 
-        var = np.var(scaled_CP, axis=0, ddof=1)
+        mu = np.average(scaled_CP, axis=0, weights=weights)
+
+        if weights is None: 
+            var = np.var(scaled_CP, axis=0, ddof=1)
+        else:
+            diff = scaled_CP - mu
+            var = np.sum(weights[:, None] * diff**2, axis=0)
+            var = np.maximum(var, eps)
         var = np.maximum(var, eps)
 
         kappa = mu * (1 - mu) / var - 1
@@ -69,8 +83,42 @@ class BetaMarginalsEDA(BaseAdapter):
         self.a = (1 - self.eta) * self.a + self.eta * a_new
         self.b = (1 - self.eta) * self.b + self.eta * b_new
 
-        return True
+    def compute_weights(self, scaled_CP):
+        return None
 
+class BetaMarginals_rank_weights_EDA(BetaMarginalsEDA):
+    def get_elite_CPs(self, f_X_feasible, X_feasible, CP_feasible):
+            # Sort all feasible particles by fitness (ascending for minimization)
+            CP_sorted = CP_feasible[np.argsort(f_X_feasible)]
+            return CP_sorted
+
+    def compute_weights(self, scaled_CP):
+            n = len(scaled_CP)
+
+            weights = np.arange(n, 0, -1, dtype=float)
+
+            weights /= weights.sum()
+
+            return weights
+
+class BetaMarginals_log_rank_weights_EDA(BetaMarginals_rank_weights_EDA):
+    def compute_weights(self, scaled_CP):
+            n = len(scaled_CP)
+
+            # ranks = 1, 2, ..., n
+            ranks = np.arange(1, n + 1)
+
+            weights = np.log(n + 1) - np.log(ranks)
+
+            # Numerical safety (should already be positive)
+            weights = np.maximum(weights, 0.0)
+
+            # Normalize
+            weights /= weights.sum()
+            return weights
+
+
+    
 # class BetaMarginalsGaussianCopulaEDA(BaseAdapter):
 #     def __init__(self, hyper_params, search_space):
 #         super().__init__(hyper_params, search_space)

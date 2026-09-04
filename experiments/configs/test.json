@@ -18,6 +18,11 @@
             "type" : "integer",
             "lower" : 2,
             "upper" : 15
+        },
+        "update_freq" : {
+            "tuned" : false,
+            "type" : "integer",
+            "value" : 1
         }
     },
     "optimizer" : {

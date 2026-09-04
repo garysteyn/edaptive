@@ -1,17 +1,16 @@
-import numpy as np
 from edaptive.problems.ela_benchmark_suite import *
 from edaptive.solvers.eda_solver import EDASolver
 from edaptive.optimizers.pso import PSO
-from edaptive.adapters.beta_eda import BetaMarginalsEDA
-
+from edaptive.adapters.beta_eda import BetaMarginalsEDA, BetaMarginals_log_rank_weights_EDA, BetaMarginals_rank_weights_EDA
 from edaptive.core.parameters import ParameterType, Parameter, ParameterSpace
+import numpy as np
 
 problems = [
-    # Schwefel1,
-    # Ripple25,
-    # Exponential,
-    # NeedleEye,
-    # Step3,
+    Schwefel1,
+    Ripple25,
+    Exponential,
+    NeedleEye,
+    Step3,
     # GeneralizedGiunta,
     # GeneralizedPaviani,
     # Brown,
@@ -21,10 +20,10 @@ problems = [
     # Mishra01,
     # GeneralizedPrice2,
 
-    BBOB_FID2_IID1,
-    BBOB_FID6_IID1,
-    BBOB_FID16_IID1,
-    BBOB_FID17_IID2
+    # BBOB_FID2_IID1,
+    # BBOB_FID6_IID1,
+    # BBOB_FID16_IID1,
+    # BBOB_FID17_IID2
     
 ]
 
@@ -33,7 +32,8 @@ def main():
         "adapter" : {
             "eta" : 0.001,
             "kappa_max" : 50,
-            "n_elite" : 15
+            "n_elite" : 15,
+            "update_freq" : 1
         },
 
         "optimizer" : {
@@ -66,13 +66,12 @@ def main():
 
     for i, problem in enumerate(problems):
         # print(problem)
-        eda_pso = EDASolver(optimizer_type=PSO, adapter_type=BetaMarginalsEDA)
+        eda_pso = EDASolver(optimizer_type=PSO, adapter_type=BetaMarginals_rank_weights_EDA)
         # eda_pso = EDASolver(optimizer_type=PSO, adapter_type=BetaMarginalsEDA)
         eda_pso.initialize(
             problem=problem(dimensions=40),
             hyper_params = params
         )
-
         res = eda_pso.run()
         print(res[1]["timings"], res[0])
         # print(res[1]["prop_stable"])

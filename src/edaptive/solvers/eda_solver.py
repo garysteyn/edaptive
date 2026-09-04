@@ -30,7 +30,6 @@ class EDASolver(BaseSolver):
         )
 
     def run(self, max_iterations=5000):
-
         optimizer = self.optimizer
         adapter = self.adapter
 
@@ -39,9 +38,8 @@ class EDASolver(BaseSolver):
             optimizer.step(t)
 
             data = optimizer.get_required_data(required_data)
-            
             samples = adapter.check_update(**data)
-  
+
             if samples is None:
                 continue
 

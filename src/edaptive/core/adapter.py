@@ -19,9 +19,10 @@ class BaseAdapter(ABC):
         pass
 
     @abstractmethod
-    def sample(self, N):
+    def update(self):
         pass
 
+class EDAAdapter(BaseAdapter):
     @abstractmethod
-    def update(self):
+    def sample(self, N):
         pass
