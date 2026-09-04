@@ -1,0 +1,49 @@
+{
+    "adapter" : {
+        "eta" : {
+            "tuned" : true,
+            "log_scale_tuning" : true,
+            "type" : "continuous",
+            "lower" : 0.001,
+            "upper" : 0.2
+        },
+        "kappa_max" : {
+            "tuned" : true,
+            "type" : "continuous",
+            "lower" : 2,
+            "upper" : 50
+        },
+        "n_elite" : {
+            "tuned" : true,
+            "type" : "integer",
+            "lower" : 2,
+            "upper" : 15
+        }
+    },
+    "optimizer" : {
+        "fixed" : {
+            "n_s" : {
+                "tuned" : false,
+                "type" : "integer",
+                "value" : 30
+            }
+        },
+        "adapted" : {
+            "w" : {
+                "type" : "continuous",
+                "lower" : 0,
+                "upper" : 1
+            },
+            "c_1" : {
+                "type" : "continuous",
+                "lower" : 0,
+                "upper" : 4
+            },
+            "c_2" : {
+                "type" : "continuous",
+                "lower" : 0,
+                "upper" : 4
+            }
+        }
+    }
+}

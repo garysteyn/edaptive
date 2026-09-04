@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "edaptive"
+version = "0.1.0"
+description = "Framework for self-adaptive metaheuristic algorithms"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy",
+    "PyQt5",
+    "matplotlib",
+    "scipy",
+    "mpi4py",
+    "scikit-posthocs",
+    "coco-experiment",
+
+]
