@@ -23,11 +23,13 @@ class IFRace():
             B, # budget
             L=None, # number of iterations
             n_min=None,
+            n_iter_per_run = 5000,
             friedman_alpha=0.05,
             conover_alpha=0.05
     ):
         self.I = I
         self.n_x = n_x
+        self.n_iter_per_run = n_iter_per_run
         self.sampling_model = sampling_model()
         self.L = L
         self.B = B
@@ -277,7 +279,7 @@ class IFRace():
                 config = self.generate_configuration(c)
                 self.solver.initialize(I(dimensions=self.n_x), hyper_params=config, rnd_seed=iteration_seed)
                 # TODO: make max_iterations a parameter of I/F-race
-                result, _ = self.solver.run(max_iterations=5000)
+                result, _ = self.solver.run(max_iterations=self.n_iter_per_run)
 
                 local_results.append((i, result))
 

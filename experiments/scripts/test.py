@@ -66,12 +66,13 @@ def main():
 
     for i, problem in enumerate(problems):
         # print(problem)
-        eda_pso = EDASolver(optimizer_type=PSO, adapter_type=BetaMarginals_rank_weights_EDA)
-        # eda_pso = EDASolver(optimizer_type=PSO, adapter_type=BetaMarginalsEDA)
-        eda_pso.initialize(
+        eda_pso = EDASolver(
+            optimizer_type=PSO,
+            adapter_type=BetaMarginals_rank_weights_EDA,
             problem=problem(dimensions=40),
             hyper_params = params
-        )
+            )
+
         res = eda_pso.run()
         print(res[1]["timings"], res[0])
         # print(res[1]["prop_stable"])

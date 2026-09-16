@@ -3,10 +3,6 @@ from edaptive.core.adapter import EDAAdapter
 from scipy.stats import beta, norm
 
 class BetaMarginalsEDA(EDAAdapter):
-    def __init__(self, search_space, eta, kappa_max, n_elite, update_freq, rng):
-        super().__init__(search_space)
-        self.initialize(eta, kappa_max, n_elite, update_freq, rng)
-
     def required_data(self):
         return ["problem_lb", "problem_ub", "t", "X", "f_X", "CP"]
 

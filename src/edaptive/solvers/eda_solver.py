@@ -15,18 +15,14 @@ class EDASolver(BaseSolver):
 
         self.adapter = self.adapter_type(
             search_space=optimizer_params_adapted,
-            rng=self.rng,
-            **adapter_params
+            **(adapter_params | {"rng" : self.rng})
         )
 
         CP_init = self.adapter.sample(N=self.n_s)
         CP_init_dict = {param.name : CP_init[:, idx] for idx, param in enumerate(optimizer_params_adapted)}
-        # print(CP_init_dict)
+
         self.optimizer = self.optimizer_type(
-            problem=problem,
-            rng=self.rng,
-            **optimizer_params_fixed,
-            **CP_init_dict
+            **({"problem" : problem} | {"rng" : self.rng} | optimizer_params_fixed | CP_init_dict)
         )
 
     def run(self, max_iterations=5000):

@@ -33,8 +33,9 @@ def main():
         # GeneralizedPrice2,
     ]
 
-    pso = BasicSolver(PSO)
-    pso.initialize(problem=CosineMixture_OG(dimensions=30), hyper_params=params)
+    pso = BasicSolver(PSO,
+                      problem=CosineMixture_OG(dimensions=30),
+                      hyper_params=params)
     res = pso.run(max_iterations=5000)
     
     print(res[1]["timings"], res[0])
