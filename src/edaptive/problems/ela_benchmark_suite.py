@@ -380,23 +380,6 @@ class Brown(BenchmarkProblem):
         )
 
 class CosineMixture_OG(BenchmarkProblem):
-    """
-    Cosine Mixture benchmark function.
-
-    Reference
-    ---------
-    Jamil, M. & Yang, X.-S. (2013)
-
-    Domain
-    ------
-    x_i ∈ [-1, 1]
-
-    Global Optimum
-    --------------
-    x* = (0, ..., 0)
-
-    f(x*) = -0.1 * dimensions
-    """
 
     def __init__(self, dimensions):
         super().__init__(
@@ -416,23 +399,6 @@ class CosineMixture_OG(BenchmarkProblem):
         )
 
 class CosineMixture(BenchmarkProblem):
-    """
-    Cosine Mixture benchmark function.
-
-    Reference
-    ---------
-    Jamil, M. & Yang, X.-S. (2013)
-
-    Domain
-    ------
-    x_i ∈ [-1, 1]
-
-    Global Optimum
-    --------------
-    x* = (0, ..., 0)
-
-    f(x*) = -0.1 * dimensions
-    """
 
     def __init__(self, dimensions):
         super().__init__(
@@ -607,7 +573,7 @@ class Rosenbrock(BenchmarkProblem):
 
     Domain
     ------
-    x_i ∈ [-5, 10]
+    x_i ∈ [-30, 30]
 
     Global Optimum
     --------------
@@ -901,7 +867,7 @@ class BBOB_FID17_IID2(BBOBProblem):
     def __init__(self, dimensions):
         super().__init__(
             dimensions=dimensions,
-            function_id=16,
+            function_id=17,
             instance_id=2,
         )
 
@@ -1019,7 +985,7 @@ class Elliptic(BenchmarkProblem):
         )
 
 def main():
-    plot_benchmark_3d(Elliptic)
+    plot_benchmark_3d(NeedleEye)
 
 if __name__ == "__main__":
     main()
