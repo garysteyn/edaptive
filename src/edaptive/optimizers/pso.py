@@ -4,6 +4,7 @@ from edaptive.const import max_float
 from edaptive.utils.timing import timed
 
 class PSO(BaseOptimizer):
+
     @timed
     def initialize(self, problem, rng, n_s, w, c_1, c_2):
         self.rng = rng

@@ -8,7 +8,7 @@ class BaseAdapter(ABC):
         self.CP_lb = search_space.lower_bounds
         self.CP_ub = search_space.upper_bounds
         self.n_x = search_space.dimension
-        
+
         self.initialize(**kwargs)
 
     # Data required of the optimizer (to perform an update)
@@ -17,7 +17,7 @@ class BaseAdapter(ABC):
         pass
 
     @abstractmethod
-    def initialize(self):
+    def initialize(self, **kwargs):
         pass
 
     @abstractmethod

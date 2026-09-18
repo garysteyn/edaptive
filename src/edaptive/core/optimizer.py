@@ -21,7 +21,7 @@ class BaseOptimizer(ABC):
         self._CP = value
 
     @abstractmethod
-    def initialize(self):
+    def initialize(self, **kwargs):
         pass
 
     @abstractmethod

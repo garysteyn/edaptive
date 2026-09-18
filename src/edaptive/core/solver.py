@@ -9,7 +9,7 @@ class BaseSolver(ABC):
         self.initialize(**kwargs)
 
     @abstractmethod
-    def initialize(self):
+    def initialize(self, **kwargs):
         pass
 
     @abstractmethod

@@ -57,7 +57,7 @@ class BetaMarginalsEDA(EDAAdapter):
 
         # Step 1 (Fit marginals):
         eps = 1e-8          # numerical stability
-
+        
         weights = self.compute_weights(scaled_CP)
 
         mu = np.average(scaled_CP, axis=0, weights=weights)

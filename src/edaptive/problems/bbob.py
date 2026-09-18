@@ -2,7 +2,6 @@ import numpy as np
 import cocoex
 from edaptive.problems.benchmark_problem import BenchmarkProblem
 
-
 class BBOBProblem(BenchmarkProblem):
 
     def __init__(self, dimensions, function_id, instance_id):
