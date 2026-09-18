@@ -31,11 +31,15 @@ def main():
         # Mishra07,
         # Mishra01,
         # GeneralizedPrice2,
-        BBOB_FID17_IID2
+        BBOB_FID2_IID1,
+        BBOB_FID6_IID1,
+        BBOB_FID16_IID1,
+        BBOB_FID17_IID2,
+
     ]
 
     pso = BasicSolver(PSO,
-                      problem=BBOB_FID17_IID2(dimensions=30),
+                      problem=BBOB_FID17_IID2(dimensions=10),
                       hyper_params=params)
     res = pso.run(max_iterations=5000)
     

@@ -1,0 +1,13 @@
+diff --git a/code-experiments/src/suite_bbob.c b/code-experiments/src/suite_bbob.c
+index 18698a4d..94392550 100644
+--- a/code-experiments/src/suite_bbob.c
++++ b/code-experiments/src/suite_bbob.c
+@@ -40,7 +40,7 @@ static coco_suite_t *coco_suite_allocate(const char *suite_name,
+ static coco_suite_t *suite_bbob_initialize(void) {
+ 
+   coco_suite_t *suite;
+-  const size_t dimensions[] = { 2, 3, 5, 10, 20, 40 };
++  const size_t dimensions[] = { 2,3,5,10,20,30,40,50,60,70,80 };
+   const size_t num_dimensions = sizeof(dimensions) / sizeof(dimensions[0]);
+ 
+   /* IMPORTANT: Make sure to change the default instance for every new workshop! */

@@ -10,6 +10,9 @@ venv/
 .venv/
 env/
 
+# COCO
+.coco/
+
 # Environment/secrets
 .env
 
@@ -26,3 +29,4 @@ data/
 
 # CSV
 .csv
+.coco-unpatched/

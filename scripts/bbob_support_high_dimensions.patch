@@ -1,0 +1,45 @@
+diff --git a/code-experiments/src/suite_bbob_legacy_code.c b/code-experiments/src/suite_bbob_legacy_code.c
+index 5c6b0964..e5bc937f 100644
+--- a/code-experiments/src/suite_bbob_legacy_code.c
++++ b/code-experiments/src/suite_bbob_legacy_code.c
+@@ -115,8 +115,7 @@ static double **bbob2009_reshape(double **B, double *vector, const size_t m, con
+  */
+ static void bbob2009_gauss(double *g, const size_t N, const long seed) {
+   size_t i;
+-  double uniftmp[6000];
+-  assert(2 * N < 6000);
++  double *uniftmp = coco_allocate_vector(2 * N);
+   bbob2009_unif(uniftmp, 2 * N, seed);
+ 
+   for (i = 0; i < N; i++) {
+@@ -124,6 +123,8 @@ static void bbob2009_gauss(double *g, const size_t N, const long seed) {
+     if (g[i] == 0.)
+       g[i] = 1e-99;
+   }
++
++  coco_free_memory(uniftmp);
+   return;
+ }
+ 
+@@ -133,10 +134,9 @@ static void bbob2009_gauss(double *g, const size_t N, const long seed) {
+ static void bbob2009_compute_rotation(double **B, const long seed, const size_t DIM) {
+   /* To ensure temporary data fits into gvec */
+   double prod;
+-  double gvect[2000];
+-  size_t i, j, k; /* Loop over pairs of column vectors. */
++  double *gvect = coco_allocate_vector(DIM * DIM);
+ 
+-  assert(DIM * DIM < 2000);
++  size_t i, j, k; /* Loop over pairs of column vectors. */
+ 
+   bbob2009_gauss(gvect, DIM * DIM, seed);
+   bbob2009_reshape(B, gvect, DIM, DIM);
+@@ -156,7 +156,7 @@ static void bbob2009_compute_rotation(double **B, const long seed, const size_t
+     for (k = 0; k < DIM; k++)
+       B[k][i] /= sqrt(prod);
+   }
+-
++  coco_free_memory(gvect);
+ }
+ 
+ static void bbob2009_copy_rotation_matrix(double **rot, double *M, double *b, const size_t DIM) {
