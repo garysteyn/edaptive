@@ -15,5 +15,6 @@ dependencies = [
     "mpi4py",
     "scikit-posthocs",
     "coco-experiment",
-
+    "opfunu==1.0.4",
+    "setuptools<81",
 ]
