@@ -39,7 +39,7 @@ def main():
     ]
 
     pso = BasicSolver(PSO,
-                      problem=BBOB_FID17_IID2(dimensions=10),
+                      problem=BBOB_FID17_IID2(dimensions=60),
                       hyper_params=params)
     res = pso.run(max_iterations=5000)
     

@@ -7,7 +7,7 @@ index 18698a4d..94392550 100644
  
    coco_suite_t *suite;
 -  const size_t dimensions[] = { 2, 3, 5, 10, 20, 40 };
-+  const size_t dimensions[] = { 2,3,5,10,20,30,40,50,60,70,80 };
++  const size_t dimensions[] = { 2,3,5,10,20,30,40,50,60 };
    const size_t num_dimensions = sizeof(dimensions) / sizeof(dimensions[0]);
  
    /* IMPORTANT: Make sure to change the default instance for every new workshop! */
