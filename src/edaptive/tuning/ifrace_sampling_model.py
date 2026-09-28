@@ -24,6 +24,9 @@ class IFRaceDefaultSamplingModel(IFRaceSamplingModel):
         self.prev_weights = None
         self.sigma = {}
         self.categorical_probabilities = {}
+        self.sampled_elites = []
+        self.categorical_update_elite = None
+        self.categorical_update_weight = None
 
     def initialize(self, configuration_space, n_configurations, L, master_rng):
         self.configuration_space = configuration_space
@@ -89,23 +92,6 @@ class IFRaceDefaultSamplingModel(IFRaceSamplingModel):
 
             configurations.append(configuration)
 
-        # for i, param in enumerate(configuration_space):
-        #     if param.type is ParameterType.CONTINUOUS:
-        #         if param.log_scale_tuning:
-        #             points_scrambled[:, i] = param.lower * (param.upper / param.lower)**(points_scrambled[:, i])
-        #         else:
-        #             points_scrambled[:, i] = param.lower + points_scrambled[:, i] * (param.upper - param.lower)
-        #     elif param.type is ParameterType.INTEGER:
-        #         N = param.upper - param.lower + 1
-        #         points_scrambled[:, i] = param.lower + np.floor(points_scrambled[:, i] * N)
-        #     elif param.type is ParameterType.CATEGORICAL:
-        #         points_scrambled[:, i] = np.floor(points_scrambled[:, i] * param.n_classes)
-
-        # configurations = []
-        # for p in points_scrambled:
-        #     configuration = {param.name : p[i] for i, param in enumerate(configuration_space)}
-        #     configurations.append(configuration)
-
         return configurations
     
     def update(
@@ -117,6 +103,8 @@ class IFRaceDefaultSamplingModel(IFRaceSamplingModel):
     ):
         self.prev_elites = prev_elites
         self.prev_weights = prev_weights
+        self.categorical_update_elite = None
+        self.categorical_update_weight = None
 
         n_parameters = len(self.configuration_space)
 
@@ -144,9 +132,11 @@ class IFRaceDefaultSamplingModel(IFRaceSamplingModel):
             )
 
             elite = prev_elites[elite_index]
+            self.categorical_update_elite = elite_index
 
             weight = prev_l / self.L
-
+            self.categorical_update_weight = weight
+            
             for param in self.configuration_space:
 
                 if param.type is ParameterType.CATEGORICAL:
@@ -163,8 +153,20 @@ class IFRaceDefaultSamplingModel(IFRaceSamplingModel):
                     probabilities *= (1.0 - weight)
                     probabilities[elite_value_index] += weight
 
+                    max_probability = (
+                        0.2 ** (1.0 / param.n_classes)
+                    )
+        
+                    probabilities[:] = np.minimum(
+                        probabilities,
+                        max_probability
+                    )
+
+                    probabilities[:] /= probabilities.sum()
+
     def sample(self, N_l):
         configurations = []
+        self.sampled_elites = []
 
         prev_elites_indices = np.arange(len(self.prev_elites))
 
@@ -177,6 +179,8 @@ class IFRaceDefaultSamplingModel(IFRaceSamplingModel):
             )
 
             elite = self.prev_elites[elite_index]
+
+            self.sampled_elites.append(elite_index)
 
             configuration = {}
 
