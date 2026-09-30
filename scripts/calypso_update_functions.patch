@@ -1,0 +1,12 @@
+diff --git a/scripts/functions/functions.py b/scripts/functions/functions.py
+index 1e40cdb..38b4981 100644
+--- a/scripts/functions/functions.py
++++ b/scripts/functions/functions.py
+@@ -1,6 +1,6 @@
+ from math import factorial, log2, pi
+ import numpy as np
+-from numpy import abs, cos, dot, e, exp, floor, log, log10, norm, prod, sin, sqrt, sum, where
++from numpy import abs, all, cos, dot, e, exp, floor, log, log10, prod, sin, sqrt, sum, where, log2, pi
+ from numpy.random import randn, uniform as u
+ from scipy.linalg import qr
+ 

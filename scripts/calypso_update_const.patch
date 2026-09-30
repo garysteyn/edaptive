@@ -1,0 +1,37 @@
+diff --git a/scripts/const.py b/scripts/const.py
+index d67ad8f..e21ccfd 100644
+--- a/scripts/const.py
++++ b/scripts/const.py
+@@ -1,3 +1,5 @@
++from pathlib import Path
++
+ INCLUDE = [
+     # 'always_improveMag20'
+ ]
+@@ -12,14 +14,18 @@ INCLUDE_PART = [
+ EXCLUDE_PART = [
+ ]
+ 
+-# LOC       = '/mnt/lustre/users/dvoneschwege/calypso'
+-LOC       = '/home/dve/calypso'
+-dataDIR   = f'{LOC}/data'
+-plotDIR   = f'{LOC}/misc/plots'
+-pklDIR    = f'{LOC}/misc/pkl'
+-tabDIR    = f'{LOC}/misc/tables'
+-scriptDIR = f'{LOC}/scripts'
+-logDIR    = f'{LOC}/log'
++LOC = Path(__file__).resolve().parents[1]
++
++dataDIR   = LOC / 'data'
++plotDIR   = LOC / 'misc' / 'plots'
++pklDIR    = LOC / 'misc' / 'pkl'
++tabDIR    = LOC / 'misc' / 'tables'
++scriptDIR = LOC / 'scripts'
++logDIR    = LOC / 'log'
++
++# Create directories if they do not exist
++for directory in [dataDIR, plotDIR, pklDIR, tabDIR, logDIR]:
++    directory.mkdir(parents=True, exist_ok=True)
+ 
+ N = 30
+ D = 30

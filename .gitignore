@@ -13,6 +13,9 @@ env/
 # COCO
 .coco/
 
+# Calypso
+.calypso/
+
 # Environment/secrets
 .env
 
