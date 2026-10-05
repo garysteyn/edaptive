@@ -21,4 +21,15 @@ class BBOBProblem(BenchmarkProblem):
         self.upper = np.asarray(self._function.upper_bounds)
 
     def _evaluate(self, x):
-        return self._function(x)
+        # return self._function(x)
+        x = np.asarray(x)
+
+        if x.ndim == 1:
+            return self._function(x)
+
+        if x.ndim == 2:
+            return np.asarray([self._function(xi) for xi in x])
+
+        raise ValueError(
+            f"Expected a 1D or 2D array, got shape {x.shape}."
+        )

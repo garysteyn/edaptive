@@ -1,0 +1,21 @@
+diff --git a/scripts/pso/calypso.py b/scripts/pso/calypso.py
+index 83c2657..73a81d4 100644
+--- a/scripts/pso/calypso.py
++++ b/scripts/pso/calypso.py
+@@ -8,6 +8,7 @@ import matplotlib.animation as animation
+ from scripts.const import *
+ from scripts.tools.utils import *
+ 
++from copy import deepcopy
+ 
+ class CALYPSO:
+     '''
+@@ -577,7 +578,7 @@ class CALYPSO:
+     def storeMetrics(self, j=None):
+ 
+             # Global Best Positions
+-            self.data['globalBests'].append(self.L_social_best.copy())
++            self.data['globalBests'].append(deepcopy(self.L_social_best))
+             
+             # Swarm Diversity
+             P_center = (np.sum(self.P[-1], axis=0) / self.N)[np.newaxis,:]

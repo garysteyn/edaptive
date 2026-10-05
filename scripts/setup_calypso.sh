@@ -14,6 +14,8 @@ git clone "$CALYPSO_REPO" "$CALYPSO_DIR"
 echo "Applying Calypso patches..."
 git -C "$CALYPSO_DIR" apply "$EDAPTIVE_DIR/scripts/calypso_update_const.patch"
 git -C "$CALYPSO_DIR" apply "$EDAPTIVE_DIR/scripts/calypso_update_functions.patch"
+git -C "$CALYPSO_DIR" apply "$EDAPTIVE_DIR/scripts/calypso_update_calypsoEnv.patch"
+git -C "$CALYPSO_DIR" apply "$EDAPTIVE_DIR/scripts/calypso_update_calypso.patch"
 
 echo "Installing requirements..."
 python -m pip install -r "$EDAPTIVE_DIR/requirements.txt"

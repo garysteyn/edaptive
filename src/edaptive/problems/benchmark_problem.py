@@ -11,10 +11,10 @@ class BenchmarkProblem(ABC):
     def __call__(self, x):
         x = np.asarray(x, dtype=float)
 
-        if x.shape != (self.dimensions,):
-            raise ValueError(
-                f"x must have shape ({self.dimensions},)"
-            )
+        # if x.shape != (self.dimensions,):
+        #     raise ValueError(
+        #         f"x must have shape ({self.dimensions},)"
+        #     )
 
         with np.errstate(
             over="ignore",

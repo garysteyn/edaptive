@@ -113,7 +113,8 @@ class Schwefel1(BenchmarkProblem):
         self.global_optimum_value = 0.0
 
     def _evaluate(self, x):
-        return np.sum(x ** 2) ** self.alpha
+        # return np.sum(x ** 2) ** self.alpha
+        return np.sum(x ** 2, axis=-1) ** self.alpha
 
 class Ripple25(BenchmarkProblem):
     """
@@ -142,10 +143,15 @@ class Ripple25(BenchmarkProblem):
         self.global_optimum_value = -float(dimensions)
 
     def _evaluate(self, x):
+        # u = -2.0 * np.log(2.0) * ((x - 0.1) / 0.8) ** 2
+        # v = np.sin(5.0 * np.pi * x) ** 6
+
+        # return np.sum(-np.exp(u) * v)
+
         u = -2.0 * np.log(2.0) * ((x - 0.1) / 0.8) ** 2
         v = np.sin(5.0 * np.pi * x) ** 6
 
-        return np.sum(-np.exp(u) * v)
+        return np.sum(-np.exp(u) * v, axis=-1)
 
 class Exponential(BenchmarkProblem):
     """
@@ -176,8 +182,9 @@ class Exponential(BenchmarkProblem):
         self.global_optimum_value = -1.0
 
     def _evaluate(self, x):
-        return -np.exp(-0.5 * np.sum(x**2))
-
+        # return -np.exp(-0.5 * np.sum(x**2))
+        return -np.exp(-0.5 * np.sum(x**2, axis=-1))
+    
 class NeedleEye(BenchmarkProblem):
     """
     Needle Eye benchmark function.
@@ -213,20 +220,33 @@ class NeedleEye(BenchmarkProblem):
         self.global_optimum_value = 1.0
 
     def _evaluate(self, x):
+        # eye = 1e-4
+        # a = np.abs(x)
+
+        # # All variables are inside the eye
+        # if np.all(a < eye):
+        #     return 1.0
+
+        # # All variables are outside the eye
+        # elif np.all(a > eye):
+        #     return np.sum(100.0 + a)
+
+        # # Some inside and some outside
+        # else:
+        #     return 0.0
+
         eye = 1e-4
         a = np.abs(x)
 
-        # All variables are inside the eye
-        if np.all(a < eye):
-            return 1.0
+        inside = np.all(a < eye, axis=-1)
+        outside = np.all(a > eye, axis=-1)
 
-        # All variables are outside the eye
-        elif np.all(a > eye):
-            return np.sum(100.0 + a)
+        values = np.zeros(x.shape[:-1])
 
-        # Some inside and some outside
-        else:
-            return 0.0
+        values[inside] = 1.0
+        values[outside] = np.sum(100.0 + a[outside], axis=-1)
+
+        return values
 
 class Step3(BenchmarkProblem):
     """
@@ -257,8 +277,8 @@ class Step3(BenchmarkProblem):
         self.global_optimum_value = 0.0
 
     def _evaluate(self, x):
-        return np.sum(np.floor(x**2))
-
+        # return np.sum(np.floor(x**2))
+        return np.sum(np.floor(x**2), axis=-1)
 
 class GeneralizedGiunta(BenchmarkProblem):
     """
@@ -290,13 +310,23 @@ class GeneralizedGiunta(BenchmarkProblem):
         self.global_optimum_value = None
 
     def _evaluate(self, x):
+        # a = 1.067 * x - 1.0
+        # b = np.sin(a)
+
+        # return 0.6 + np.sum(
+        #     b +
+        #     b**2 +
+        #     0.02 * np.sin(4.0 * a)
+        # )
+
         a = 1.067 * x - 1.0
         b = np.sin(a)
 
         return 0.6 + np.sum(
             b +
             b**2 +
-            0.02 * np.sin(4.0 * a)
+            0.02 * np.sin(4.0 * a),
+            axis=-1,
         )
 
 class GeneralizedPaviani(BenchmarkProblem):
@@ -329,15 +359,30 @@ class GeneralizedPaviani(BenchmarkProblem):
         self.global_optimum_value = None
 
     def _evaluate(self, x):
-        if np.any((x <= 2) | (x >= 10)):
-            return np.inf
-        return (
+        # if np.any((x <= 2) | (x >= 10)):
+        #     return np.inf
+        # return (
+        #     np.sum(
+        #         np.log(10.0 - x) ** 2 +
+        #         np.log(x - 2.0) ** 2
+        #     )
+        #     - np.prod(x) ** 0.2
+        # )
+
+        invalid = np.any((x <= 2) | (x >= 10), axis=-1)
+
+        values = (
             np.sum(
                 np.log(10.0 - x) ** 2 +
-                np.log(x - 2.0) ** 2
+                np.log(x - 2.0) ** 2,
+                axis=-1,
             )
-            - np.prod(x) ** 0.2
+            - np.prod(x, axis=-1) ** 0.2
         )
+
+        values = np.where(invalid, np.inf, values)
+
+        return values
 
 class Brown(BenchmarkProblem):
     """
@@ -371,12 +416,21 @@ class Brown(BenchmarkProblem):
         self.global_optimum_value = 0.0
 
     def _evaluate(self, x):
-        x1 = x[:-1]
-        x2 = x[1:]
+        # x1 = x[:-1]
+        # x2 = x[1:]
+
+        # return np.sum(
+        #     (x1**2) ** (x2**2 + 1.0)
+        #     + (x2**2) ** (x1**2 + 1.0)
+        # )
+
+        x1 = x[..., :-1]
+        x2 = x[..., 1:]
 
         return np.sum(
             (x1**2) ** (x2**2 + 1.0)
-            + (x2**2) ** (x1**2 + 1.0)
+            + (x2**2) ** (x1**2 + 1.0),
+            axis=-1,
         )
 
 class CosineMixture_OG(BenchmarkProblem):
@@ -393,9 +447,14 @@ class CosineMixture_OG(BenchmarkProblem):
         self.global_optimum_value = -0.1 * dimensions
 
     def _evaluate(self, x):
+        # return (
+        #     -0.1 * np.sum(np.cos(5.0 * np.pi * x))
+        #     + np.sum(x**2)
+        # )
+
         return (
-            -0.1 * np.sum(np.cos(5.0 * np.pi * x))
-            + np.sum(x**2)
+            -0.1 * np.sum(np.cos(5.0 * np.pi * x), axis=-1)
+            + np.sum(x**2, axis=-1)
         )
 
 class CosineMixture(BenchmarkProblem):
@@ -412,9 +471,14 @@ class CosineMixture(BenchmarkProblem):
         self.global_optimum_value = -0.1 * dimensions
 
     def _evaluate(self, x):
+        # return (
+        #     -0.1 * np.sum(np.cos(5.0 * np.pi * x))
+        #     - np.sum(x**2)
+        # )
+
         return (
-            -0.1 * np.sum(np.cos(5.0 * np.pi * x))
-            - np.sum(x**2)
+            -0.1 * np.sum(np.cos(5.0 * np.pi * x), axis=-1)
+            - np.sum(x**2, axis=-1)
         )
 
 class Mishra07(BenchmarkProblem):
@@ -453,7 +517,12 @@ class Mishra07(BenchmarkProblem):
         self.global_optimum_value = 0.0
 
     def _evaluate(self, x):
-        return (np.prod(x) - math.factorial(self.dimensions)) ** 2
+        # return (np.prod(x) - math.factorial(self.dimensions)) ** 2
+
+        return (
+            np.prod(x, axis=-1) -
+            math.factorial(self.dimensions)
+        ) ** 2
 
 class Mishra01(BenchmarkProblem):
     """
@@ -486,10 +555,17 @@ class Mishra01(BenchmarkProblem):
         self.global_optimum_value = None
 
     def _evaluate(self, x):
+        # n = self.dimensions
+
+        # # Equivalent to x[-n] in R (all elements except the last)
+        # xn = n - np.sum(x[:-1])
+
+        # return (1.0 + xn) ** xn
+
         n = self.dimensions
 
         # Equivalent to x[-n] in R (all elements except the last)
-        xn = n - np.sum(x[:-1])
+        xn = n - np.sum(x[..., :-1], axis=-1)
 
         return (1.0 + xn) ** xn
 
@@ -522,10 +598,16 @@ class GeneralizedPrice2(BenchmarkProblem):
         self.global_optimum_value = 0.9
 
     def _evaluate(self, x):
+        # return (
+        #     1.0
+        #     + np.sum(np.sin(x) ** 2)
+        #     - 0.1 * np.exp(-np.sum(x ** 2))
+        # )
+
         return (
             1.0
-            + np.sum(np.sin(x) ** 2)
-            - 0.1 * np.exp(-np.sum(x ** 2))
+            + np.sum(np.sin(x) ** 2, axis=-1)
+            - 0.1 * np.exp(-np.sum(x ** 2, axis=-1))
         )
 
 class GeneralizedEggCrate(BenchmarkProblem):
@@ -557,9 +639,14 @@ class GeneralizedEggCrate(BenchmarkProblem):
         self.global_optimum_value = 0.0
 
     def _evaluate(self, x):
+        # return (
+        #     np.sum(x ** 2)
+        #     + 24.0 * np.sum(np.sin(x) ** 2)
+        # )
+
         return (
-            np.sum(x ** 2)
-            + 24.0 * np.sum(np.sin(x) ** 2)
+            np.sum(x ** 2, axis=-1)
+            + 24.0 * np.sum(np.sin(x) ** 2, axis=-1)
         )
 
 class Rosenbrock(BenchmarkProblem):
@@ -594,9 +681,15 @@ class Rosenbrock(BenchmarkProblem):
         self.global_optimum_value = 0.0
 
     def _evaluate(self, x):
+        # return np.sum(
+        #     100.0 * (x[1:] - x[:-1] ** 2) ** 2
+        #     + (x[:-1] - 1.0) ** 2
+        # )
+
         return np.sum(
-            100.0 * (x[1:] - x[:-1] ** 2) ** 2
-            + (x[:-1] - 1.0) ** 2
+            100.0 * (x[..., 1:] - x[..., :-1] ** 2) ** 2
+            + (x[..., :-1] - 1.0) ** 2,
+            axis=-1,
         )
 
 # Version used in the ELA uses log, not log_10
@@ -651,29 +744,68 @@ class Pinter2(BenchmarkProblem):
         self.global_optimum_value = 0.0
 
     def _evaluate(self, x):
-        n = len(x)
+        # n = len(x)
 
-        # R: a = sum(1:n * x^2)
+        # # R: a = sum(1:n * x^2)
+        # i = np.arange(1, n + 1, dtype=float)
+        # a = np.sum(i * x ** 2)
+
+        # # Cyclically extended vector:
+        # # R: z = c(x[n], x, x[1])
+        # z = np.concatenate(([x[-1]], x, [x[0]]))
+
+        # # R: i = 2:(length(z) - 1)
+        # #
+        # # In zero-based Python indexing, these correspond to
+        # # z[1:-1], with the mathematical indices 1,...,n.
+        # i = np.arange(1, n + 1, dtype=float)
+
+        # b = np.sum(
+        #     20.0
+        #     * i
+        #     * np.sin(
+        #         z[:-2] * np.sin(z[1:-1])
+        #         + np.sin(z[2:])
+        #     ) ** 2
+        # )
+
+        # c = np.sum(
+        #     i
+        #     * np.log(
+        #         1.0
+        #         + i
+        #         * (
+        #             z[:-2] ** 2
+        #             - 2.0 * z[1:-1]
+        #             + 3.0 * z[2:]
+        #             - np.cos(z[1:-1])
+        #             + 1.0
+        #         ) ** 2
+        #     )
+        # )
+
+        # return a + b + c
+
+        n = self.dimensions
+
         i = np.arange(1, n + 1, dtype=float)
-        a = np.sum(i * x ** 2)
 
-        # Cyclically extended vector:
-        # R: z = c(x[n], x, x[1])
-        z = np.concatenate(([x[-1]], x, [x[0]]))
+        x_prev = np.roll(x, 1, axis=-1)
+        x_next = np.roll(x, -1, axis=-1)
 
-        # R: i = 2:(length(z) - 1)
-        #
-        # In zero-based Python indexing, these correspond to
-        # z[1:-1], with the mathematical indices 1,...,n.
-        i = np.arange(1, n + 1, dtype=float)
+        a = np.sum(
+            i * x**2,
+            axis=-1,
+        )
 
         b = np.sum(
             20.0
             * i
             * np.sin(
-                z[:-2] * np.sin(z[1:-1])
-                + np.sin(z[2:])
-            ) ** 2
+                x_prev * np.sin(x)
+                + np.sin(x_next)
+            ) ** 2,
+            axis=-1,
         )
 
         c = np.sum(
@@ -682,13 +814,14 @@ class Pinter2(BenchmarkProblem):
                 1.0
                 + i
                 * (
-                    z[:-2] ** 2
-                    - 2.0 * z[1:-1]
-                    + 3.0 * z[2:]
-                    - np.cos(z[1:-1])
+                    x_prev**2
+                    - 2.0 * x
+                    + 3.0 * x_next
+                    - np.cos(x)
                     + 1.0
                 ) ** 2
-            )
+            ),
+            axis=-1,
         )
 
         return a + b + c
@@ -744,29 +877,68 @@ class Pinter2_OG(BenchmarkProblem):
         self.global_optimum_value = 0.0
 
     def _evaluate(self, x):
-        n = len(x)
+        # n = len(x)
 
-        # R: a = sum(1:n * x^2)
+        # # R: a = sum(1:n * x^2)
+        # i = np.arange(1, n + 1, dtype=float)
+        # a = np.sum(i * x ** 2)
+
+        # # Cyclically extended vector:
+        # # R: z = c(x[n], x, x[1])
+        # z = np.concatenate(([x[-1]], x, [x[0]]))
+
+        # # R: i = 2:(length(z) - 1)
+        # #
+        # # In zero-based Python indexing, these correspond to
+        # # z[1:-1], with the mathematical indices 1,...,n.
+        # i = np.arange(1, n + 1, dtype=float)
+
+        # b = np.sum(
+        #     20.0
+        #     * i
+        #     * np.sin(
+        #         z[:-2] * np.sin(z[1:-1])
+        #         + np.sin(z[2:])
+        #     ) ** 2
+        # )
+
+        # c = np.sum(
+        #     i
+        #     * np.log10(
+        #         1.0
+        #         + i
+        #         * (
+        #             z[:-2] ** 2
+        #             - 2.0 * z[1:-1]
+        #             + 3.0 * z[2:]
+        #             - np.cos(z[1:-1])
+        #             + 1.0
+        #         ) ** 2
+        #     )
+        # )
+
+        # return a + b + c
+
+        n = self.dimensions
+
         i = np.arange(1, n + 1, dtype=float)
-        a = np.sum(i * x ** 2)
 
-        # Cyclically extended vector:
-        # R: z = c(x[n], x, x[1])
-        z = np.concatenate(([x[-1]], x, [x[0]]))
+        x_prev = np.roll(x, 1, axis=-1)
+        x_next = np.roll(x, -1, axis=-1)
 
-        # R: i = 2:(length(z) - 1)
-        #
-        # In zero-based Python indexing, these correspond to
-        # z[1:-1], with the mathematical indices 1,...,n.
-        i = np.arange(1, n + 1, dtype=float)
+        a = np.sum(
+            i * x**2,
+            axis=-1,
+        )
 
         b = np.sum(
             20.0
             * i
             * np.sin(
-                z[:-2] * np.sin(z[1:-1])
-                + np.sin(z[2:])
-            ) ** 2
+                x_prev * np.sin(x)
+                + np.sin(x_next)
+            ) ** 2,
+            axis=-1,
         )
 
         c = np.sum(
@@ -775,13 +947,14 @@ class Pinter2_OG(BenchmarkProblem):
                 1.0
                 + i
                 * (
-                    z[:-2] ** 2
-                    - 2.0 * z[1:-1]
-                    + 3.0 * z[2:]
-                    - np.cos(z[1:-1])
+                    x_prev**2
+                    - 2.0 * x
+                    + 3.0 * x_next
+                    - np.cos(x)
                     + 1.0
                 ) ** 2
-            )
+            ),
+            axis=-1,
         )
 
         return a + b + c
@@ -817,10 +990,17 @@ class Qing(BenchmarkProblem):
         self.global_optimum_value = 0.0
 
     def _evaluate(self, x):
+        # i = np.arange(1, self.dimensions + 1)
+
+        # return np.sum(
+        #     (x ** 2 - i) ** 2
+        # )
+
         i = np.arange(1, self.dimensions + 1)
 
         return np.sum(
-            (x ** 2 - i) ** 2
+            (x ** 2 - i) ** 2,
+            axis=-1,
         )
 
 class BBOB_FID2_IID1(BBOBProblem):
@@ -891,7 +1071,15 @@ class DropWave(BenchmarkProblem):
         self.global_optimum_value = -1.0
 
     def _evaluate(self, x):
-        sumsqr = np.sum(x ** 2)
+        # sumsqr = np.sum(x ** 2)
+
+        # return -(
+        #     1.0 + np.cos(12.0 * np.sqrt(sumsqr))
+        # ) / (
+        #     2.0 + 0.5 * sumsqr
+        # )
+
+        sumsqr = np.sum(x ** 2, axis=-1)
 
         return -(
             1.0 + np.cos(12.0 * np.sqrt(sumsqr))
@@ -919,8 +1107,13 @@ class BonyadiMichalewicz(BenchmarkProblem):
         self.upper = np.full(dimensions, 5.0)
 
     def _evaluate(self, x):
-        a = np.prod(x + 1.0)
-        b = np.prod((x - 1.0) ** 2 + 1.0)
+        # a = np.prod(x + 1.0)
+        # b = np.prod((x - 1.0) ** 2 + 1.0)
+
+        # return a / b
+
+        a = np.prod(x + 1.0, axis=-1)
+        b = np.prod((x - 1.0) ** 2 + 1.0, axis=-1)
 
         return a / b
 
@@ -947,9 +1140,14 @@ class Discus(BenchmarkProblem):
         self.global_optimum_value = 0.0
 
     def _evaluate(self, x):
+        # return (
+        #     1.0e6 * x[0] ** 2
+        #     + np.sum(x[1:] ** 2)
+        # )
+
         return (
-            1.0e6 * x[0] ** 2
-            + np.sum(x[1:] ** 2)
+            1.0e6 * x[..., 0] ** 2
+            + np.sum(x[..., 1:] ** 2, axis=-1)
         )
 
 class Elliptic(BenchmarkProblem):
@@ -975,17 +1173,27 @@ class Elliptic(BenchmarkProblem):
         self.global_optimum_value = 0.0
 
     def _evaluate(self, x):
+        # i = np.arange(self.dimensions)
+
+        # return np.sum(
+        #     10.0 ** (
+        #         6.0 * i / (self.dimensions - 1.0)
+        #     )
+        #     * x ** 2
+        # )
+
         i = np.arange(self.dimensions)
 
         return np.sum(
             10.0 ** (
                 6.0 * i / (self.dimensions - 1.0)
             )
-            * x ** 2
+            * x ** 2,
+            axis=-1,
         )
 
 def main():
-    plot_benchmark_3d(NeedleEye)
+    plot_benchmark_3d(BBOB_FID17_IID2)
 
 if __name__ == "__main__":
     main()
