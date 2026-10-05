@@ -14,7 +14,7 @@ env/
 .coco/
 
 # Calypso
-.calypso/
+calypso/
 
 # Environment/secrets
 .env
