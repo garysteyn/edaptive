@@ -1,19 +1,18 @@
 diff --git a/scripts/rl/calypsoEnv.py b/scripts/rl/calypsoEnv.py
-index 84ef508..ee34f22 100644
+index 84ef508..7c0f790 100644
 --- a/scripts/rl/calypsoEnv.py
 +++ b/scripts/rl/calypsoEnv.py
-@@ -6,8 +6,9 @@ from tf_agents.environments import py_environment
+@@ -6,8 +6,8 @@ from tf_agents.environments import py_environment
  from scripts.const import *
  from scripts.tools.utils import*
  from scripts.pso.calypso import CALYPSO
 -from scripts.functions import functions
-+from edaptive.problems import ela_benchmark_suite
  
 +from copy import deepcopy
  
  
  def sigmoid(x):
-@@ -194,8 +195,14 @@ class calypsoEnv(py_environment.PyEnvironment):
+@@ -194,8 +194,14 @@ class calypsoEnv(py_environment.PyEnvironment):
          self.funcGBN     = np.nan
          self.L_min      = self.funcRanges.loc[self.func, 'low']
          self.L_delta    = self.funcRanges.loc[self.func, 'delta']
@@ -30,7 +29,7 @@ index 84ef508..ee34f22 100644
          self.funcName   = self.name
          self.range      = lim[1] - lim[0]
          self.calypso    = CALYPSO(
-@@ -217,7 +224,7 @@ class calypsoEnv(py_environment.PyEnvironment):
+@@ -217,7 +223,7 @@ class calypsoEnv(py_environment.PyEnvironment):
  
          # Define runtime parameters
          self.i       = 1
