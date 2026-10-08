@@ -11,19 +11,19 @@ problems = [
     Exponential,
     NeedleEye,
     Step3,
-    # GeneralizedGiunta,
-    # GeneralizedPaviani,
-    # Brown,
-    # CosineMixture_OG,
-    # CosineMixture,
-    # Mishra07,
-    # Mishra01,
-    # GeneralizedPrice2,
+    GeneralizedGiunta,
+    GeneralizedPaviani,
+    Brown,
+    CosineMixture_OG,
+    CosineMixture,
+    Mishra07,
+    Mishra01,
+    GeneralizedPrice2,
 
-    # BBOB_FID2_IID1,
-    # BBOB_FID6_IID1,
-    # BBOB_FID16_IID1,
-    # BBOB_FID17_IID2
+    BBOB_FID2_IID1,
+    BBOB_FID6_IID1,
+    BBOB_FID16_IID1,
+    BBOB_FID17_IID2
     
 ]
 

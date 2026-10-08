@@ -60,19 +60,33 @@ class PSO(BaseOptimizer):
 
     @timed
     def iterate(self):
-        for i in range(self.n_s):
-            self.f_X[i] = f_X_i = self.problem(self.X[i])
-            if np.any((self.X[i] < self.problem.lower) | (self.X[i] > self.problem.upper)):
-                continue
-            
-            if f_X_i < self.f_Y[i]:
-                self.Y[i] = self.X[i].copy()
-                self.f_Y[i] = f_X_i
 
-            if f_X_i < self.f_Y_hat:
-                self.Y_hat = self.X[i].copy()
-                self.f_Y_hat = f_X_i
+        # Evaluate all particles
+        self.f_X = self.problem(self.X)
 
+        # Determine which particles are within bounds
+        valid = np.all(
+            (self.X >= self.problem.lower)
+            & (self.X <= self.problem.upper),
+            axis=1
+        )
+
+        # Particles that improve their personal best
+        improved = valid & (self.f_X < self.f_Y)
+
+        self.Y[improved] = self.X[improved]
+        self.f_Y[improved] = self.f_X[improved]
+
+        # Particle that improves global best
+        if np.any(valid):
+            valid_indices = np.flatnonzero(valid)
+            best_idx = valid_indices[np.argmin(self.f_X[valid])]
+
+            if self.f_X[best_idx] < self.f_Y_hat:
+                self.Y_hat = self.X[best_idx].copy()
+                self.f_Y_hat = self.f_X[best_idx]
+
+        # Generate random coefficients
         r_1 = self.rng.uniform(size=(self.n_s, self.n_x))
         r_2 = self.rng.uniform(size=(self.n_s, self.n_x))
 
@@ -80,15 +94,27 @@ class PSO(BaseOptimizer):
         c_1 = self._CP[:, 1, None]
         c_2 = self._CP[:, 2, None]
 
+        # Update velocities
         V = (
             w * self.V
             + c_1 * r_1 * (self.Y - self.X)
             + c_2 * r_2 * (self.Y_hat - self.X)
         )
-        self.V = np.nan_to_num(V, posinf=max_float, neginf=-max_float)
 
+        self.V = np.nan_to_num(
+            V,
+            posinf=max_float,
+            neginf=-max_float
+        )
+
+        # Update positions
         self.X += self.V
-        self.X = np.nan_to_num(self.X, posinf=max_float, neginf=-max_float)
+
+        self.X = np.nan_to_num(
+            self.X,
+            posinf=max_float,
+            neginf=-max_float
+        )
 
     def update_history(self):
         feasible = np.all((self.X >= self.problem.lower) & (self.X <= self.problem.upper), axis=1)
