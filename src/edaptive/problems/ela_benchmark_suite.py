@@ -1,5 +1,5 @@
 from edaptive.problems.bbob import BBOBProblem
-import math
+from scipy.special import factorial
 import numpy as np
 import matplotlib.pyplot as plt
 from abc import ABC, abstractmethod
@@ -516,12 +516,14 @@ class Mishra07(BenchmarkProblem):
         self.global_optimum = None
         self.global_optimum_value = 0.0
 
+        self.factorial = factorial(dimensions)
+
     def _evaluate(self, x):
         # return (np.prod(x) - math.factorial(self.dimensions)) ** 2
 
         return (
             np.prod(x, axis=-1) -
-            math.factorial(self.dimensions)
+            self.factorial
         ) ** 2
 
 class Mishra01(BenchmarkProblem):

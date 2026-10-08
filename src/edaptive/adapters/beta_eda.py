@@ -18,19 +18,14 @@ class BetaMarginalsEDA(EDAAdapter):
         self.update_freq = update_freq
 
     def sample(self, N):
-        samples = np.column_stack(
-            [
-                beta.rvs(
-                    self.a[j],
-                    self.b[j],
-                    size=N,
-                    random_state=self.rng
-                )
-                for j in range(self.n_x)
-            ]
+        samples = beta.rvs(
+            self.a[None, :],
+            self.b[None, :],
+            size=(N, self.n_x),
+            random_state=self.rng
         )
-        samples = self.CP_lb + samples * (self.CP_ub - self.CP_lb)
-        return samples
+
+        return self.CP_lb + samples * (self.CP_ub - self.CP_lb)
 
     def check_update(self, problem_lb, problem_ub, t, X, f_X, CP):
         if (t + 1) % self.update_freq != 0:
