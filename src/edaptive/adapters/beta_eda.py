@@ -32,7 +32,8 @@ class BetaMarginalsEDA(EDAAdapter):
             return None
 
         feasible = np.all((X >= problem_lb) & (X <= problem_ub), axis=1)
-        if feasible.sum() < 2:
+
+        if not np.any(feasible):
             return None
 
         f_X_feasible = f_X[feasible]
