@@ -1,0 +1,455 @@
+diff --git a/scripts/const.py b/scripts/const.py
+index d67ad8f..e21ccfd 100644
+--- a/scripts/const.py
++++ b/scripts/const.py
+@@ -1,3 +1,5 @@
++from pathlib import Path
++
+ INCLUDE = [
+     # 'always_improveMag20'
+ ]
+@@ -12,14 +14,18 @@ INCLUDE_PART = [
+ EXCLUDE_PART = [
+ ]
+ 
+-# LOC       = '/mnt/lustre/users/dvoneschwege/calypso'
+-LOC       = '/home/dve/calypso'
+-dataDIR   = f'{LOC}/data'
+-plotDIR   = f'{LOC}/misc/plots'
+-pklDIR    = f'{LOC}/misc/pkl'
+-tabDIR    = f'{LOC}/misc/tables'
+-scriptDIR = f'{LOC}/scripts'
+-logDIR    = f'{LOC}/log'
++LOC = Path(__file__).resolve().parents[1]
++
++dataDIR   = LOC / 'data'
++plotDIR   = LOC / 'misc' / 'plots'
++pklDIR    = LOC / 'misc' / 'pkl'
++tabDIR    = LOC / 'misc' / 'tables'
++scriptDIR = LOC / 'scripts'
++logDIR    = LOC / 'log'
++
++# Create directories if they do not exist
++for directory in [dataDIR, plotDIR, pklDIR, tabDIR, logDIR]:
++    directory.mkdir(parents=True, exist_ok=True)
+ 
+ N = 30
+ D = 30
+diff --git a/scripts/functions/functions.py b/scripts/functions/functions.py
+index 1e40cdb..38b4981 100644
+--- a/scripts/functions/functions.py
++++ b/scripts/functions/functions.py
+@@ -1,6 +1,6 @@
+ from math import factorial, log2, pi
+ import numpy as np
+-from numpy import abs, cos, dot, e, exp, floor, log, log10, norm, prod, sin, sqrt, sum, where
++from numpy import abs, all, cos, dot, e, exp, floor, log, log10, prod, sin, sqrt, sum, where, log2, pi
+ from numpy.random import randn, uniform as u
+ from scipy.linalg import qr
+ 
+diff --git a/scripts/pso/calypso.py b/scripts/pso/calypso.py
+index 83c2657..ff31b3b 100644
+--- a/scripts/pso/calypso.py
++++ b/scripts/pso/calypso.py
+@@ -8,6 +8,7 @@ import matplotlib.animation as animation
+ from scripts.const import *
+ from scripts.tools.utils import *
+ 
++from copy import deepcopy
+ 
+ class CALYPSO:
+     '''
+@@ -79,7 +80,7 @@ class CALYPSO:
+         self,
+         exp, run, seed,
+         loss, lim, name,
+-        N=30, D=30,
++        N=N, D=D, maxIterCal=MAXITER_CAL,
+         baseline=None, imitate=False, beliefSpace=None, velocityClamping=False, bsStabilityGuided=False,
+         bsTriggerCriteria=None, bsPatience=None, bsSelectionCriteria=None, Ne=None,
+         savePath=False, rl=False, seterr='raise', dtype=np.float32
+@@ -91,6 +92,7 @@ class CALYPSO:
+         
+         self.N                   = N
+         self.D                   = D
++        self.maxIterCal          = maxIterCal
+ 
+         self.loss                = loss
+         self.low                 = lim[0]
+@@ -163,17 +165,17 @@ class CALYPSO:
+             # Timevariant baseline
+             elif self.baseline == 'timevariant':
+                 self.controlParam = {
+-                    'w'  : 0.4*(i-MAXITER_CAL)**2/MAXITER_CAL**2 + 0.4,
+-                    'c1' : -3*i/MAXITER_CAL + 3.5,
+-                    'c2' : 3*i/MAXITER_CAL + 0.5
++                    'w'  : 0.4*(i-self.maxIterCal)**2/self.maxIterCal**2 + 0.4,
++                    'c1' : -3*i/self.maxIterCal + 3.5,
++                    'c2' : 3*i/self.maxIterCal + 0.5
+                 }
+ 
+             # TVAC baseline
+             elif self.baseline == 'tvac':
+                 self.controlParam = {
+-                    'w'  : 0.9 + (0.4 - 0.9) * i/MAXITER_CAL,
+-                    'c1' : 2.5 + (0.5 - 2.5) * i/MAXITER_CAL,
+-                    'c2' : 0.5 + (2.5 - 0.5) * i/MAXITER_CAL
++                    'w'  : 0.9 + (0.4 - 0.9) * i/self.maxIterCal,
++                    'c1' : 2.5 + (0.5 - 2.5) * i/self.maxIterCal,
++                    'c2' : 0.5 + (2.5 - 0.5) * i/self.maxIterCal
+                 }
+ 
+             # Random baseline
+@@ -544,16 +546,16 @@ class CALYPSO:
+         
+         elif self.baseline=='timevariant':
+             self.controlParam = {
+-                'w' : 0.4*(i-MAXITER_CAL)**2/MAXITER_CAL**2 + 0.4,
+-                'c1': -3*i/MAXITER_CAL + 3.5,
+-                'c2': 3*i/MAXITER_CAL + 0.5
++                'w' : 0.4*(i-self.maxIterCal)**2/self.maxIterCal**2 + 0.4,
++                'c1': -3*i/self.maxIterCal + 3.5,
++                'c2': 3*i/self.maxIterCal + 0.5
+             }
+             
+         elif self.baseline=='tvac':
+             self.controlParam = {
+-                'w'  : 0.9 + (0.4 - 0.9) * i/MAXITER_CAL,
+-                'c1' : 2.5 + (0.5 - 2.5) * i/MAXITER_CAL,
+-                'c2' : 0.5 + (2.5 - 0.5) * i/MAXITER_CAL
++                'w'  : 0.9 + (0.4 - 0.9) * i/self.maxIterCal,
++                'c1' : 2.5 + (0.5 - 2.5) * i/self.maxIterCal,
++                'c2' : 0.5 + (2.5 - 0.5) * i/self.maxIterCal
+             }
+ 
+ #-------------------------------------------------------------------------------------------------------#
+@@ -577,7 +579,7 @@ class CALYPSO:
+     def storeMetrics(self, j=None):
+ 
+             # Global Best Positions
+-            self.data['globalBests'].append(self.L_social_best.copy())
++            self.data['globalBests'].append(deepcopy(self.L_social_best))
+             
+             # Swarm Diversity
+             P_center = (np.sum(self.P[-1], axis=0) / self.N)[np.newaxis,:]
+@@ -759,7 +761,7 @@ class CALYPSO:
+             self.ani = animation.FuncAnimation(
+                 fig      = fig,
+                 func     = update_points,
+-                frames   = MAXITER_CAL if hasattr(self, 'maxIterCal') else 1,
++                frames   = self.maxIterCal if hasattr(self, 'maxIterCal') else 1,
+                 fargs    = (P_arr, L_arr, plots),
+                 interval = 50
+             )
+@@ -783,7 +785,7 @@ class CALYPSO:
+         '''
+ 
+         # Iterations TODO vectorize this
+-        for i in range(1, MAXITER_CAL+1):
++        for i in range(1, self.maxIterCal+1):
+             
+             # Store Metrics
+             self.storeMetrics()
+@@ -807,8 +809,7 @@ class CALYPSO:
+             # Update Velocities, Positions, Losses
+             v = inertia + cognitive + social
+             if self.velocityClamping:
+-                v[v < -self.range] = -self.range
+-                v[v >  self.range] =  self.range
++                v = np.clip(v, -self.range, self.range)
+ 
+             self.V.append( v )
+             self.P.append( self.P[i-1] + self.V[i] )
+@@ -866,8 +867,7 @@ class CALYPSO:
+         # Update Velocities, Positions, Losses
+         v = inertia + cognitive + social
+         if self.velocityClamping:
+-            v[v < -self.range] = -self.range
+-            v[v >  self.range] =  self.range
++            v = np.clip(v, -self.range, self.range)
+ 
+         self.V.append( v )
+         self.P.append( self.P[i-1] + self.V[i] )
+diff --git a/scripts/rl/calypsoEnv.py b/scripts/rl/calypsoEnv.py
+index 84ef508..abe7659 100644
+--- a/scripts/rl/calypsoEnv.py
++++ b/scripts/rl/calypsoEnv.py
+@@ -6,8 +6,8 @@ from tf_agents.environments import py_environment
+ from scripts.const import *
+ from scripts.tools.utils import*
+ from scripts.pso.calypso import CALYPSO
+-from scripts.functions import functions
+ 
++from copy import deepcopy
+ 
+ 
+ def sigmoid(x):
+@@ -108,6 +108,8 @@ class calypsoEnv(py_environment.PyEnvironment):
+         self.D                = params['D']
+         self.j                = params['j']
+         self.velocityClamping = params['velocityClamping']
++        self.max_iter_cal     = params.get('max_iter_cal', MAXITER_CAL)
++        self.seed             = params.get('seed', SEED)
+         self.funcRanges       = lpkl(f'{pklDIR}/funcRanges.pkl')
+         self.varsPath         = varsPath
+         self.pklPath          = None
+@@ -159,7 +161,7 @@ class calypsoEnv(py_environment.PyEnvironment):
+         # know the limits in anyway.
+         arr = np.array(
+             [
+-                i / MAXITER_CAL,
++                i / self.max_iter_cal,
+                 infeasibleParticles,
+                 stableParticles
+             ],
+@@ -181,32 +183,43 @@ class calypsoEnv(py_environment.PyEnvironment):
+         if self.consecFuncs:
+             if self.run==0 or self.run==RUNS:
+                 self.run = 0
+-                self.func = self.functions.pop(0)
++                self.funcClass = self.functions.pop(0)
++            self.func = self.funcClass.__name__
+             self.savePath = f'{self.pklPath}/{self.func}' if self.pklPath else None
+         else:
+-            self.func     = self.funcs[self.run % self.numfuncs]
++            self.funcClass = self.funcs[self.run % self.numfuncs]
++            self.func = self.funcClass.__name__
+             self.savePath = f'{self.pklPath}/eval{int(self.run/self.numEvalEpisodes)}' if self.pklPath else None
+         
+-        if not self.evalEnv and self.func==self.funcs[0]:
++        if not self.evalEnv and self.funcClass==self.funcs[0]:
+             self._cumulativeGBN = 0
+ 
+         self.funcReward = 0
+         self.funcGBN     = np.nan
+         self.L_min      = self.funcRanges.loc[self.func, 'low']
+         self.L_delta    = self.funcRanges.loc[self.func, 'delta']
+-        funcAttr        = getattr(functions, self.func)
+-        loss, lim, self.name = funcAttr()
++
++        problem = self.funcClass(self.D)
++
++        loss = problem
++        lim = (problem.lower, problem.upper)
++        self.name = self.func
++
+         self.funcName   = self.name
+         self.range      = lim[1] - lim[0]
+         self.calypso    = CALYPSO(
+             exp              = self.exp,
+             run              = self.run,
+-            seed             = SEED + self.run,
++            seed             = self.seed + self.run,
+           
+             loss             = loss,
+             lim              = lim,
+             name             = self.name,
+-          
++
++            N                = self.N,
++            D                = self.D,
++            maxIterCal       = self.max_iter_cal,
++
+             velocityClamping = self.velocityClamping,
+             rl               = True,
+           
+@@ -217,7 +230,7 @@ class calypsoEnv(py_environment.PyEnvironment):
+ 
+         # Define runtime parameters
+         self.i       = 1
+-        self.lsbPrev = self.calypso.L_social_best.copy()
++        self.lsbPrev = deepcopy(np.array(self.calypso.L_social_best))
+         self.lsbInit = self.lsbPrev.copy()
+         vNormed      = np.zeros((self.N,), dtype=self.dtype)
+         self.setState(self.i, 0.0, 0.5, vNormed)
+@@ -254,10 +267,10 @@ class calypsoEnv(py_environment.PyEnvironment):
+         if self.j.isnumeric():
+             j = int(self.j)
+         elif self.j=='auto': 
+-            j = int(np.ceil(action[3] * MAXITER_CAL))  # maybe /50
++            j = int(np.ceil(action[3] * self.max_iter_cal))  # maybe /50
+ 
+         i_init = self.i
+-        i_final = min(i_init+j, MAXITER_CAL+1)
++        i_final = min(i_init+j, self.max_iter_cal+1)
+         for i in range(i_init , i_final):
+             infeasibleParticles, stableParticles, L_social_best, v = self.calypso.iter(  # take care of overflow
+                 i            = i,
+@@ -296,7 +309,7 @@ class calypsoEnv(py_environment.PyEnvironment):
+ 
+ 
+         # Return termination timestep
+-        if self.i == MAXITER_CAL+1:
++        if self.i == self.max_iter_cal+1:
+             self._episode_ended = True
+             self.funcGBN = globalBestNormed(self.lsbCurr, self.funcRanges.loc[self.func, 'low'], self.funcRanges.loc[self.func, 'high'])
+ 
+diff --git a/scripts/rl/calypsoTrainSAC.py b/scripts/rl/calypsoTrainSAC.py
+index b6fb403..5ff9ec7 100644
+--- a/scripts/rl/calypsoTrainSAC.py
++++ b/scripts/rl/calypsoTrainSAC.py
+@@ -19,7 +19,8 @@ from scripts.tools.utils import *
+ from scripts.rl.calypsoEnv import calypsoEnv
+ from scripts.rl.softActorCritic import softActorCritic
+ 
+-tf.random.set_seed(SEED_TF)
++import importlib
++
+ 
+ 
+ 
+@@ -48,8 +49,71 @@ parser.add_argument('--text',  type=str,            help='Some text')
+ parser.add_argument('--vc',    action='store_true', help='Velocity clamping')
+ parser.add_argument('--dsoff', action='store_true', help='Turn off distributed strategy parallel processing')
+ parser.add_argument('--temp',  action='store_true', help='Perform a temporary run which can be discarded')
++
++parser.add_argument(
++    '--train-problems',
++    nargs='+',
++    help='Training benchmark classes as import paths'
++)
++parser.add_argument(
++    '--eval-problems',
++    nargs='+',
++    help='Evaluation benchmark classes as import paths'
++)
++
++parser.add_argument(
++    '--dimensions',
++    type=int,
++    default=D,
++    help='Problem dimensionality'
++)
++
++parser.add_argument(
++    '--N',
++    type=int,
++    default=N,
++    help='Number of particles'
++)
++
++parser.add_argument(
++    '--max-iter-cal',
++    type=int,
++    default=MAXITER_CAL,
++    help='Maximum CALYPSO iterations per function'
++)
++
++parser.add_argument(
++    '--seed',
++    type=int,
++    default=None,
++    help='Random seed for Calypso and TensorFlow'
++)
++
++def load_problem_classes(paths):
++    problems = []
++
++    for path in paths:
++        module_name, class_name = path.rsplit('.', 1)
++        module = importlib.import_module(module_name)
++        problems.append(getattr(module, class_name))
++
++    return problems
++
+ args = parser.parse_args()
+-fi(args.ei/args.psi)  # check that the policy is saved at least before every evaluation interval
++
++seed = SEED if args.seed is None else args.seed
++
++tf.keras.utils.set_random_seed(seed)
++tf.config.experimental.enable_op_determinism()
++
++if args.train_problems:
++    FUNCTIONS_TRAIN = load_problem_classes(args.train_problems)
++
++if args.eval_problems:
++    FUNCTIONS_EVAL = load_problem_classes(args.eval_problems)
++
++fi(args.ei / args.psi)
++
+ argsDict = vars(args)
+ 
+ 
+@@ -137,11 +201,12 @@ if args.resume:
+     envParams = ljson(glob.glob(f'{varsPath}/envParams*')[0])
+ else:
+     envParams = {
+-        'N'               : N,
+-        'D'               : D,
++        'N'               : args.N,
++        'D'               : args.dimensions,
+         'j'               : args.j,
+         'gamma'           : args.gamma,
+         'velocityClamping': args.vc,
++        'seed'            : seed,
+     }
+     wjson(f'{varsPath}/envParams--{int(time.time())}.json', envParams)
+ 
+@@ -151,7 +216,7 @@ else:
+ if args.j.isnumeric():
+     j = int(args.j)
+     pl(f'j: {j}')
+-    stepsPerFunc = fi(MAXITER_CAL / j)
++    stepsPerFunc = fi(args.max_iter_cal / j)
+     pl(f'SAC steps per Function: {stepsPerFunc}')
+     pl(f'Functions per Training Set: {NUMFUNCS_TRAIN}')
+     pl(f'Training Sets per Training: {args.i / NUMFUNCS_TRAIN / stepsPerFunc}')
+@@ -161,7 +226,7 @@ elif args.j=='auto':
+     pl('CHECK "j" in calypsoTrainSac.py and "MAXITER / x" in calypsoEnv.py!!!')
+     j = 250  # might have to adjust this, it affects the size of buffers & iters, also because it learns to use more steps
+     pl(f'Estimated j: {j}')
+-    stepsPerFunc = fi(MAXITER_CAL / j)
++    stepsPerFunc = fi(args.max_iter_cal / j)
+     pl(f'Estimated SAC steps per Function: {stepsPerFunc}')
+     pl(f'Functions per Training Function Set: {NUMFUNCS_TRAIN}')
+     pl(f'Estimated Training Sets per Training: {args.i / NUMFUNCS_TRAIN / stepsPerFunc}')
+@@ -233,10 +298,16 @@ sacParams = {
+     'funcs_train'                    : FUNCTIONS_TRAIN,
+     'numfuncs_train'                 : NUMFUNCS_TRAIN,
+     'funcs_eval'                     : FUNCTIONS_EVAL,
+-    'numfuncs_eval'                  : NUMFUNCS_EVAL
++    'numfuncs_eval'                  : NUMFUNCS_EVAL,
++
++    'seed': seed,
+ }
+-wjson(f'{varsPath}/sacParams--{int(time.time())}.json', sacParams)
+ 
++sacParamsJSON = sacParams.copy()
++sacParamsJSON['funcs_train'] = [func.__name__ for func in FUNCTIONS_TRAIN]
++sacParamsJSON['funcs_eval'] = [func.__name__ for func in FUNCTIONS_EVAL]
++
++wjson(f'{varsPath}/sacParams--{int(time.time())}.json', sacParamsJSON)
+ 
+ 
+ ## Environment
+diff --git a/scripts/rl/softActorCritic.py b/scripts/rl/softActorCritic.py
+index 79d7fd6..ee6a99c 100644
+--- a/scripts/rl/softActorCritic.py
++++ b/scripts/rl/softActorCritic.py
+@@ -25,7 +25,6 @@ from scripts.const import *
+ from scripts.tools.utils import *
+ 
+ mpl.use('Agg')
+-tf.random.set_seed(SEED_TF)
+ 
+ 
+ 
+@@ -169,7 +168,8 @@ class softActorCritic:
+ 
+         self.random_policy = random_py_policy.RandomPyPolicy(
+             time_step_spec = self.envCollect.time_step_spec(),
+-            action_spec    = self.envCollect.action_spec()
++            action_spec    = self.envCollect.action_spec(),
++            seed           = self.p.get('seed')
+         )
+ 
+ 
+@@ -318,6 +318,7 @@ class softActorCritic:
+             # Training
+             step = agent_learner.train_step_numpy
+             collect_actor.run()
++            
+             loss_info = agent_learner.run(iterations=1)
+ 
+             # Logging
