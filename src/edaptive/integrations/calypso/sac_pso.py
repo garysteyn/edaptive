@@ -3,6 +3,7 @@ import subprocess
 import sys
 import numpy as np
 import pandas as pd
+import shutil
 
 class CalypsoWrapper:
     def __init__(
@@ -51,6 +52,13 @@ class CalypsoWrapper:
         self.vc = vc
 
         self.seed = seed
+
+    def _clear_previous_run(self, calypso_root):
+        for directory_name in ("data", "log"):
+            directory = calypso_root / directory_name
+
+            if directory.is_dir():
+                shutil.rmtree(directory)
 
     def train(self):
         calypso_root = Path(__file__).resolve().parents[4] / "calypso"
@@ -118,6 +126,8 @@ class CalypsoWrapper:
 
         func_ranges_path = calypso_root / "misc" / "pkl" / "funcRanges.pkl"
         func_ranges.to_pickle(func_ranges_path)
+
+        self._clear_previous_run(calypso_root)
 
         subprocess.run(
             command,
