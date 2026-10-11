@@ -9,8 +9,8 @@ class BetaMarginalsEDA(EDAAdapter):
     def initialize(self, eta, kappa_max, n_elite, update_freq, rng):
         self.rng = rng
 
-        self.a = np.ones(shape=self.n_x, dtype=np.float32) 
-        self.b = np.ones(shape=self.n_x, dtype=np.float32)
+        self.a = np.ones(shape=self.n_x, dtype=np.float64) 
+        self.b = np.ones(shape=self.n_x, dtype=np.float64)
 
         self.eta = eta
         self.kappa_max = kappa_max

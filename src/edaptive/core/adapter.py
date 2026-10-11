@@ -12,7 +12,6 @@ class BaseAdapter(ABC):
         self.initialize(**kwargs)
 
     # Data required of the optimizer (to perform an update)
-    @abstractmethod
     def required_data(self):
         pass
 
@@ -20,7 +19,6 @@ class BaseAdapter(ABC):
     def initialize(self, **kwargs):
         pass
 
-    @abstractmethod
     def update(self):
         pass
 
