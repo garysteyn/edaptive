@@ -1,7 +1,8 @@
 from edaptive.problems.ela_benchmark_suite import *
 from edaptive.solvers.eda_solver import EDASolver
 from edaptive.optimizers.pso import PSO
-from edaptive.adapters.beta_eda import BetaMarginalsEDA, BetaMarginals_log_rank_weights_EDA, BetaMarginals_rank_weights_EDA
+# from edaptive.adapters.beta_eda import BetaMarginalsEDA, BetaMarginals_log_rank_weights_EDA, BetaMarginals_rank_weights_EDA
+from edaptive.adapters.beta_eda import BetaEDA
 from edaptive.core.parameters import ParameterType, Parameter, ParameterSpace
 import numpy as np
 
@@ -33,7 +34,9 @@ def main():
             "eta" : 0.001,
             "rho_min" : 0.02,
             "n_elite" : 15,
-            "update_freq" : 1
+            "update_freq" : 1,
+            "copula" : None,
+            "elite_weighting" : "rank"
         },
 
         "optimizer" : {
@@ -68,7 +71,7 @@ def main():
         # print(problem)
         eda_pso = EDASolver(
             optimizer_type=PSO,
-            adapter_type=BetaMarginalsEDA,
+            adapter_type=BetaEDA,
             problem=problem(dimensions=40),
             hyper_params = params
             )
