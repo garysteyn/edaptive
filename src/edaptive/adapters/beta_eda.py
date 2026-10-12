@@ -6,14 +6,15 @@ class BetaMarginalsEDA(EDAAdapter):
     def required_data(self):
         return ["problem_lb", "problem_ub", "t", "X", "f_X", "CP"]
 
-    def initialize(self, eta, kappa_max, n_elite, update_freq, rng):
+    def initialize(self, eta, rho_min, n_elite, update_freq, rng):
         self.rng = rng
 
         self.a = np.ones(shape=self.n_x, dtype=np.float64) 
         self.b = np.ones(shape=self.n_x, dtype=np.float64)
 
         self.eta = eta
-        self.kappa_max = kappa_max
+        self.rho_min = rho_min
+        self.kappa_max = (1 / rho_min) - 1
         self.n_elite = int(n_elite)
         self.update_freq = update_freq
 
@@ -24,7 +25,6 @@ class BetaMarginalsEDA(EDAAdapter):
             size=(N, self.n_x),
             random_state=self.rng
         )
-
         return self.CP_lb + samples * (self.CP_ub - self.CP_lb)
 
     def check_update(self, problem_lb, problem_ub, t, X, f_X, CP):
@@ -33,7 +33,7 @@ class BetaMarginalsEDA(EDAAdapter):
 
         feasible = np.all((X >= problem_lb) & (X <= problem_ub), axis=1)
 
-        if not np.any(feasible):
+        if np.count_nonzero(feasible) < 2:
             return None
 
         f_X_feasible = f_X[feasible]

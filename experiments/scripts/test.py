@@ -31,7 +31,7 @@ def main():
     params = {
         "adapter" : {
             "eta" : 0.001,
-            "kappa_max" : 50,
+            "rho_min" : 0.02,
             "n_elite" : 15,
             "update_freq" : 1
         },
@@ -68,7 +68,7 @@ def main():
         # print(problem)
         eda_pso = EDASolver(
             optimizer_type=PSO,
-            adapter_type=BetaMarginals_rank_weights_EDA,
+            adapter_type=BetaMarginalsEDA,
             problem=problem(dimensions=40),
             hyper_params = params
             )
