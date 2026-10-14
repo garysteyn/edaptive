@@ -30,44 +30,44 @@ problems = [
     Elliptic
 ]
 
-# wrapper = CalypsoWrapper(
-#     dimensions=30,
-#     N=30,
-#     max_iter_cal=5000,
-#     train_problems=problems,
-#     validation_problems=problems,
-#     j=50,
-#     i=1,
-#     n=256,
-#     gamma=0.99,
-#     rsf=1,
-#     ilr=0.0001,
-#     dcr=1,
-#     dcs=100,
-#     ics=1,
-#     psi=10,
-#     ei=10,
-#     nef=1,
-#     vc=True,
-#     seed=123
-# )
-
-# wrapper.train()
-
-wrapper = BS_PSO(
+wrapper = CalypsoWrapper(
     dimensions=30,
     N=30,
-    trials=10,
     max_iter_cal=5000,
-    problems=problems,
-    b=None,
-    tc="always",
-    sc=["elitist", "20"],
-    sg=None,
-    temp=None,
-    imitate=None,
+    train_problems=problems,
+    validation_problems=problems,
+    j=50,
+    i=200000,
+    n=256,
+    gamma=0.99,
+    rsf=1,
+    ilr=0.0001,
+    dcr=1,
+    dcs=100,
+    ics=5,
+    psi=10,
+    ei=10,
+    nef=1,
     vc=True,
-    seed=123,
+    seed=123
 )
 
-wrapper.run()
+wrapper.train()
+
+# wrapper = BS_PSO(
+#     dimensions=30,
+#     N=30,
+#     trials=10,
+#     max_iter_cal=5000,
+#     problems=problems,
+#     b=None,
+#     tc="always",
+#     sc=["elitist", "20"],
+#     sg=None,
+#     temp=None,
+#     imitate=None,
+#     vc=True,
+#     seed=123,
+# )
+
+# wrapper.run()
