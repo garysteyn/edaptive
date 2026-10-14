@@ -52,6 +52,8 @@ problems = [
 #     seed=123
 # )
 
+# wrapper.train()
+
 wrapper = BS_PSO(
     dimensions=30,
     N=30,

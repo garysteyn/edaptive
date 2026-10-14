@@ -170,6 +170,205 @@ index 83c2657..ff31b3b 100644
  
          self.V.append( v )
          self.P.append( self.P[i-1] + self.V[i] )
+diff --git a/scripts/pso/execute.py b/scripts/pso/execute.py
+index 2c0e466..c1ef381 100644
+--- a/scripts/pso/execute.py
++++ b/scripts/pso/execute.py
+@@ -8,11 +8,12 @@ import pandas as pd
+ 
+ 
+ ## Local Imports
+-from calypso import CALYPSO
++from scripts.pso.calypso import CALYPSO
+ from scripts.functions import functions
+ from scripts.tools.utils import *
+ from scripts.const import *
+ 
++import importlib
+ 
+ ## Arguments
+ parser = argparse.ArgumentParser(description='Execute calypso experiments')
+@@ -23,6 +24,58 @@ parser.add_argument('--sg', action='store_true', help='bsStabiltyGuided')
+ parser.add_argument('--temp', action='store_true', help='temporary')
+ parser.add_argument('--imitate', action='store_true', help='Imitates fixed200_improve30 mathematically')
+ parser.add_argument('--vc', action='store_true', help='Perform velocity clamping')
++
++parser.add_argument(
++    '--problems',
++    nargs='+',
++    help='Evaluation benchmark classes as import paths'
++)
++
++parser.add_argument(
++    '--dimensions',
++    type=int,
++    default=D,
++    help='Problem dimensionality'
++)
++
++parser.add_argument(
++    '--N',
++    type=int,
++    default=N,
++    help='Number of particles'
++)
++
++parser.add_argument(
++    '--runs',
++    type=int,
++    default=RUNS,
++    help='Number of independent runs per benchmark problem'
++)
++
++parser.add_argument(
++    '--max-iter-cal',
++    type=int,
++    default=MAXITER_CAL,
++    help='Maximum CALYPSO iterations per function'
++)
++
++parser.add_argument(
++    '--seed',
++    type=int,
++    default=None,
++    help='Random seed for Calypso and TensorFlow'
++)
++
++def load_problem_classes(paths):
++    problems = []
++
++    for path in paths:
++        module_name, class_name = path.rsplit('.', 1)
++        module = importlib.import_module(module_name)
++        problems.append(getattr(module, class_name))
++
++    return problems
++
+ args = parser.parse_args()
+ 
+ 
+@@ -111,53 +164,78 @@ logging.basicConfig(filename=f'{expDIR}/log.log')
+ 
+ 
+ ## Run
+-for func in FUNCTIONS:
+-    funcAttr = getattr(functions, func)
+-    if callable(funcAttr):
+-        loss, lim, name = funcAttr()
+-        funcGBN = 0
+-        for run in range(RUNS):
+-            pl(f'-----{name} Run {run}-----')
+-
+-            calypso = CALYPSO(
+-                exp                 = exp,
+-                run                 = run,
+-                seed                = SEED + run,
+-
+-                loss                = loss,
+-                lim                 = lim,
+-                name                = name,
+-                
+-                baseline            = args.b,
+-                imitate             = args.imitate,
+-                beliefSpace         = beliefSpace,
+-                velocityClamping    = args.vc,
+-                bsStabilityGuided   = args.sg,
+-
+-                bsTriggerCriteria   = bsTriggerCriteria,
+-                bsPatience          = bsPatience,
+-                bsSelectionCriteria = bsSelectionCriteria,
+-                Ne                  = (Ne, 2),
+-                
+-                savePath            = f'{expDIR}/pkl/{func}',
+-                seterr              = 'ignore'
+-            )
+-            
+-            P_best, L_best, overflow = calypso.iterate()
++if args.problems:
++    problem_classes = load_problem_classes(args.problems)
++
++    problem_specs = []
++
++    for problem_class in problem_classes:
++        problem = problem_class(args.dimensions)
+ 
+-            if overflow:
+-                expOverflow = True
+-                pl('Overflow')
++        name = problem_class.__name__
++        loss = problem
++        lim = (problem.lower, problem.upper)
+ 
+-            runGBN = (L_best - funcRanges.loc[name, 'low']) / funcRanges.loc[name, 'delta']
+-            funcGBN += runGBN
+-            pl(f'runGBN {runGBN}\n')
++        problem_specs.append((name, loss, lim, name))
++
++else:
++    problem_specs = []
++
++    for func in FUNCTIONS:
++        funcAttr = getattr(functions, func)
++
++        if callable(funcAttr):
++            loss, lim, name = funcAttr()
++            problem_specs.append((func, loss, lim, name))
++
++for func, loss, lim, name in problem_specs:
++    funcGBN = 0
++    for run in range(args.runs):
++        pl(f'-----{name} Run {run}-----')
++
++        calypso = CALYPSO(
++            exp                 = exp,
++            run                 = run,
++            seed                = (SEED if args.seed is None else args.seed) + run,
++
++            loss                = loss,
++            lim                 = lim,
++            name                = name,
++
++            N                   = args.N,
++            D                   = args.dimensions,
++            maxIterCal          = args.max_iter_cal,
++
++            baseline            = args.b,
++            imitate             = args.imitate,
++            beliefSpace         = beliefSpace,
++            velocityClamping    = args.vc,
++            bsStabilityGuided   = args.sg,
++
++            bsTriggerCriteria   = bsTriggerCriteria,
++            bsPatience          = bsPatience,
++            bsSelectionCriteria = bsSelectionCriteria,
++            Ne                  = (Ne, 2),
++            
++            savePath            = f'{expDIR}/pkl/{func}',
++            seterr              = 'ignore'
++        )
+         
+-        funcGBN /= RUNS
+-        expGBN += funcGBN
+-        pl(f'\n----{name} funcGBN: {funcGBN}----\n\n')
++        P_best, L_best, overflow = calypso.iterate()
++
++        if overflow:
++            expOverflow = True
++            pl('Overflow')
++
++        runGBN = (L_best - funcRanges.loc[name, 'low']) / funcRanges.loc[name, 'delta']
++        funcGBN += runGBN
++        pl(f'runGBN {runGBN}\n')
++    
++    funcGBN /= args.runs
++    expGBN += funcGBN
++    pl(f'\n----{name} funcGBN: {funcGBN}----\n\n')
+ 
+-expGBN /= len(FUNCTIONS)
++expGBN /= len(problem_specs)
+ pl(f'\n\n\n--------------------------expGBN {expGBN}--------------------------\n')
+ 
+ 
 diff --git a/scripts/rl/calypsoEnv.py b/scripts/rl/calypsoEnv.py
 index 84ef508..abe7659 100644
 --- a/scripts/rl/calypsoEnv.py
