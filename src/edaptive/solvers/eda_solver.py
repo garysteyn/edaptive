@@ -38,7 +38,6 @@ class EDASolver(BaseSolver):
             if samples is None:
                 continue
 
-            print(samples.shape)
             adapter.update(samples)
             CP_new = adapter.sample(N=self.n_s)
             optimizer.CP = CP_new

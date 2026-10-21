@@ -23,7 +23,7 @@ def parse_args():
     parser.add_argument(
         "--adapter",
         type=str,
-        required=True,
+        required=False,
         help="Adapter to run."
     )
 

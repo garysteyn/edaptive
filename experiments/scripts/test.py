@@ -7,24 +7,26 @@ from edaptive.core.parameters import ParameterType, Parameter, ParameterSpace
 import numpy as np
 
 problems = [
-    Schwefel1,
-    Ripple25,
-    Exponential,
-    NeedleEye,
-    Step3,
-    GeneralizedGiunta,
-    GeneralizedPaviani,
-    Brown,
-    CosineMixture_OG,
-    CosineMixture,
+    # Schwefel1,
+    # Ripple25,
+    # Exponential,
+    # NeedleEye,
+    # Step3,
+    # GeneralizedGiunta,
+    # GeneralizedPaviani,
+    # Brown,
+    # CosineMixture_OG,
+    # CosineMixture,
     Mishra07,
-    Mishra01,
-    GeneralizedPrice2,
+    Mishra07,
+    Mishra07,
+    # Mishra01,
+    # GeneralizedPrice2,
 
-    BBOB_FID2_IID1,
-    BBOB_FID6_IID1,
-    BBOB_FID16_IID1,
-    BBOB_FID17_IID2
+    # BBOB_FID2_IID1,
+    # BBOB_FID6_IID1,
+    # BBOB_FID16_IID1,
+    # BBOB_FID17_IID2
     
 ]
 
@@ -33,7 +35,7 @@ def main():
         "adapter" : {
             "eta" : 0.001,
             "rho_min" : 0.02,
-            "n_elite" : 15,
+            "n_elite" : 30,
             "update_freq" : 1,
             "copula" : None,
             "elite_weighting" : "rank"
@@ -72,8 +74,9 @@ def main():
         eda_pso = EDASolver(
             optimizer_type=PSO,
             adapter_type=BetaEDA,
-            problem=problem(dimensions=40),
-            hyper_params = params
+            problem=problem(dimensions=30),
+            hyper_params = params,
+            rnd_seed = i
             )
 
         res = eda_pso.run()

@@ -481,6 +481,7 @@ class CosineMixture(BenchmarkProblem):
             - np.sum(x**2, axis=-1)
         )
 
+# Note: The bounds of this function should be changed to [-D, D]. This ensures that an optimal value of f=0 is attainable at any dimension. 
 class Mishra07(BenchmarkProblem):
     """
     Mishra No. 7 (Factorial) benchmark function.
@@ -517,7 +518,7 @@ class Mishra07(BenchmarkProblem):
         self.global_optimum_value = 0.0
 
         self.factorial = factorial(dimensions)
-
+        
     def _evaluate(self, x):
         # return (np.prod(x) - math.factorial(self.dimensions)) ** 2
 

@@ -1,0 +1,30 @@
+{
+    "adapter" : null,
+    "optimizer" : {
+        "fixed" : {
+            "n_s" : {
+                "tuned" : false,
+                "type" : "integer",
+                "value" : 30
+            },
+            "w" : {
+                "tuned" : true,
+                "type" : "continuous",
+                "lower" : 0,
+                "upper" : 1
+            },
+            "c_1" : {
+                "tuned" : true,
+                "type" : "continuous",
+                "lower" : 0,
+                "upper" : 4
+            },
+            "c_2" : {
+                "tuned" : true,
+                "type" : "continuous",
+                "lower" : 0,
+                "upper" : 4
+            }
+        }
+    }
+}

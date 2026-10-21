@@ -17,6 +17,11 @@
             "tuned" : true,
             "type" : "categorical",
             "classes" : [5, 10, 15, 20]
+        },
+        "update_freq" : {
+            "tuned" : false,
+            "type" : "integer",
+            "value" : 1
         }
     },
     "optimizer" : {

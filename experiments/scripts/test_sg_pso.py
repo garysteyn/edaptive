@@ -22,19 +22,21 @@ def main():
         # GeneralizedGiunta,
         # GeneralizedPaviani,
         # Brown,
-        CosineMixture_OG,
+        # CosineMixture_OG,
         # CosineMixture,
-        # Mishra07,
+        Mishra07,
         # Mishra01,
         # GeneralizedPrice2,
     ]
 
-    pso = stability_guided_PSO(
-                      problem=CosineMixture_OG(dimensions=30),
-                      hyper_params=params)
-    res = pso.run(max_iterations=5000)
-    
-    print(res[1]["timings"], res[0])
+    for i in range(30):
+        pso = stability_guided_PSO(
+                        problem=Mishra07(dimensions=30),
+                        hyper_params=params,
+                        rnd_seed=i)
+        res = pso.run(max_iterations=5000)
+        
+        print(res[1]["timings"], res[0])
 
 if __name__ == "__main__":
     main()
