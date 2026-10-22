@@ -61,9 +61,10 @@ def create_adapted_parameter_space(
 def create_tuning_parameter_space(config: dict) -> ParameterSpace:
     parameters = []
 
-    for name, spec in config["adapter"].items():
-        if spec.get("tuned", False):
-            parameters.append(Parameter.from_config(name, spec))
+    if "adapter" in config:
+        for name, spec in config["adapter"].items():
+            if spec.get("tuned", False):
+                parameters.append(Parameter.from_config(name, spec))
 
     for name, spec in config["optimizer"]["fixed"].items():
         if spec.get("tuned", False):
@@ -72,15 +73,18 @@ def create_tuning_parameter_space(config: dict) -> ParameterSpace:
     return ParameterSpace(parameters)
 
 def parse_config(config):
-    adapted_parameter_space = create_adapted_parameter_space(config=config)
-    config_template = {"adapter" : dict(), "optimizer" : {"fixed" : dict(), "adapted" : adapted_parameter_space}}
+    if "adapter" in config:
+        adapted_parameter_space = create_adapted_parameter_space(config=config)
+        config_template = {"adapter" : dict(), "optimizer" : {"fixed" : dict(), "adapted" : adapted_parameter_space}}
 
-    for name, spec in config["adapter"].items():
-        if spec["tuned"]:
-            config_template["adapter"][name] = None
-        else:
-            config_template["adapter"][name] = spec["value"]
-    
+        for name, spec in config["adapter"].items():
+            if spec["tuned"]:
+                config_template["adapter"][name] = None
+            else:
+                config_template["adapter"][name] = spec["value"]
+    else:
+        config_template = {"optimizer" : {"fixed" : dict()}}
+
     for name, spec in config["optimizer"]["fixed"].items():
         if spec["tuned"]:
             config_template["optimizer"]["fixed"][name] = None

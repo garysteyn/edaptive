@@ -1,5 +1,4 @@
 {
-    "adapter" : null,
     "optimizer" : {
         "fixed" : {
             "n_s" : {

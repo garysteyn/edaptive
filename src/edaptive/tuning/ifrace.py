@@ -92,7 +92,7 @@ class IFRace():
         self.config_template = config_template
         self.tuning_parameter_space = tuning_parameter_space
         self.race_history = []
-
+ 
         N_param = len(tuning_parameter_space)
         
         if self.n_min is None:
@@ -109,7 +109,8 @@ class IFRace():
 
         self.log("tuning", f"Solver: {solver_type.__name__}")
         self.log("tuning", f"Optimizer: {optimizer_type.__name__}")
-        self.log("tuning", f"Adapter: {adapter_type.__name__}")
+        if adapter_type:
+            self.log("tuning", f"Adapter: {adapter_type.__name__}")
         self.log("tuning", f"Budget: {self.B}")
         self.log("tuning", f"Number of races: {self.L}")
         self.log("tuning", f"Minimum configurations: {self.n_min}")
@@ -667,11 +668,18 @@ class IFRace():
         if self.rank == 0:
             timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
-            run_name = (
-                f"{self.solver_type.__name__}_"
-                f"{self.optimizer_type.__name__}_"
-                f"{self.adapter_type.__name__}"
-            )
+            if self.adapter_type:
+                run_name = (
+                    f"{self.solver_type.__name__}_"
+                    f"{self.optimizer_type.__name__}_"
+                    f"{self.adapter_type.__name__}"
+                )
+            else:
+                run_name = (
+                    f"{self.solver_type.__name__}_"
+                    f"{self.optimizer_type.__name__}"
+                )
+
 
             # Cast the base string to a Path object before using the '/' operator
             self.results_directory = Path(self.results_directory) / run_name

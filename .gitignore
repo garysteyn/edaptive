@@ -33,3 +33,6 @@ data/
 # CSV
 .csv
 .coco-unpatched/
+
+# tuning results
+tuning_results/

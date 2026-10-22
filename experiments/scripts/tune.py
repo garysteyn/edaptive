@@ -16,13 +16,13 @@ def main():
     
     if args.adapter:
         adapter_type = eval(args.adapter)
+    else:
+        adapter_type = None
 
     with args.config.open("r") as file:
         config = json.load(file)
 
     config_template, tuning_parameter_space = parse_config(config)
-
-    # solver = solver_type(optimizer_type=optimizer_type, adapter_type=adapter_type)
     
     ifrace = IFRace(
         I=[
