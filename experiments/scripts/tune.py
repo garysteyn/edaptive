@@ -1,5 +1,5 @@
 import json
-from edaptive.utils.experiment_utils import parse_args, parse_config
+from edaptive.utils.experiment_utils import parse_config
 from edaptive.solvers.eda_solver import EDASolver
 from edaptive.solvers.basic_solver import BasicSolver
 from edaptive.adapters.beta_eda import *
@@ -7,6 +7,43 @@ from edaptive.optimizers.pso import PSO
 from edaptive.tuning.ifrace import IFRace
 from edaptive.tuning.ifrace_sampling_model import IFRaceDefaultSamplingModel
 from edaptive.problems.ela_benchmark_suite import *
+from edaptive.core.parameters import ParameterType, Parameter, ParameterSpace
+import argparse
+from pathlib import Path
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description=""
+    )
+
+    parser.add_argument(
+        "--solver",
+        type=str,
+        required=True,
+        help="Solver to run."
+    )
+
+    parser.add_argument(
+        "--optimizer",
+        type=str,
+        required=True,
+        help="Optimizer to run."
+    )
+    parser.add_argument(
+        "--adapter",
+        type=str,
+        required=False,
+        help="Adapter to run."
+    )
+
+    parser.add_argument(
+        "--config",
+        type=Path,
+        required=True,
+        help="Config file."
+    )
+
+    return parser.parse_args()
 
 def main():
     args = parse_args()
@@ -23,7 +60,7 @@ def main():
         config = json.load(file)
 
     config_template, tuning_parameter_space = parse_config(config)
-    
+
     ifrace = IFRace(
         I=[
             Schwefel1,
@@ -46,7 +83,7 @@ def main():
 ],
         n_x=30,
         sampling_model=IFRaceDefaultSamplingModel,
-        B=500,
+        B=2000,
     )
 
     ifrace.tune(

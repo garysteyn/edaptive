@@ -1,4 +1,4 @@
-{
+{   "identifier": "basic_test",
     "optimizer" : {
         "fixed" : {
             "n_s" : {

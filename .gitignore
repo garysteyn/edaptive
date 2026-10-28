@@ -34,5 +34,5 @@ data/
 .csv
 .coco-unpatched/
 
-# tuning results
-tuning_results/
+# results
+results/

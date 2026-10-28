@@ -38,7 +38,7 @@ class IFRace():
             T_new=1, # minimum number of new instances introduced at the beginning of each subsequent race
             T_max=2, # maximum number of consecutive statistical tests with no elimination before the race terminates
             digits=4, # influences the leniency of the threshold used to trigger the soft-restart mechanism (threshold = 10^(digits))
-            results_directory="tuning_results"
+            results_directory="results/tuning_results"
     ):
         self.I = I
         self.n_x = n_x
@@ -668,21 +668,8 @@ class IFRace():
         if self.rank == 0:
             timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
-            if self.adapter_type:
-                run_name = (
-                    f"{self.solver_type.__name__}_"
-                    f"{self.optimizer_type.__name__}_"
-                    f"{self.adapter_type.__name__}"
-                )
-            else:
-                run_name = (
-                    f"{self.solver_type.__name__}_"
-                    f"{self.optimizer_type.__name__}"
-                )
-
-
             # Cast the base string to a Path object before using the '/' operator
-            self.results_directory = Path(self.results_directory) / run_name
+            self.results_directory = Path(self.results_directory) / self.config_template["identifier"]
             self.log_directory = self.results_directory / "logs"
 
             self.log_directory.mkdir(

@@ -1,17 +1,17 @@
-{
+{   "identifier" : "testname",
     "adapter" : {
         "eta" : {
             "tuned" : true,
             "log_scale_tuning" : true,
             "type" : "continuous",
-            "lower" : 0.001,
+            "lower" : 0.0001,
             "upper" : 0.2
         },
         "rho_min" : {
             "tuned" : true,
             "log_scale_tuning" : true,
             "type" : "continuous",
-            "lower" : 0.001,
+            "lower" : 0.0001,
             "upper" : 0.5
         },
         "n_elite" : {
@@ -33,7 +33,7 @@
         "elite_weighting" : {
             "tuned" : false,
             "type" : "categorical",
-            "value" : "rank"
+            "value" : "log-rank"
         }
     },
     "optimizer" : {

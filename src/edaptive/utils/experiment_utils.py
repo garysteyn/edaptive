@@ -2,40 +2,6 @@ import argparse
 from pathlib import Path
 from edaptive.core.parameters import ParameterType, Parameter, ParameterSpace
 
-def parse_args():
-    parser = argparse.ArgumentParser(
-        description=""
-    )
-
-    parser.add_argument(
-        "--solver",
-        type=str,
-        required=True,
-        help="Solver to run."
-    )
-
-    parser.add_argument(
-        "--optimizer",
-        type=str,
-        required=True,
-        help="Optimizer to run."
-    )
-    parser.add_argument(
-        "--adapter",
-        type=str,
-        required=False,
-        help="Adapter to run."
-    )
-
-    parser.add_argument(
-        "--config",
-        type=Path,
-        required=True,
-        help="Config file."
-    )
-
-    return parser.parse_args()
-
 def create_adapted_parameter_space(
     config: dict
 ) -> ParameterSpace:
@@ -70,7 +36,8 @@ def create_tuning_parameter_space(config: dict) -> ParameterSpace:
         if spec.get("tuned", False):
             parameters.append(Parameter.from_config(name, spec))
 
-    return ParameterSpace(parameters)
+    if len(parameters) > 0:
+        return ParameterSpace(parameters)
 
 def parse_config(config):
     if "adapter" in config:
@@ -92,5 +59,7 @@ def parse_config(config):
             config_template["optimizer"]["fixed"][name] = spec["value"]
 
     tuning_parameter_space = create_tuning_parameter_space(config=config)
-    # print(tuning_parameter_space)
+
+    config_template["identifier"] = config["identifier"]
+
     return (config_template, tuning_parameter_space)
