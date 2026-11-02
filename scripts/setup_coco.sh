@@ -25,7 +25,9 @@ set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-VENV_DIR="$PROJECT_ROOT/venv"
+# Override with the VENV_DIR environment variable (e.g. a container-only venv);
+# defaults to the project's venv/.
+VENV_DIR="${VENV_DIR:-$PROJECT_ROOT/venv}"
 COCO_DIR="$PROJECT_ROOT/.coco"
 
 PYTHON="$VENV_DIR/bin/python"
