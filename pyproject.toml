@@ -18,3 +18,22 @@ dependencies = [
     "opfunu==1.0.4",
     "setuptools<81",
 ]
+[project.optional-dependencies]
+dev = [
+    "ruff",
+    "pytest",
+]
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+extend-exclude = ["calypso", ".coco", ".coco-unpatched", "venv", "*.md"]
+
+[tool.ruff.lint]
+# pycodestyle (E, W), pyflakes (F), isort (I), pep8-naming (N), bugbear (B)
+select = ["E", "W", "F", "I", "N", "B"]
+# Literature notation (X, Y_hat, B, L, T_first, N_new, ...) is kept deliberately.
+ignore = ["N802", "N803", "N806", "N815", "N816"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["edaptive"]

@@ -30,7 +30,7 @@ This file is the main source of project context for future sessions, so keep it 
 
 ```
 edaptive/
-├── pyproject.toml            # package "edaptive" (setuptools, src layout), Python >= 3.10
+├── pyproject.toml            # package "edaptive" (setuptools, src layout), Python >= 3.10; `dev` extra; ruff config
 ├── requirements.txt          # pinned deps: edaptive + calypso (TensorFlow 2.9 / tf-agents 0.13 ⇒ Python 3.10, numpy<2)
 ├── src/edaptive/
 │   ├── const.py              # max_float = np.finfo(float).max
@@ -262,7 +262,7 @@ python experiments/scripts/execute.py --solver stability_guided_PSO --identifier
 (trial index = seed).
 
 ### Environment setup
-- Python **3.10** (TensorFlow 2.9 for calypso), `numpy<2`. Install with `pip install -e .`.
+- Python **3.10** (TensorFlow 2.9 for calypso), `numpy<2`. Install with `pip install -e '.[dev]'` (`dev` adds ruff and pytest).
 - Two environments share this folder:
   - **Host**: `venv/` in the repo, which is machine-specific (`.vscode/settings.json` hardcodes
     `/home/gary/Desktop/edaptive`). Never recreate or modify `venv/` from inside the dev container.
@@ -303,8 +303,11 @@ regenerate `scripts/calypso-integration.patch` (`git -C calypso diff > scripts/c
   **dict keys must exactly match `initialize()` parameter names**.
 - All randomness should flow through the single `np.random.Generator` created by the solver from `rnd_seed`.
 - Numpy-vectorised over the population; avoid per-particle Python loops.
-- No formatter or linter is configured. Match the existing style (4-space indentation, snake_case, some
-  descriptive comments, scientific notation names preserved).
+- Formatting/linting: ruff, configured in `pyproject.toml` (line length 88, target py310). Run `ruff format .` and
+  `ruff check .` from the repo root. Rules: `E, W, F, I, N, B`, with `N802/N803/N806/N815/N816` ignored so
+  literature notation (`X`, `Y_hat`, `B`, `L`, `T_first`, …) stays. `*.md` files, `calypso/`, `.coco/` and `venv/`
+  are excluded. The code is ruff-formatted; lint violations remain (see R7b). Otherwise snake_case, with some
+  descriptive comments.
 - The author plans substantial refactoring, so check intent with the user before large structural changes.
 
 ## Roadmap (planned improvements)
@@ -402,11 +405,14 @@ the code toward irace, but each one must be stated explicitly.
   `sample`), with the unused scipy imports removed. Update `random_solver.py`. Confirm the name with the author.
 
 **R7 PEP 8 compliance.**
-- [ ] (a) Add `[tool.ruff]` to `pyproject.toml`: select `E, W, F, I, N, B`; ignore `N802, N803, N806, N815, N816`
-  (literature notation); keep N801 (CapWords class names). Add a `dev` extra (`ruff`, `pytest`). Run `ruff format`
-  in a commit with no logic changes.
-- [ ] (b) Fix the remaining violations: wildcard/unused imports, `stability_guided_PSO` → `StabilityGuidedPSO`
-  (update the commands above), and the scratch `main()` blocks (Known issue 9).
+- [x] (a) ruff config, `dev` extra, `ruff format` applied (the AST is identical before and after).
+- [ ] (b) Fix the remaining `ruff check` violations (about 280): wildcard imports (`F403/F405`, mostly in
+  `experiments/scripts`), unused/unsorted imports (`F401/I001`, auto-fixable), `E501` long lines (mostly
+  `ifrace.py`), `E741` (the race index `l` in `ifrace.py`: rename it or ignore the rule there), `B905/B027/B008`,
+  `stability_guided_PSO` → `StabilityGuidedPSO` (update the commands above), and the scratch `main()` blocks
+  (Known issue 9). Decide on `N801` for the problem classes (`BBOB_FID2_IID1`, `CEC_2013_FID13`,
+  `CosineMixture_OG`, …). Their names are used as keys in result pickles and in calypso's dotted paths, so a
+  per-file ignore for `problems/` is probably better than renaming them.
 
 **R8 Unit tests** (pytest, `tests/` mirroring `src/edaptive/`).
 - [ ] (a) Characterisation tests before the refactors: same-seed reproducibility, and pinned final fitness for each
