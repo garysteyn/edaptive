@@ -21,6 +21,8 @@ This file is the main source of project context for future sessions, so keep it 
   not as a follow-up. That includes the repository layout, class interfaces or constructor signatures, the
   hyper_params or JSON config schema, run or setup commands, output paths, conventions, and the calypso/COCO integration.
 - When you fix an item listed under "Known issues", remove it. When you find a new issue but don't fix it, add it there.
+- "Roadmap" holds planned improvements. Tick sub-tasks off as they're done. Once an item is finished, record the facts
+  it established in the relevant sections and remove the item. New improvement ideas go into the Roadmap.
 - Record facts about the code as it stands, not a history of changes (git keeps that). Keep it concise.
 - When you finish a task, tell the user whether you updated this file and which sections changed.
 
@@ -305,6 +307,117 @@ regenerate `scripts/calypso-integration.patch` (`git -C calypso diff > scripts/c
   descriptive comments, scientific notation names preserved).
 - The author plans substantial refactoring, so check intent with the user before large structural changes.
 
+## Roadmap (planned improvements)
+
+Agreed with the author. Implement each item as its own task and confirm the design before any structural change.
+Decisions already made:
+- **Naming:** use descriptive words. `n_x` means the problem dimension only.
+- **PEP 8:** enforce it with ruff, but keep literature notation (`X`, `Y_hat`, `B`, `L`, `T_first`, …) by exempting
+  the naming rules.
+- **I/F-race fidelity:** follow the original elitist irace (López-Ibáñez et al. 2016 / the irace R package).
+  Deliberate deviations: Sobol' initialisation and log-scale parameter handling. Conditional parameters and other
+  irace extras are out of scope.
+
+Suggested order (each step is checked against the R8a reference results):
+1. R7a: ruff config, `dev` extra, one formatting-only commit. Later diffs then show only real changes.
+2. R8a: characterisation tests (pinned seeded results). This protects all later steps.
+3. Known issue 1 (seeded copula RNG), so copula runs can be pinned too. This changes copula results.
+4. R6 + R1 + R2 as one renaming pass. Pinned results must stay unchanged. Settle the `"adapted"` key question here.
+5. R3, together with the `StabilityGuidedPSO` rename from R7b. Results stay unchanged.
+6. R5a–d. These need the shared run loop from R3.
+7. R4 phase 1: pure restructuring. Its output must be bit-identical to the R8a reference.
+8. R5e: serial tuning time.
+9. R4 phase 2: fidelity audit, one behaviour change per commit, each with its difference from the reference
+   explained.
+10. The rest of R7b.
+
+R8b is not a separate step: add each component's unit tests in the step that touches it.
+Known issue 2 changes EDASolver behaviour, so resolve it before running EDASolver tuning/experiments. Steps 1–6
+don't depend on it.
+
+**R1 Clear dimension names.** `n_x` refers to the problem dimension only (PSO, IFRace, problems, CLI `--n_x`).
+- [ ] `BaseAdapter.n_x` → `n_params` (dimension of the adapted parameter space). Update `BetaEDA`, `RandomAdapter`
+  and `sample()`.
+- [ ] `BaseAdapter.search_space` → `param_space` (this resolves the TODO in `core/adapter.py`).
+
+**R2 Separate adaptive control parameters from fixed ones (e.g. `n_s`).** Must not change numerical results.
+- [ ] `BaseOptimizer.CP`/`_CP` → `adaptive_params`/`_adaptive_params`, shape `(n_s, n_adaptive)`.
+- [ ] Optimizers declare `adaptive_param_names` (PSO: `("w", "c_1", "c_2")`). Solvers then map columns by name instead of
+  by position (this removes the hardcoded indexing in `sg_pso.py` and the order assumption in the solvers).
+- [ ] `CP_lb`/`CP_ub` → `param_lb`/`param_ub`; in `BetaEDA`, `elite_CPs`/`get_elite_CPs`/`scaled_CP` → `elite_params`/…;
+  the `required_data()` entry `"CP"` → `"adaptive_params"`.
+- [ ] Solver locals: `CP_init`/`CP_new`/`sample_CP` → `initial_params`/`new_params`/`sample_params`.
+- [ ] Decide whether the hyper_params/JSON key `"adapted"` → `"adaptive"`. Renaming it breaks existing configs and
+  `best_configuration.pkl` files, so it needs a migration or a backward-compatible loader.
+
+**R3 Cleaner solver construction (`hyper_params` unpacking).** This is a structural change, so confirm the design first.
+- [ ] Replace the nested `hyper_params["optimizer"]["fixed"]` access with a small frozen dataclass, e.g.
+  `SolverConfig(identifier, fixed_params, adaptive_space, adapter_params)`, produced by `parse_config`, with
+  `from_dict()` for old pickles.
+- [ ] Move the shared logic into `BaseSolver`: RNG creation, `_build_optimizer(problem, initial_params=None)`,
+  `_build_adapter()`, a common `run()` loop with a per-iteration hook `adapt(t)`, and timing collection
+  (covers Known issue 7).
+- [ ] Give every solver the same constructor signature, `stability_guided_PSO` included (fixes the constructor parts of
+  Known issue 4).
+- Constraint: keep the RNG consumption order (in `EDASolver`, the adapter samples initial params before PSO draws `X`).
+
+**R4 Rewrite the elitist I/F-race tuner for readability and fidelity.** Behaviour changes are allowed where they move
+the code toward irace, but each one must be stated explicitly.
+- [ ] Merge `ifrace_sampling_model.py` into `tuning/ifrace.py` and drop the `IFRaceSamplingModel` ABC.
+- [ ] Structure the code to mirror the published algorithm: `tune()` is the outer loop (budget split, `L`, extending
+  `L`). Separate methods cover: configurations per race, sampling/model update, the race over instances, the
+  Friedman + Conover test and elimination, and elite selection. Docstrings cite the paper's sections/equations.
+- [ ] Isolate the parallelism in one `_evaluate(jobs)` that spreads `(config, instance, seed)` jobs over ranks and
+  gathers `(result, history timings)`. Rank 0 makes all decisions, and the state is broadcast once per step. The
+  algorithm code contains no `comm.*` calls.
+- [ ] Use explicit read-only properties for the tuner and sampling-model state (elites, weights, sigma per config,
+  categorical probabilities, sampled parent indices, best configuration, race history). The tuner must no longer
+  read model internals such as `numeric_sigma` and `categorical_update_elite`.
+- [ ] Separate logging from the logic (so R5e can exclude it). Replace `print` calls with logging. Rename `nm()`.
+- [ ] Fidelity audit against irace, recording every deviation here: the N_l formula (`mu + T_each·min(5,l)`), the
+  budget split and extension of `L`, the per-race sigma reduction, the categorical update and cap, soft restart,
+  elite protection (`e_j + T_new`), the instance order (new instances, then seen ones, then the rest), the counter of
+  tests without elimination, and instance seeding.
+- [ ] Verify that the log-scale handling is consistent across Sobol' init, sigma init (half the log range), truncated
+  normal sampling in log space, integer rounding, the distance check and soft restart. Keep it if it is sound.
+- [ ] Out of scope: conditional parameters, forbidden configurations, capping, recovery files.
+- Capture a seeded reference run first (R8a) so that every change in results can be explained.
+
+**R5 Timing of the core algorithm components** (exclude logging and performance measures).
+- [ ] (a) Adapters: `BaseAdapter._timings`; `@timed` on `check_update`/`update`/`sample` of `BetaEDA` and the random
+  adapter.
+- [ ] (b) Tailored adaptation logic: time the rejection sampling in `stability_guided_PSO`.
+- [ ] (c) Optimizer↔adapter interaction: time `get_required_data` and the adaptive-params setter in the solvers.
+  They pass references, so they are probably negligible. Measure, then keep or drop.
+- [ ] (d) `history["timings"]` → `{"optimizer": {...}, "adapter": {...}, "solver": {...}}` plus a helper
+  `core_time(timings)` that sums them. It excludes `update_history`/`prop_stable` etc. Use `OMP_NUM_THREADS=1` for
+  honest serial times.
+- [ ] (e) IFRace serial tuning time for each race: `solver_time` = Σ `core_time` over the runs actually executed
+  (cached elite results add 0); `tuner_time` = sampling, tests, elimination and elite selection on rank 0 (excluding
+  logging and MPI); `total` = their sum. Write to `tuning.log` and `results/tuning_results/<id>/tuning_times.json`,
+  including the grand total. Depends on R4.
+
+**R6 Rename `adapters/simple_random.py`.**
+- [ ] Proposal: `adapters/uniform_random.py` / `UniformRandomAdapter` (subclass `EDAAdapter`, since it implements
+  `sample`), with the unused scipy imports removed. Update `random_solver.py`. Confirm the name with the author.
+
+**R7 PEP 8 compliance.**
+- [ ] (a) Add `[tool.ruff]` to `pyproject.toml`: select `E, W, F, I, N, B`; ignore `N802, N803, N806, N815, N816`
+  (literature notation); keep N801 (CapWords class names). Add a `dev` extra (`ruff`, `pytest`). Run `ruff format`
+  in a commit with no logic changes.
+- [ ] (b) Fix the remaining violations: wildcard/unused imports, `stability_guided_PSO` → `StabilityGuidedPSO`
+  (update the commands above), and the scratch `main()` blocks (Known issue 9).
+
+**R8 Unit tests** (pytest, `tests/` mirroring `src/edaptive/`).
+- [ ] (a) Characterisation tests before the refactors: same-seed reproducibility, and pinned final fitness for each
+  solver on a cheap analytic problem. Also a small seeded `IFRace.tune` on dummy instances, comparing the best
+  configuration and race history.
+- [ ] (b) Unit tests: `Parameter`/`ParameterSpace` validation; `parse_config`; `BenchmarkProblem` batching and
+  NaN/inf mapping; PSO shapes, feasibility-gated pbest/gbest and the stability criterion; `BetaEDA` (uniform init,
+  moment fit recovers a known Beta, `rho_min` floor, bounds, seeded copula, which exposes Known issue 1); timing
+  structure; IFRace pieces (N_l/budget formulas, elite selection, sampling bounds including log scale, soft restart).
+  Skip COCO/opfunu tests if they aren't installed. Add an optional `mpirun -n 2` test that must equal the serial run.
+
 ## Known issues / things to verify (found by reading the code, not yet confirmed or fixed)
 
 1. **Unseeded RNG in the copula sampler**: `BetaEDA.sample` with `copula="gaussian"` uses global `np.random.randn`,
@@ -319,13 +432,13 @@ regenerate `scripts/calypso-integration.patch` (`git -C calypso diff > scripts/c
    debug print `results["CosineMixture_OG"][k] for k in range(0, 50)` (fails if `n_trials < 50`); `config` is undefined
    when there's neither a tuned pkl nor `--config`; untuned branch doesn't pass `adapter_type` (breaks `EDASolver`);
    tuned branch passes `optimizer_type`/`adapter_type`, which `stability_guided_PSO` doesn't accept (duplicate kwarg).
-   The same constructor mismatch means `tune.py` can't drive `stability_guided_PSO`.
+   The same constructor mismatch means `tune.py` can't drive `stability_guided_PSO`. (Constructor parts → R3.)
 5. `CECProblem._evaluate` forwards batched `(N, D)` input straight to opfunu's `evaluate`, which is likely 1-D only.
    Verify before using CEC problems with PSO.
 6. `create_adapted_parameter_space` ignores integer/categorical specifics; `RandomAdapter`/`BetaEDA` assume continuous CPs.
 7. `BaseAdapter`'s abstract interface doesn't declare `check_update`; `BaseSolver` lacks shared run-loop logic
-   (duplicated across solvers).
+   (duplicated across solvers). (→ R3.)
 8. PSO history keys `velocities`/`diversity` are only populated at initialisation.
 9. Empty placeholders: `solvers/pso/tvac_pso.py`, `problems/misc_problems.py`. Scratch `main()` blocks live in
-   `random_solver.py` and `ela_benchmark_suite.py`.
+   `random_solver.py` and `ela_benchmark_suite.py`. (→ R7b.)
 10. Git: branches `main` and `elitist-ifrace` (also on origin).
