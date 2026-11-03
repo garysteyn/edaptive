@@ -308,6 +308,8 @@ regenerate `scripts/calypso-integration.patch` (`git -C calypso diff > scripts/c
   literature notation (`X`, `Y_hat`, `B`, `L`, `T_first`, …) stays. `*.md` files, `calypso/`, `.coco/` and `venv/`
   are excluded. The code is ruff-formatted; lint violations remain (see R7b). Otherwise snake_case, with some
   descriptive comments.
+  Formatting-only commits are listed in `.git-blame-ignore-revs` (enable locally with
+  `git config blame.ignoreRevsFile .git-blame-ignore-revs`). Add any future formatting-only commit there.
 - The author plans substantial refactoring, so check intent with the user before large structural changes.
 
 ## Roadmap (planned improvements)
