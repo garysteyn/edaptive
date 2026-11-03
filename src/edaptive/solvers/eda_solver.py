@@ -1,6 +1,7 @@
 import numpy as np
 from edaptive.core.solver import BaseSolver
 
+
 class EDASolver(BaseSolver):
     def initialize(self, problem, hyper_params, rnd_seed=0):
         self.rng = np.random.default_rng(rnd_seed)
@@ -14,14 +15,22 @@ class EDASolver(BaseSolver):
 
         self.adapter = self.adapter_type(
             search_space=optimizer_params_adapted,
-            **(adapter_params | {"rng" : self.rng})
+            **(adapter_params | {"rng": self.rng}),
         )
 
         CP_init = self.adapter.sample(N=self.n_s)
-        CP_init_dict = {param.name : CP_init[:, idx] for idx, param in enumerate(optimizer_params_adapted)}
+        CP_init_dict = {
+            param.name: CP_init[:, idx]
+            for idx, param in enumerate(optimizer_params_adapted)
+        }
 
         self.optimizer = self.optimizer_type(
-            **({"problem" : problem} | {"rng" : self.rng} | optimizer_params_fixed | CP_init_dict)
+            **(
+                {"problem": problem}
+                | {"rng": self.rng}
+                | optimizer_params_fixed
+                | CP_init_dict
+            )
         )
 
     def run(self, max_iterations=5000):
@@ -42,9 +51,5 @@ class EDASolver(BaseSolver):
             CP_new = adapter.sample(N=self.n_s)
             optimizer.CP = CP_new
 
-
         optimizer.history["timings"] = optimizer._timings
-        return (
-            np.min(optimizer.history["f_best"]),
-            optimizer.history
-        )
+        return (np.min(optimizer.history["f_best"]), optimizer.history)

@@ -3,12 +3,12 @@ from edaptive.core.optimizer import BaseOptimizer
 from edaptive.const import max_float
 from edaptive.utils.timing import timed
 
-class PSO(BaseOptimizer):
 
+class PSO(BaseOptimizer):
     @timed
     def initialize(self, problem, rng, n_s, w, c_1, c_2):
         self.rng = rng
-        
+
         self.problem = problem
         self.n_x = problem.dimensions
         self.problem_lb = problem.lower
@@ -19,9 +19,7 @@ class PSO(BaseOptimizer):
         self.n_s = n_s
 
         self.X = self.rng.uniform(
-            self.problem_lb,
-            self.problem_ub,
-            size=[self.n_s, self.n_x]
+            self.problem_lb, self.problem_ub, size=[self.n_s, self.n_x]
         )
 
         self.Y = self.X.copy()
@@ -30,14 +28,14 @@ class PSO(BaseOptimizer):
         self.f_Y = self.f_X.copy()
 
         self.V = np.zeros(shape=[self.n_s, self.n_x])
-        
+
         self.Y_hat = None
         self.f_Y_hat = np.inf
-    
+
     def init_history(self):
         self.history["velocities"] = []
         self.history["velocities"].append(self.V.copy())
-        
+
         self.history["diversity"] = []
         self.history["diversity"].append(swarm_diversity(self.X))
 
@@ -47,9 +45,7 @@ class PSO(BaseOptimizer):
         self.history["prop_stable"] = []
         self.history["prop_stable"].append(
             stable_particle_proportion(
-                w=self._CP[:, 0],
-                c_1=self._CP[:, 1],
-                c_2=self._CP[:, 2]
+                w=self._CP[:, 0], c_1=self._CP[:, 1], c_2=self._CP[:, 2]
             )
         )
 
@@ -66,9 +62,7 @@ class PSO(BaseOptimizer):
 
         # Determine which particles are within bounds
         valid = np.all(
-            (self.X >= self.problem.lower)
-            & (self.X <= self.problem.upper),
-            axis=1
+            (self.X >= self.problem.lower) & (self.X <= self.problem.upper), axis=1
         )
 
         # Particles that improve their personal best
@@ -101,42 +95,31 @@ class PSO(BaseOptimizer):
             + c_2 * r_2 * (self.Y_hat - self.X)
         )
 
-        self.V = np.nan_to_num(
-            V,
-            posinf=max_float,
-            neginf=-max_float
-        )
+        self.V = np.nan_to_num(V, posinf=max_float, neginf=-max_float)
 
         # Update positions
         self.X += self.V
 
-        self.X = np.nan_to_num(
-            self.X,
-            posinf=max_float,
-            neginf=-max_float
-        )
+        self.X = np.nan_to_num(self.X, posinf=max_float, neginf=-max_float)
 
     def update_history(self):
-        feasible = np.all((self.X >= self.problem.lower) & (self.X <= self.problem.upper), axis=1)
-        self.history["f_best"].append(self.f_Y_hat)
-        self.history["prop_feasible"].append(
-            feasible.sum() / self.n_s
+        feasible = np.all(
+            (self.X >= self.problem.lower) & (self.X <= self.problem.upper), axis=1
         )
+        self.history["f_best"].append(self.f_Y_hat)
+        self.history["prop_feasible"].append(feasible.sum() / self.n_s)
         self.history["prop_stable"].append(
             stable_particle_proportion(
-                w=self._CP[:, 0],
-                c_1=self._CP[:, 1],
-                c_2=self._CP[:, 2]
+                w=self._CP[:, 0], c_1=self._CP[:, 1], c_2=self._CP[:, 2]
             )
         )
 
+
 def swarm_diversity(positions: np.ndarray) -> float:
     center = np.mean(positions, axis=0)
-    distances = np.linalg.norm(
-        positions - center,
-        axis=1
-    )
+    distances = np.linalg.norm(positions - center, axis=1)
     return np.mean(distances)
+
 
 def stable_particle_proportion(
     w: np.ndarray,

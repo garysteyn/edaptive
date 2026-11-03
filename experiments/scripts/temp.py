@@ -25,7 +25,7 @@ problems = [
     DropWave,
     BonyadiMichalewicz,
     Discus,
-    Elliptic
+    Elliptic,
 ]
 
 np.random.seed(1001)

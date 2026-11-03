@@ -6,15 +6,12 @@ from edaptive.problems.benchmark_problem import BenchmarkProblem
 
 
 class CECProblem(BenchmarkProblem):
-
     def __init__(self, dimensions, suite, function_id):
         super().__init__(
             dimensions=dimensions,
         )
 
-        module = importlib.import_module(
-            f"opfunu.cec_based.cec{suite}"
-        )
+        module = importlib.import_module(f"opfunu.cec_based.cec{suite}")
 
         function_class = getattr(
             module,

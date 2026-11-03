@@ -1,6 +1,7 @@
 from functools import wraps
 from time import perf_counter
 
+
 def timed(func):
     @wraps(func)
     def wrapper(*args, **kwargs):

@@ -6,6 +6,7 @@ from abc import ABC, abstractmethod
 from edaptive.const import max_float
 from edaptive.problems.benchmark_problem import BenchmarkProblem
 
+
 def plot_benchmark_3d(
     benchmark_cls,
     resolution=200,
@@ -13,7 +14,7 @@ def plot_benchmark_3d(
     azim=-60,
     figsize=(10, 8),
     cmap="viridis",
-    zlim=None,          # (zmin, zmax)
+    zlim=None,  # (zmin, zmax)
 ):
     """
     Plot a 2-dimensional benchmark function as a 3D surface.
@@ -114,7 +115,8 @@ class Schwefel1(BenchmarkProblem):
 
     def _evaluate(self, x):
         # return np.sum(x ** 2) ** self.alpha
-        return np.sum(x ** 2, axis=-1) ** self.alpha
+        return np.sum(x**2, axis=-1) ** self.alpha
+
 
 class Ripple25(BenchmarkProblem):
     """
@@ -153,6 +155,7 @@ class Ripple25(BenchmarkProblem):
 
         return np.sum(-np.exp(u) * v, axis=-1)
 
+
 class Exponential(BenchmarkProblem):
     """
     Exponential benchmark function.
@@ -184,7 +187,8 @@ class Exponential(BenchmarkProblem):
     def _evaluate(self, x):
         # return -np.exp(-0.5 * np.sum(x**2))
         return -np.exp(-0.5 * np.sum(x**2, axis=-1))
-    
+
+
 class NeedleEye(BenchmarkProblem):
     """
     Needle Eye benchmark function.
@@ -248,6 +252,7 @@ class NeedleEye(BenchmarkProblem):
 
         return values
 
+
 class Step3(BenchmarkProblem):
     """
     Step Function No. 3 benchmark function.
@@ -279,6 +284,7 @@ class Step3(BenchmarkProblem):
     def _evaluate(self, x):
         # return np.sum(np.floor(x**2))
         return np.sum(np.floor(x**2), axis=-1)
+
 
 class GeneralizedGiunta(BenchmarkProblem):
     """
@@ -323,11 +329,10 @@ class GeneralizedGiunta(BenchmarkProblem):
         b = np.sin(a)
 
         return 0.6 + np.sum(
-            b +
-            b**2 +
-            0.02 * np.sin(4.0 * a),
+            b + b**2 + 0.02 * np.sin(4.0 * a),
             axis=-1,
         )
+
 
 class GeneralizedPaviani(BenchmarkProblem):
     """
@@ -373,8 +378,7 @@ class GeneralizedPaviani(BenchmarkProblem):
 
         values = (
             np.sum(
-                np.log(10.0 - x) ** 2 +
-                np.log(x - 2.0) ** 2,
+                np.log(10.0 - x) ** 2 + np.log(x - 2.0) ** 2,
                 axis=-1,
             )
             - np.prod(x, axis=-1) ** 0.2
@@ -383,6 +387,7 @@ class GeneralizedPaviani(BenchmarkProblem):
         values = np.where(invalid, np.inf, values)
 
         return values
+
 
 class Brown(BenchmarkProblem):
     """
@@ -428,13 +433,12 @@ class Brown(BenchmarkProblem):
         x2 = x[..., 1:]
 
         return np.sum(
-            (x1**2) ** (x2**2 + 1.0)
-            + (x2**2) ** (x1**2 + 1.0),
+            (x1**2) ** (x2**2 + 1.0) + (x2**2) ** (x1**2 + 1.0),
             axis=-1,
         )
 
-class CosineMixture_OG(BenchmarkProblem):
 
+class CosineMixture_OG(BenchmarkProblem):
     def __init__(self, dimensions):
         super().__init__(
             dimensions=dimensions,
@@ -452,13 +456,10 @@ class CosineMixture_OG(BenchmarkProblem):
         #     + np.sum(x**2)
         # )
 
-        return (
-            -0.1 * np.sum(np.cos(5.0 * np.pi * x), axis=-1)
-            + np.sum(x**2, axis=-1)
-        )
+        return -0.1 * np.sum(np.cos(5.0 * np.pi * x), axis=-1) + np.sum(x**2, axis=-1)
+
 
 class CosineMixture(BenchmarkProblem):
-
     def __init__(self, dimensions):
         super().__init__(
             dimensions=dimensions,
@@ -476,12 +477,10 @@ class CosineMixture(BenchmarkProblem):
         #     - np.sum(x**2)
         # )
 
-        return (
-            -0.1 * np.sum(np.cos(5.0 * np.pi * x), axis=-1)
-            - np.sum(x**2, axis=-1)
-        )
+        return -0.1 * np.sum(np.cos(5.0 * np.pi * x), axis=-1) - np.sum(x**2, axis=-1)
 
-# Note: The bounds of this function should be changed to [-D, D]. This ensures that an optimal value of f=0 is attainable at any dimension. 
+
+# Note: The bounds of this function should be changed to [-D, D]. This ensures that an optimal value of f=0 is attainable at any dimension.
 class Mishra07(BenchmarkProblem):
     """
     Mishra No. 7 (Factorial) benchmark function.
@@ -518,14 +517,12 @@ class Mishra07(BenchmarkProblem):
         self.global_optimum_value = 0.0
 
         self.factorial = factorial(dimensions)
-        
+
     def _evaluate(self, x):
         # return (np.prod(x) - math.factorial(self.dimensions)) ** 2
 
-        return (
-            np.prod(x, axis=-1) -
-            self.factorial
-        ) ** 2
+        return (np.prod(x, axis=-1) - self.factorial) ** 2
+
 
 class Mishra01(BenchmarkProblem):
     """
@@ -572,6 +569,7 @@ class Mishra01(BenchmarkProblem):
 
         return (1.0 + xn) ** xn
 
+
 class GeneralizedPrice2(BenchmarkProblem):
     """
     Generalized Price No. 2 benchmark function.
@@ -608,10 +606,9 @@ class GeneralizedPrice2(BenchmarkProblem):
         # )
 
         return (
-            1.0
-            + np.sum(np.sin(x) ** 2, axis=-1)
-            - 0.1 * np.exp(-np.sum(x ** 2, axis=-1))
+            1.0 + np.sum(np.sin(x) ** 2, axis=-1) - 0.1 * np.exp(-np.sum(x**2, axis=-1))
         )
+
 
 class GeneralizedEggCrate(BenchmarkProblem):
     """
@@ -647,10 +644,8 @@ class GeneralizedEggCrate(BenchmarkProblem):
         #     + 24.0 * np.sum(np.sin(x) ** 2)
         # )
 
-        return (
-            np.sum(x ** 2, axis=-1)
-            + 24.0 * np.sum(np.sin(x) ** 2, axis=-1)
-        )
+        return np.sum(x**2, axis=-1) + 24.0 * np.sum(np.sin(x) ** 2, axis=-1)
+
 
 class Rosenbrock(BenchmarkProblem):
     """
@@ -690,10 +685,10 @@ class Rosenbrock(BenchmarkProblem):
         # )
 
         return np.sum(
-            100.0 * (x[..., 1:] - x[..., :-1] ** 2) ** 2
-            + (x[..., :-1] - 1.0) ** 2,
+            100.0 * (x[..., 1:] - x[..., :-1] ** 2) ** 2 + (x[..., :-1] - 1.0) ** 2,
             axis=-1,
         )
+
 
 # Version used in the ELA uses log, not log_10
 class Pinter2(BenchmarkProblem):
@@ -802,32 +797,20 @@ class Pinter2(BenchmarkProblem):
         )
 
         b = np.sum(
-            20.0
-            * i
-            * np.sin(
-                x_prev * np.sin(x)
-                + np.sin(x_next)
-            ) ** 2,
+            20.0 * i * np.sin(x_prev * np.sin(x) + np.sin(x_next)) ** 2,
             axis=-1,
         )
 
         c = np.sum(
             i
             * np.log(
-                1.0
-                + i
-                * (
-                    x_prev**2
-                    - 2.0 * x
-                    + 3.0 * x_next
-                    - np.cos(x)
-                    + 1.0
-                ) ** 2
+                1.0 + i * (x_prev**2 - 2.0 * x + 3.0 * x_next - np.cos(x) + 1.0) ** 2
             ),
             axis=-1,
         )
 
         return a + b + c
+
 
 class Pinter2_OG(BenchmarkProblem):
     """
@@ -935,32 +918,20 @@ class Pinter2_OG(BenchmarkProblem):
         )
 
         b = np.sum(
-            20.0
-            * i
-            * np.sin(
-                x_prev * np.sin(x)
-                + np.sin(x_next)
-            ) ** 2,
+            20.0 * i * np.sin(x_prev * np.sin(x) + np.sin(x_next)) ** 2,
             axis=-1,
         )
 
         c = np.sum(
             i
             * np.log10(
-                1.0
-                + i
-                * (
-                    x_prev**2
-                    - 2.0 * x
-                    + 3.0 * x_next
-                    - np.cos(x)
-                    + 1.0
-                ) ** 2
+                1.0 + i * (x_prev**2 - 2.0 * x + 3.0 * x_next - np.cos(x) + 1.0) ** 2
             ),
             axis=-1,
         )
 
         return a + b + c
+
 
 class Qing(BenchmarkProblem):
     """
@@ -987,9 +958,7 @@ class Qing(BenchmarkProblem):
         self.lower = np.full(dimensions, -500.0)
         self.upper = np.full(dimensions, 500.0)
 
-        self.global_optimum = np.sqrt(
-            np.arange(1, dimensions + 1)
-        )
+        self.global_optimum = np.sqrt(np.arange(1, dimensions + 1))
         self.global_optimum_value = 0.0
 
     def _evaluate(self, x):
@@ -1002,9 +971,10 @@ class Qing(BenchmarkProblem):
         i = np.arange(1, self.dimensions + 1)
 
         return np.sum(
-            (x ** 2 - i) ** 2,
+            (x**2 - i) ** 2,
             axis=-1,
         )
+
 
 class BBOB_FID2_IID1(BBOBProblem):
     """
@@ -1018,6 +988,7 @@ class BBOB_FID2_IID1(BBOBProblem):
             instance_id=1,
         )
 
+
 class BBOB_FID6_IID1(BBOBProblem):
     """
     BBOB FID 6 (Attractive Sector) IID 1
@@ -1029,6 +1000,7 @@ class BBOB_FID6_IID1(BBOBProblem):
             function_id=6,
             instance_id=1,
         )
+
 
 class BBOB_FID16_IID1(BBOBProblem):
     """
@@ -1042,6 +1014,7 @@ class BBOB_FID16_IID1(BBOBProblem):
             instance_id=1,
         )
 
+
 class BBOB_FID17_IID2(BBOBProblem):
     """
     BBOB FID 17 (Schaffer F7, Condition 10) IID 2
@@ -1053,6 +1026,7 @@ class BBOB_FID17_IID2(BBOBProblem):
             function_id=17,
             instance_id=2,
         )
+
 
 class DropWave(BenchmarkProblem):
     """
@@ -1082,13 +1056,10 @@ class DropWave(BenchmarkProblem):
         #     2.0 + 0.5 * sumsqr
         # )
 
-        sumsqr = np.sum(x ** 2, axis=-1)
+        sumsqr = np.sum(x**2, axis=-1)
 
-        return -(
-            1.0 + np.cos(12.0 * np.sqrt(sumsqr))
-        ) / (
-            2.0 + 0.5 * sumsqr
-        )
+        return -(1.0 + np.cos(12.0 * np.sqrt(sumsqr))) / (2.0 + 0.5 * sumsqr)
+
 
 class BonyadiMichalewicz(BenchmarkProblem):
     """
@@ -1120,6 +1091,7 @@ class BonyadiMichalewicz(BenchmarkProblem):
 
         return a / b
 
+
 class Discus(BenchmarkProblem):
     """
     Discus benchmark function.
@@ -1148,10 +1120,8 @@ class Discus(BenchmarkProblem):
         #     + np.sum(x[1:] ** 2)
         # )
 
-        return (
-            1.0e6 * x[..., 0] ** 2
-            + np.sum(x[..., 1:] ** 2, axis=-1)
-        )
+        return 1.0e6 * x[..., 0] ** 2 + np.sum(x[..., 1:] ** 2, axis=-1)
+
 
 class Elliptic(BenchmarkProblem):
     """
@@ -1188,15 +1158,14 @@ class Elliptic(BenchmarkProblem):
         i = np.arange(self.dimensions)
 
         return np.sum(
-            10.0 ** (
-                6.0 * i / (self.dimensions - 1.0)
-            )
-            * x ** 2,
+            10.0 ** (6.0 * i / (self.dimensions - 1.0)) * x**2,
             axis=-1,
         )
 
+
 def main():
     plot_benchmark_3d(BBOB_FID17_IID2)
+
 
 if __name__ == "__main__":
     main()

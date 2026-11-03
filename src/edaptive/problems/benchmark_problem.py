@@ -2,6 +2,7 @@ import numpy as np
 from abc import ABC, abstractmethod
 from edaptive.const import max_float
 
+
 class BenchmarkProblem(ABC):
     def __init__(self, dimensions):
         if dimensions <= 0:
@@ -16,20 +17,11 @@ class BenchmarkProblem(ABC):
         #         f"x must have shape ({self.dimensions},)"
         #     )
 
-        with np.errstate(
-            over="ignore",
-            invalid="ignore",
-            divide="ignore"
-        ):
+        with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
             result = self._evaluate(x)
         # result = self._evaluate(x)
-        return np.nan_to_num(
-            result,
-            nan=max_float,
-            posinf=max_float,
-            neginf=-max_float
-        )
-    
+        return np.nan_to_num(result, nan=max_float, posinf=max_float, neginf=-max_float)
+
     @abstractmethod
     def _evaluate(self, x):
         """Evaluate the benchmark function."""

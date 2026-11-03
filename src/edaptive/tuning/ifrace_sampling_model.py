@@ -18,6 +18,7 @@ class IFRaceSamplingModel(ABC):
     def sample(self, N_l):
         pass
 
+
 class IFRaceDefaultSamplingModel(IFRaceSamplingModel):
     def __init__(self):
         self.digits = None
@@ -54,8 +55,8 @@ class IFRaceDefaultSamplingModel(IFRaceSamplingModel):
     def _distance(self, config1, config2):
         """Calculate the normalized distance between two configurations for soft restart."""
         max_dist = 0.0
-        threshold = 10.0 ** -self.digits
-        
+        threshold = 10.0**-self.digits
+
         for param in self.configuration_space:
             val1 = config1.get(param.name)
             val2 = config2.get(param.name)
@@ -73,7 +74,7 @@ class IFRaceDefaultSamplingModel(IFRaceSamplingModel):
                 else:
                     rng = param.upper - param.lower
                     dist = abs(val1 - val2) / rng
-                
+
                 if dist > threshold:
                     max_dist = max(max_dist, dist)
             elif param.type == ParameterType.CATEGORICAL:
@@ -83,12 +84,7 @@ class IFRaceDefaultSamplingModel(IFRaceSamplingModel):
         return max_dist
 
     def initialize(
-        self,
-        configuration_space,
-        n_configurations,
-        L,
-        master_rng,
-        digits=4
+        self, configuration_space, n_configurations, L, master_rng, digits=4
     ):
         self.configuration_space = configuration_space
         self.L = L
@@ -138,14 +134,12 @@ class IFRaceDefaultSamplingModel(IFRaceSamplingModel):
                     value = param.classes[index]
 
                 else:
-                    raise ValueError(
-                        f"Unsupported parameter type: {param.type}"
-                    )
+                    raise ValueError(f"Unsupported parameter type: {param.type}")
 
                 configuration[param.name] = value
 
             config_id = self._next_config_id()
-            configuration['_config_id'] = config_id
+            configuration["_config_id"] = config_id
 
             configurations.append(configuration)
 
@@ -186,14 +180,14 @@ class IFRaceDefaultSamplingModel(IFRaceSamplingModel):
             max_categorical_p = 0.2 ** (1.0 / n_parameters)
 
             for elite in prev_elites:
-                elite_id = elite['_config_id']
+                elite_id = elite["_config_id"]
 
                 for param in self.configuration_space:
                     if param.type in (ParameterType.CONTINUOUS, ParameterType.INTEGER):
-                        self.numeric_sigma[elite_id][param.name] *= (
-                            (1.0 / N_new) ** (1.0 / n_parameters)
+                        self.numeric_sigma[elite_id][param.name] *= (1.0 / N_new) ** (
+                            1.0 / n_parameters
                         )
-                    
+
                     elif param.type is ParameterType.CATEGORICAL:
                         elite_distributions = self.categorical_probabilities[elite_id]
                         probabilities = elite_distributions[param.name]
@@ -201,16 +195,14 @@ class IFRaceDefaultSamplingModel(IFRaceSamplingModel):
 
                         probabilities *= 1.0 - weight
                         probabilities[elite_value_index] += weight
-                        
+
                         probabilities = np.minimum(probabilities, max_categorical_p)
                         probabilities /= probabilities.sum()
                         elite_distributions[param.name] = probabilities
 
     def sample(self, N_l):
         if self.prev_elites is None or len(self.prev_elites) == 0:
-            raise ValueError(
-                "Cannot sample configurations without previous elites."
-            )
+            raise ValueError("Cannot sample configurations without previous elites.")
 
         prev_elites_indices = np.arange(len(self.prev_elites))
         n_parameters = len(self.configuration_space)
@@ -227,7 +219,7 @@ class IFRaceDefaultSamplingModel(IFRaceSamplingModel):
                 )
 
                 elite = self.prev_elites[elite_index]
-                elite_id = elite['_config_id']
+                elite_id = elite["_config_id"]
 
                 self.sampled_elites.append(elite_index)
                 parents.append(elite)
@@ -236,16 +228,25 @@ class IFRaceDefaultSamplingModel(IFRaceSamplingModel):
 
                 for param in self.configuration_space:
                     if param.type is ParameterType.CATEGORICAL:
-                        probabilities = self.categorical_probabilities[elite_id][param.name]
-                        idx = self.master_rng.choice(len(param.classes), p=probabilities)
+                        probabilities = self.categorical_probabilities[elite_id][
+                            param.name
+                        ]
+                        idx = self.master_rng.choice(
+                            len(param.classes), p=probabilities
+                        )
                         value = param.classes[idx]
 
-                    elif param.type in (ParameterType.CONTINUOUS, ParameterType.INTEGER):
+                    elif param.type in (
+                        ParameterType.CONTINUOUS,
+                        ParameterType.INTEGER,
+                    ):
                         mean_val = elite[param.name]
                         sigma = self.numeric_sigma[elite_id][param.name]
 
                         if sigma <= 0:
-                            raise ValueError(f"Sampling standard deviation must be positive.")
+                            raise ValueError(
+                                f"Sampling standard deviation must be positive."
+                            )
 
                         if param.log_scale_tuning:
                             mean = np.log(mean_val)
@@ -256,22 +257,29 @@ class IFRaceDefaultSamplingModel(IFRaceSamplingModel):
                             lower_bound = param.lower
                             upper_bound = param.upper
 
-                        if param.type == ParameterType.INTEGER and not param.log_scale_tuning:
+                        if (
+                            param.type == ParameterType.INTEGER
+                            and not param.log_scale_tuning
+                        ):
                             loc = mean + 0.5
                             a = (lower_bound - loc) / sigma
                             b = (upper_bound + 1.0 - loc) / sigma
-                            
-                            val = truncnorm.rvs(a, b, loc=loc, scale=sigma, random_state=self.master_rng)
+
+                            val = truncnorm.rvs(
+                                a, b, loc=loc, scale=sigma, random_state=self.master_rng
+                            )
                             value = int(np.floor(val))
                         else:
                             loc = mean
                             a = (lower_bound - loc) / sigma
                             b = (upper_bound - loc) / sigma
-                            
-                            val = truncnorm.rvs(a, b, loc=loc, scale=sigma, random_state=self.master_rng)
+
+                            val = truncnorm.rvs(
+                                a, b, loc=loc, scale=sigma, random_state=self.master_rng
+                            )
                             if param.log_scale_tuning:
                                 val = np.exp(val)
-                            
+
                             if param.type == ParameterType.INTEGER:
                                 value = int(np.round(val))
                             else:
@@ -289,7 +297,7 @@ class IFRaceDefaultSamplingModel(IFRaceSamplingModel):
 
             if attempt == 0:
                 affected_elite_indices = set()
-                
+
                 # Pairwise soft-restart check (children vs children)
                 for i, child1 in enumerate(configurations):
                     for j in range(i + 1, len(configurations)):
@@ -306,41 +314,50 @@ class IFRaceDefaultSamplingModel(IFRaceSamplingModel):
                 if affected_elite_indices:
                     print("soft-restart")
                     for idx in sorted(list(affected_elite_indices)):
-                        elite_id = self.prev_elites[idx]['_config_id']
-                        
+                        elite_id = self.prev_elites[idx]["_config_id"]
+
                         for param in self.configuration_space:
                             if param.type == ParameterType.CATEGORICAL:
-                                probs = self.categorical_probabilities[elite_id][param.name]
+                                probs = self.categorical_probabilities[elite_id][
+                                    param.name
+                                ]
                                 max_p = np.max(probs)
                                 probs = 0.9 * probs + 0.1 * max_p
                                 probs /= probs.sum()
-                                self.categorical_probabilities[elite_id][param.name] = probs
-                                
-                            elif param.type in (ParameterType.CONTINUOUS, ParameterType.INTEGER):
+                                self.categorical_probabilities[elite_id][param.name] = (
+                                    probs
+                                )
+
+                            elif param.type in (
+                                ParameterType.CONTINUOUS,
+                                ParameterType.INTEGER,
+                            ):
                                 sigma = self.numeric_sigma[elite_id][param.name]
                                 factor1 = float(N_l) ** (2.0 / n_parameters)
                                 factor2 = (1.0 / float(N_l)) ** (1.0 / n_parameters)
-                                
+
                                 if param.log_scale_tuning:
                                     rng = np.log(param.upper) - np.log(param.lower)
                                 else:
                                     rng = param.upper - param.lower
-                                    
+
                                 new_sigma = min(sigma * factor1, (rng / 2.0) * factor2)
                                 self.numeric_sigma[elite_id][param.name] = new_sigma
-                    continue 
+                    continue
 
             for i, configuration in enumerate(configurations):
-                parent_elite_id = parents[i]['_config_id']
+                parent_elite_id = parents[i]["_config_id"]
                 child_id = self._next_config_id()
-                configuration['_config_id'] = child_id
+                configuration["_config_id"] = child_id
 
                 self.categorical_probabilities[child_id] = {
-                    param.name: self.categorical_probabilities[parent_elite_id][param.name].copy()
+                    param.name: self.categorical_probabilities[parent_elite_id][
+                        param.name
+                    ].copy()
                     for param in self.configuration_space
                     if param.type is ParameterType.CATEGORICAL
                 }
-                
+
                 self.numeric_sigma[child_id] = {
                     param.name: self.numeric_sigma[parent_elite_id][param.name]
                     for param in self.configuration_space
@@ -348,5 +365,5 @@ class IFRaceDefaultSamplingModel(IFRaceSamplingModel):
                 }
 
             return configurations
-        
+
         return configurations

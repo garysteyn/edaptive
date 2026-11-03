@@ -3,9 +3,11 @@ from edaptive.core.solver import BaseSolver
 from edaptive.optimizers.pso import PSO
 from scipy.integrate import cumulative_trapezoid
 
+
 # Poli's stability criterion
 def check_stability(w, c1, c2):
     return (c1 + c2) < (24 * (1 - w**2) / (7 - 5 * w))
+
 
 class stability_guided_PSO(BaseSolver):
     def __init__(self, **kwargs):
@@ -18,12 +20,17 @@ class stability_guided_PSO(BaseSolver):
 
         self.CP_lb = [0, 0, 0]
         self.CP_ub = [1, 4, 4]
-        
+
         CP_init = self.sample_CP(N=self.n_s)
-        CP_init_dict = {"w" : CP_init[:, 0], "c_1" : CP_init [:, 1], "c_2": CP_init[:, 2]}
+        CP_init_dict = {"w": CP_init[:, 0], "c_1": CP_init[:, 1], "c_2": CP_init[:, 2]}
 
         self.optimizer = self.optimizer_type(
-            **({"problem" : problem} | {"rng" : self.rng} | optimizer_params_fixed | CP_init_dict)
+            **(
+                {"problem": problem}
+                | {"rng": self.rng}
+                | optimizer_params_fixed
+                | CP_init_dict
+            )
         )
 
     def sample_CP(self, N):
@@ -44,7 +51,7 @@ class stability_guided_PSO(BaseSolver):
 
     def run(self, max_iterations=5000):
         optimizer = self.optimizer
-        
+
         for t in range(max_iterations):
             optimizer.step(t)
 
@@ -53,7 +60,4 @@ class stability_guided_PSO(BaseSolver):
             optimizer.CP = CP_new
 
         optimizer.history["timings"] = optimizer._timings
-        return (
-            np.min(optimizer.history["f_best"]),
-            optimizer.history
-        )
+        return (np.min(optimizer.history["f_best"]), optimizer.history)

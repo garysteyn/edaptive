@@ -1,12 +1,11 @@
 import numpy as np
 from abc import ABC, abstractmethod
 
+
 class BaseOptimizer(ABC):
     def __init__(self, **kwargs):
         self._timings = {}
-        self.history = {
-            "f_best": []
-        }
+        self.history = {"f_best": []}
 
         self.initialize(**kwargs)
 
@@ -33,7 +32,4 @@ class BaseOptimizer(ABC):
         pass
 
     def get_required_data(self, names):
-        return {
-            name: getattr(self, name)
-            for name in names
-        }
+        return {name: getattr(self, name) for name in names}

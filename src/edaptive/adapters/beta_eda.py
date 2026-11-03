@@ -2,20 +2,23 @@ import numpy as np
 from edaptive.core.adapter import EDAAdapter
 from scipy.stats import beta, norm
 
+
 class BetaEDA(EDAAdapter):
     def required_data(self):
         return ["problem_lb", "problem_ub", "t", "X", "f_X", "CP"]
 
-    def initialize(self, eta, rho_min, n_elite, update_freq, copula, elite_weighting, rng):
+    def initialize(
+        self, eta, rho_min, n_elite, update_freq, copula, elite_weighting, rng
+    ):
         self.rng = rng
 
         self.copula = copula
 
-        self.a = np.ones(shape=self.n_x, dtype=np.float64) 
+        self.a = np.ones(shape=self.n_x, dtype=np.float64)
         self.b = np.ones(shape=self.n_x, dtype=np.float64)
 
         if copula == "gaussian":
-            self.R = np.eye(N=self.n_x) 
+            self.R = np.eye(N=self.n_x)
 
         self.eta = eta
         self.rho_min = rho_min
@@ -23,11 +26,11 @@ class BetaEDA(EDAAdapter):
         self.n_elite = int(n_elite)
         self.update_freq = update_freq
 
-        self.elite_weighting = elite_weighting 
+        self.elite_weighting = elite_weighting
 
     def sample(self, N):
         if self.copula == "gaussian":
-            chol_eps = 1e-10 # used to ensure matrix is positive definite
+            chol_eps = 1e-10  # used to ensure matrix is positive definite
             d = len(self.a)
             L = np.linalg.cholesky(self.R + chol_eps * np.eye(d))
             Z = np.random.randn(N, len(self.a)) @ L.T
@@ -35,10 +38,7 @@ class BetaEDA(EDAAdapter):
             samples = beta.ppf(U, self.a, self.b)
         else:
             samples = beta.rvs(
-                self.a,
-                self.b,
-                size=(N, self.n_x),
-                random_state=self.rng
+                self.a, self.b, size=(N, self.n_x), random_state=self.rng
             )
         return self.CP_lb + samples * (self.CP_ub - self.CP_lb)
 
@@ -59,7 +59,9 @@ class BetaEDA(EDAAdapter):
         return elite_CPs
 
     def get_elite_CPs(self, f_X_feasible, X_feasible, CP_feasible):
-        return CP_feasible[np.argsort(f_X_feasible)[:min(len(X_feasible), self.n_elite)]]
+        return CP_feasible[
+            np.argsort(f_X_feasible)[: min(len(X_feasible), self.n_elite)]
+        ]
 
     def update(self, elite_CPs):
         scaled_CP = (elite_CPs - self.CP_lb) / (self.CP_ub - self.CP_lb)
@@ -67,13 +69,13 @@ class BetaEDA(EDAAdapter):
         scaled_CP = np.clip(scaled_CP, eps, 1 - eps)
 
         # Step 1 (Fit marginals):
-        eps = 1e-8          # numerical stability
-        
+        eps = 1e-8  # numerical stability
+
         weights = self.compute_weights(scaled_CP)
 
         mu = np.average(scaled_CP, axis=0, weights=weights)
 
-        if weights is None: 
+        if weights is None:
             var = np.var(scaled_CP, axis=0, ddof=1)
         else:
             diff = scaled_CP - mu
@@ -92,10 +94,10 @@ class BetaEDA(EDAAdapter):
 
         if self.copula == "gaussian":
             U = beta.cdf(scaled_CP, self.a, self.b)
-            
+
             # Numerical safety
             U = np.clip(U, 1e-12, 1 - 1e-12)
-            
+
             Z = norm.ppf(U)  # Z is approximately multivariate normal
 
             # Estimate Gaussian copula
@@ -107,11 +109,11 @@ class BetaEDA(EDAAdapter):
 
         if self.elite_weighting == "rank":
             n = len(scaled_CP)
-            
+
             weights = np.arange(n, 0, -1, dtype=float)
-            
+
             weights /= weights.sum()
-        
+
         elif self.elite_weighting == "log-rank":
             n = len(scaled_CP)
 
@@ -124,10 +126,8 @@ class BetaEDA(EDAAdapter):
             weights = np.maximum(weights, 0.0)
 
             weights /= weights.sum()
-        
+
         return weights
-
-
 
 
 # class BetaMarginalsEDA(EDAAdapter):
@@ -137,7 +137,7 @@ class BetaEDA(EDAAdapter):
 #     def initialize(self, eta, rho_min, n_elite, update_freq, rng):
 #         self.rng = rng
 
-#         self.a = np.ones(shape=self.n_x, dtype=np.float64) 
+#         self.a = np.ones(shape=self.n_x, dtype=np.float64)
 #         self.b = np.ones(shape=self.n_x, dtype=np.float64)
 
 #         self.eta = eta
@@ -181,12 +181,12 @@ class BetaEDA(EDAAdapter):
 
 #         # Step 1 (Fit marginals):
 #         eps = 1e-8          # numerical stability
-        
+
 #         weights = self.compute_weights(scaled_CP)
 
 #         mu = np.average(scaled_CP, axis=0, weights=weights)
 
-#         if weights is None: 
+#         if weights is None:
 #             var = np.var(scaled_CP, axis=0, ddof=1)
 #         else:
 #             diff = scaled_CP - mu
@@ -238,7 +238,6 @@ class BetaEDA(EDAAdapter):
 #             return weights
 
 
-    
 # class BetaMarginalsGaussianCopulaEDA(BaseAdapter):
 #     def __init__(self, hyper_params, search_space):
 #         super().__init__(hyper_params, search_space)
@@ -246,9 +245,9 @@ class BetaEDA(EDAAdapter):
 #         self.initialize()
 
 #     def initialize(self):
-#         self.a = np.ones(shape=self.n_x, dtype=np.float32) 
+#         self.a = np.ones(shape=self.n_x, dtype=np.float32)
 #         self.b = np.ones(shape=self.n_x, dtype=np.float32)
-#         self.R = np.eye(N=self.n_x) 
+#         self.R = np.eye(N=self.n_x)
 
 #         if "eta" in self.hyper_params.keys():
 #             self.eta = self.hyper_params["eta"]
@@ -290,8 +289,6 @@ class BetaEDA(EDAAdapter):
 #         samples = CP_feasible[np.argsort(f_X_feasible)[:min(len(X_feasible), 15)]]
 #         # self.adapter.update(best_cp)
 #         # self.CP = self.adapter.sample(N=self.n_s)
-
-
 
 
 #         scaled_CP = (samples - self.CP_lb) / (self.CP_ub - self.CP_lb)

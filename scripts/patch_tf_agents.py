@@ -22,9 +22,7 @@ def patch_tf_agents():
     elif new in text:
         print(f"Already patched: {path}")
     else:
-        raise RuntimeError(
-            f"Could not find expected TF-Agents line in {path}"
-        )
+        raise RuntimeError(f"Could not find expected TF-Agents line in {path}")
 
 
 if __name__ == "__main__":

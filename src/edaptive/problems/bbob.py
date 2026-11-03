@@ -2,8 +2,8 @@ import numpy as np
 import cocoex
 from edaptive.problems.benchmark_problem import BenchmarkProblem
 
-class BBOBProblem(BenchmarkProblem):
 
+class BBOBProblem(BenchmarkProblem):
     def __init__(self, dimensions, function_id, instance_id):
         super().__init__(
             dimensions=dimensions,
@@ -30,6 +30,4 @@ class BBOBProblem(BenchmarkProblem):
         if x.ndim == 2:
             return np.asarray([self._function(xi) for xi in x])
 
-        raise ValueError(
-            f"Expected a 1D or 2D array, got shape {x.shape}."
-        )
+        raise ValueError(f"Expected a 1D or 2D array, got shape {x.shape}.")

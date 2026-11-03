@@ -3,10 +3,12 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Iterator
 
+
 class ParameterType(Enum):
     CONTINUOUS = "continuous"
     INTEGER = "integer"
     CATEGORICAL = "categorical"
+
 
 @dataclass(frozen=True)
 class Parameter:
@@ -37,23 +39,19 @@ class Parameter:
             type=parameter_type,
             lower=spec["lower"],
             upper=spec["upper"],
-            log_scale_tuning=use_log_scale_tuning
+            log_scale_tuning=use_log_scale_tuning,
         )
 
     @property
     def range(self) -> float:
         if self.type == ParameterType.CATEGORICAL:
-            raise AttributeError(
-                "Categorical parameters do not have a numeric range"
-            )
+            raise AttributeError("Categorical parameters do not have a numeric range")
         return self.upper - self.lower
 
     @property
     def n_classes(self) -> int:
         if self.type != ParameterType.CATEGORICAL:
-            raise AttributeError(
-                "Only categorical parameters have classes"
-            )
+            raise AttributeError("Only categorical parameters have classes")
         return len(self.classes)
 
     def __post_init__(self):
@@ -62,42 +60,28 @@ class Parameter:
 
         if self.type == ParameterType.CONTINUOUS:
             if self.lower is None or self.upper is None:
-                raise ValueError(
-                    "Continuous parameters require lower and upper bounds"
-                )
+                raise ValueError("Continuous parameters require lower and upper bounds")
 
             if self.lower > self.upper:
-                raise ValueError(
-                    "lower must not be greater than upper"
-                )
+                raise ValueError("lower must not be greater than upper")
 
         elif self.type == ParameterType.INTEGER:
             if self.lower is None or self.upper is None:
-                raise ValueError(
-                    "Integer parameters require lower and upper bounds"
-                )
+                raise ValueError("Integer parameters require lower and upper bounds")
 
-            if not float(self.lower).is_integer() or \
-                not float(self.upper).is_integer():
-                raise ValueError(
-                    "Integer parameters require integer bounds"
-                )
+            if not float(self.lower).is_integer() or not float(self.upper).is_integer():
+                raise ValueError("Integer parameters require integer bounds")
 
             if self.lower > self.upper:
-                raise ValueError(
-                    "lower must not be greater than upper"
-                )
+                raise ValueError("lower must not be greater than upper")
 
         elif self.type == ParameterType.CATEGORICAL:
             if not self.classes:
-                raise ValueError(
-                    "Categorical parameters require at least one class"
-                )
+                raise ValueError("Categorical parameters require at least one class")
 
         else:
-            raise ValueError(
-                f"Unsupported parameter type: {self.type}"
-            )
+            raise ValueError(f"Unsupported parameter type: {self.type}")
+
 
 @dataclass
 class ParameterSpace:
@@ -118,15 +102,11 @@ class ParameterSpace:
 
     @property
     def lower_bounds(self) -> np.ndarray:
-        return np.array(
-            [parameter.lower for parameter in self.parameters]
-        )
+        return np.array([parameter.lower for parameter in self.parameters])
 
     @property
     def upper_bounds(self) -> np.ndarray:
-        return np.array(
-            [parameter.upper for parameter in self.parameters]
-        )
+        return np.array([parameter.upper for parameter in self.parameters])
 
     def get(self, name: str) -> Parameter:
         for parameter in self.parameters:

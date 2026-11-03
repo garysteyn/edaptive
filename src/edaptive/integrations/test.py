@@ -27,7 +27,7 @@ problems = [
     DropWave,
     BonyadiMichalewicz,
     Discus,
-    Elliptic
+    Elliptic,
 ]
 
 wrapper = CalypsoWrapper(
@@ -49,7 +49,7 @@ wrapper = CalypsoWrapper(
     ei=10,
     nef=1,
     vc=True,
-    seed=123
+    seed=123,
 )
 
 wrapper.train()

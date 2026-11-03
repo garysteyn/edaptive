@@ -4,17 +4,13 @@ from edaptive.optimizers.pso import PSO
 from edaptive.core.parameters import ParameterType, Parameter, ParameterSpace
 import numpy as np
 
+
 def main():
     params = {
-        "adapter" : None,
-        "optimizer" : {
-            "fixed" : {
-                "n_s" : 30,
-                "w" : 0.5,
-                "c_1" : 1.2,
-                "c_2" : 0.8
-            },
-        }
+        "adapter": None,
+        "optimizer": {
+            "fixed": {"n_s": 30, "w": 0.5, "c_1": 1.2, "c_2": 0.8},
+        },
     }
 
     problems = [
@@ -35,16 +31,14 @@ def main():
         BBOB_FID6_IID1,
         BBOB_FID16_IID1,
         BBOB_FID17_IID2,
-
     ]
 
     for p in problems:
-        pso = BasicSolver(PSO,
-                        problem=p(dimensions=10),
-                        hyper_params=params)
+        pso = BasicSolver(PSO, problem=p(dimensions=10), hyper_params=params)
         res = pso.run(max_iterations=5000)
-        
+
         print(res[1]["timings"], res[0])
+
 
 if __name__ == "__main__":
     main()

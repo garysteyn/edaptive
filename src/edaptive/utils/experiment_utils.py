@@ -2,9 +2,8 @@ import argparse
 from pathlib import Path
 from edaptive.core.parameters import ParameterType, Parameter, ParameterSpace
 
-def create_adapted_parameter_space(
-    config: dict
-) -> ParameterSpace:
+
+def create_adapted_parameter_space(config: dict) -> ParameterSpace:
 
     parameters = []
 
@@ -16,13 +15,12 @@ def create_adapted_parameter_space(
                 name=name,
                 lower=parameter_config["lower"],
                 upper=parameter_config["upper"],
-                type=ParameterType(
-                    parameter_config["type"]
-                )
+                type=ParameterType(parameter_config["type"]),
             )
         )
 
     return ParameterSpace(parameters)
+
 
 def create_tuning_parameter_space(config: dict) -> ParameterSpace:
     parameters = []
@@ -39,10 +37,14 @@ def create_tuning_parameter_space(config: dict) -> ParameterSpace:
     if len(parameters) > 0:
         return ParameterSpace(parameters)
 
+
 def parse_config(config):
     if "adapter" in config:
         adapted_parameter_space = create_adapted_parameter_space(config=config)
-        config_template = {"adapter" : dict(), "optimizer" : {"fixed" : dict(), "adapted" : adapted_parameter_space}}
+        config_template = {
+            "adapter": dict(),
+            "optimizer": {"fixed": dict(), "adapted": adapted_parameter_space},
+        }
 
         for name, spec in config["adapter"].items():
             if spec["tuned"]:
@@ -50,7 +52,7 @@ def parse_config(config):
             else:
                 config_template["adapter"][name] = spec["value"]
     else:
-        config_template = {"optimizer" : {"fixed" : dict()}}
+        config_template = {"optimizer": {"fixed": dict()}}
 
     for name, spec in config["optimizer"]["fixed"].items():
         if spec["tuned"]:

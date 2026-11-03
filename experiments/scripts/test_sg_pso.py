@@ -3,14 +3,15 @@ from edaptive.solvers.pso.sg_pso import stability_guided_PSO
 from edaptive.core.parameters import ParameterType, Parameter, ParameterSpace
 import numpy as np
 
+
 def main():
     params = {
-        "adapter" : None,
-        "optimizer" : {
-            "fixed" : {
-                "n_s" : 30,
+        "adapter": None,
+        "optimizer": {
+            "fixed": {
+                "n_s": 30,
             },
-        }
+        },
     }
 
     problems = [
@@ -31,12 +32,12 @@ def main():
 
     for i in range(30):
         pso = stability_guided_PSO(
-                        problem=Mishra07(dimensions=30),
-                        hyper_params=params,
-                        rnd_seed=i)
+            problem=Mishra07(dimensions=30), hyper_params=params, rnd_seed=i
+        )
         res = pso.run(max_iterations=5000)
-        
+
         print(res[1]["timings"], res[0])
+
 
 if __name__ == "__main__":
     main()
