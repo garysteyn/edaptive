@@ -37,3 +37,6 @@ ignore = ["N802", "N803", "N806", "N815", "N816"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["edaptive"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

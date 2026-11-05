@@ -74,6 +74,13 @@ edaptive/
 │       ├── tune.py           # run I/F-race for a solver/optimizer/adapter + config
 │       ├── execute.py        # run final experiments (uses tuned config if present), MPI-parallel
 │       └── test*.py, temp.py, sobol_owen.py   # ad-hoc scratch scripts, not tests
+├── tests/                    # pytest (`testpaths` set in pyproject.toml); see "Tests"
+│   ├── conftest.py           # forces the Agg matplotlib backend
+│   └── characterisation/     # R8a: pinned seeded results of the current code
+│       ├── cases.py          # case definitions (solver/tuner builds + what gets pinned)
+│       ├── reference.json    # the pinned outputs
+│       ├── make_reference.py # regenerates reference.json
+│       └── test_characterisation.py
 ├── scripts/                  # environment setup + patches for third-party code
 │   ├── setup_coco.sh                       # clone COCO into .coco/, pin commit, apply patches, build, pip install cocoex
 │   ├── bbob_dimensions.patch               # BBOB suite dims → {2,3,5,10,20,30,40,50,60}
@@ -274,7 +281,25 @@ python experiments/scripts/execute.py --solver stability_guided_PSO --identifier
   pinned commit `0a7b447f…`). It resets and rebuilds the shared `.coco/` checkout.
 - calypso: `scripts/setup_calypso.sh` (clones `git@github.com:garysteyn/calypso-clean.git` into `./calypso`, **deletes any
   existing `./calypso` first**, applies `calypso-integration.patch`, installs requirements, patches tf_agents).
-- No test suite exists; `experiments/scripts/test*.py` are manual smoke scripts.
+- `experiments/scripts/test*.py` are manual smoke scripts, not tests.
+
+### Tests
+`python -m pytest` from the repo root (about 6 s). `tests/characterisation/` pins seeded outputs of the current code
+(not their correctness):
+- Every solver (`BasicSolver`, `UniformRandomSolver`, `stability_guided_PSO`, `EDASolver`+`BetaEDA` with each
+  elite weighting and with `update_freq=5`) on Rosenbrock and GeneralizedEggCrate (`n_x=5`, `n_s=10`, 100
+  iterations). Pins the `f_best`/`prop_feasible`/`prop_stable` histories, final `X` and `CP`, and BetaEDA's `a`/`b`.
+- Same seed reproduces; different seeds differ.
+- Two small seeded `IFRace.tune` runs (BasicSolver tuning w/c_1/c_2; EDASolver+BetaEDA tuning eta/rho_min/n_elite
+  and the categorical elite_weighting) on 6 cheap ELA instances at `n_x=2`, `B=300`, 30 iterations per run. Pins
+  `L`, the race history and the best configuration.
+- Copula reproducibility is a strict `xfail` (Known issue 1). Once it's fixed, drop the marker and pin a copula case.
+
+Comparison is exact (bit-for-bit). The reference was generated in the dev container; another numpy/scipy/libm
+build (e.g. the host venv) may not match even when nothing is wrong. A behaviour-preserving change must pass
+unchanged. A change meant to alter results regenerates the reference with
+`python -m tests.characterisation.make_reference` and explains the difference in the commit message. If a refactor
+changes how solvers or tuners are built, update `cases.py`, not the reference.
 
 ## calypso integration (Eschwege & Engelbrecht)
 
@@ -325,7 +350,7 @@ Decisions already made:
 
 Suggested order (each step is checked against the R8a reference results):
 1. R7a: ruff config, `dev` extra, one formatting-only commit. Later diffs then show only real changes.
-2. R8a: characterisation tests (pinned seeded results). This protects all later steps.
+2. R8a: characterisation tests (done; see "Tests"). They protect all later steps.
 3. Known issue 1 (seeded copula RNG), so copula runs can be pinned too. This changes copula results.
 4. R2 renaming pass. Pinned results must stay unchanged. Settle the `"adapted"` key question here.
 5. R3, together with the `StabilityGuidedPSO` rename from R7b. Results stay unchanged.
@@ -381,7 +406,7 @@ the code toward irace, but each one must be stated explicitly.
 - [ ] Verify that the log-scale handling is consistent across Sobol' init, sigma init (half the log range), truncated
   normal sampling in log space, integer rounding, the distance check and soft restart. Keep it if it is sound.
 - [ ] Out of scope: conditional parameters, forbidden configurations, capping, recovery files.
-- Capture a seeded reference run first (R8a) so that every change in results can be explained.
+- The R8a tuning cases are the seeded reference, so every change in results can be explained against it.
 
 **R5 Timing of the core algorithm components** (exclude logging and performance measures).
 - [ ] (a) Adapters: `BaseAdapter._timings`; `@timed` on `check_update`/`update`/`sample` of `BetaEDA` and the random
@@ -407,10 +432,7 @@ the code toward irace, but each one must be stated explicitly.
   `CosineMixture_OG`, …). Their names are used as keys in result pickles and in calypso's dotted paths, so a
   per-file ignore for `problems/` is probably better than renaming them.
 
-**R8 Unit tests** (pytest, `tests/` mirroring `src/edaptive/`).
-- [ ] (a) Characterisation tests before the refactors: same-seed reproducibility, and pinned final fitness for each
-  solver on a cheap analytic problem. Also a small seeded `IFRace.tune` on dummy instances, comparing the best
-  configuration and race history.
+**R8b Unit tests** (pytest, `tests/` mirroring `src/edaptive/`; R8a, the characterisation tests, is done).
 - [ ] (b) Unit tests: `Parameter`/`ParameterSpace` validation; `parse_config`; `BenchmarkProblem` batching and
   NaN/inf mapping; PSO shapes, feasibility-gated pbest/gbest and the stability criterion; `BetaEDA` (uniform init,
   moment fit recovers a known Beta, `rho_min` floor, bounds, seeded copula, which exposes Known issue 1); timing
@@ -441,3 +463,9 @@ the code toward irace, but each one must be stated explicitly.
 9. Empty placeholders: `solvers/pso/tvac_pso.py`, `problems/misc_problems.py`. Scratch `main()` blocks live in
    `uniform_random_solver.py` and `ela_benchmark_suite.py`. (→ R7b.)
 10. Git: branches `main` and `elitist-ifrace` (also on origin).
+11. `parse_config` only builds `optimizer.adapted` when the config has an `"adapter"` section, so
+    `UniformRandomSolver` (adapted space, no adapter params) can't be built from a JSON config. The
+    characterisation tests work around it with `create_adapted_parameter_space`. (Confirmed.)
+12. `IFRace.setup_loggers` names its loggers by a timestamp with one-second resolution. Two `tune()` calls
+    started within the same second in one process share loggers, so the second run also writes into the first
+    run's log files. Logs only; results are unaffected.
