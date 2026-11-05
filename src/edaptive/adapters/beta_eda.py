@@ -14,11 +14,11 @@ class BetaEDA(EDAAdapter):
 
         self.copula = copula
 
-        self.a = np.ones(shape=self.n_x, dtype=np.float64)
-        self.b = np.ones(shape=self.n_x, dtype=np.float64)
+        self.a = np.ones(shape=self.n_params, dtype=np.float64)
+        self.b = np.ones(shape=self.n_params, dtype=np.float64)
 
         if copula == "gaussian":
-            self.R = np.eye(N=self.n_x)
+            self.R = np.eye(N=self.n_params)
 
         self.eta = eta
         self.rho_min = rho_min
@@ -38,7 +38,7 @@ class BetaEDA(EDAAdapter):
             samples = beta.ppf(U, self.a, self.b)
         else:
             samples = beta.rvs(
-                self.a, self.b, size=(N, self.n_x), random_state=self.rng
+                self.a, self.b, size=(N, self.n_params), random_state=self.rng
             )
         return self.CP_lb + samples * (self.CP_ub - self.CP_lb)
 

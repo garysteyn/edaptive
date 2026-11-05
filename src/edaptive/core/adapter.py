@@ -2,13 +2,12 @@ import numpy as np
 from abc import ABC, abstractmethod
 
 
-# TODO: change "search space" to "parameter space"
 class BaseAdapter(ABC):
-    def __init__(self, search_space, **kwargs):
-        self.search_space = search_space
-        self.CP_lb = search_space.lower_bounds
-        self.CP_ub = search_space.upper_bounds
-        self.n_x = search_space.dimension
+    def __init__(self, param_space, **kwargs):
+        self.param_space = param_space
+        self.CP_lb = param_space.lower_bounds
+        self.CP_ub = param_space.upper_bounds
+        self.n_params = param_space.dimension
 
         self.initialize(**kwargs)
 

@@ -117,8 +117,8 @@ Three roles, connected by keyword-argument dictionaries:
 - `@timed` on `initialize` and `iterate`; solvers copy `_timings` into `history["timings"]`.
 
 ### Adapter (`core/adapter.py`)
-- `BaseAdapter.__init__(search_space, **kwargs)`: `search_space` is a `ParameterSpace` of the **adapted** CPs.
-  Sets `CP_lb`, `CP_ub`, `n_x` (= number of adapted CPs, *not* problem dimension), then `initialize(**kwargs)`.
+- `BaseAdapter.__init__(param_space, **kwargs)`: `param_space` is a `ParameterSpace` of the **adapted** CPs.
+  Sets `param_space`, `CP_lb`, `CP_ub`, `n_params` (= number of adapted CPs), then `initialize(**kwargs)`.
 - `required_data()` lists optimizer attributes needed for an update. `EDAAdapter` adds abstract `sample(N)`.
 - Contract used by `EDASolver`: `check_update(**data) -> elites | None`, then `update(elites)`, then `sample(N)`.
   (`check_update` isn't declared on the ABC yet.)
@@ -327,7 +327,7 @@ Suggested order (each step is checked against the R8a reference results):
 1. R7a: ruff config, `dev` extra, one formatting-only commit. Later diffs then show only real changes.
 2. R8a: characterisation tests (pinned seeded results). This protects all later steps.
 3. Known issue 1 (seeded copula RNG), so copula runs can be pinned too. This changes copula results.
-4. R6 + R1 + R2 as one renaming pass. Pinned results must stay unchanged. Settle the `"adapted"` key question here.
+4. R6 + R2 as one renaming pass. Pinned results must stay unchanged. Settle the `"adapted"` key question here.
 5. R3, together with the `StabilityGuidedPSO` rename from R7b. Results stay unchanged.
 6. R5a–d. These need the shared run loop from R3.
 7. R4 phase 1: pure restructuring. Its output must be bit-identical to the R8a reference.
@@ -339,11 +339,6 @@ Suggested order (each step is checked against the R8a reference results):
 R8b is not a separate step: add each component's unit tests in the step that touches it.
 Known issue 2 changes EDASolver behaviour, so resolve it before running EDASolver tuning/experiments. Steps 1–6
 don't depend on it.
-
-**R1 Clear dimension names.** `n_x` refers to the problem dimension only (PSO, IFRace, problems, CLI `--n_x`).
-- [ ] `BaseAdapter.n_x` → `n_params` (dimension of the adapted parameter space). Update `BetaEDA`, `RandomAdapter`
-  and `sample()`.
-- [ ] `BaseAdapter.search_space` → `param_space` (this resolves the TODO in `core/adapter.py`).
 
 **R2 Separate adaptive control parameters from fixed ones (e.g. `n_s`).** Must not change numerical results.
 - [ ] `BaseOptimizer.CP`/`_CP` → `adaptive_params`/`_adaptive_params`, shape `(n_s, n_adaptive)`.

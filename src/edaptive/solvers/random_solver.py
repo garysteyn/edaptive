@@ -22,7 +22,7 @@ class RandomSolver(BaseSolver):
         self.n_s = optimizer_params_fixed["n_s"]
 
         self.adapter = self.adapter_type(
-            search_space=optimizer_params_adapted, rng=self.rng
+            param_space=optimizer_params_adapted, rng=self.rng
         )
 
         CP_init = self.adapter.sample(N=self.n_s)

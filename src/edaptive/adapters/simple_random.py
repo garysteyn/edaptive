@@ -10,5 +10,5 @@ class RandomAdapter(BaseAdapter):
         self.rng = rng
 
     def sample(self, N):
-        samples = self.rng.uniform(self.CP_lb, self.CP_ub, size=(N, self.n_x))
+        samples = self.rng.uniform(self.CP_lb, self.CP_ub, size=(N, self.n_params))
         return samples
