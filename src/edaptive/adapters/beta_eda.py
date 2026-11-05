@@ -5,25 +5,33 @@ from scipy.stats import beta, norm
 
 class BetaEDA(EDAAdapter):
     def required_data(self):
-        return ["problem_lb", "problem_ub", "t", "X", "f_X", "CP"]
+        return [
+            "problem_lb",
+            "problem_ub",
+            "t",
+            "X",
+            "f_X",
+            "adaptable_CPs",
+            "adaptable_CP_names",
+        ]
 
     def initialize(
-        self, eta, rho_min, n_elite, update_freq, copula, elite_weighting, rng
+        self, eta, rho_min, n_elites, update_freq, copula, elite_weighting, rng
     ):
         self.rng = rng
 
         self.copula = copula
 
-        self.a = np.ones(shape=self.n_CP, dtype=np.float64)
-        self.b = np.ones(shape=self.n_CP, dtype=np.float64)
+        self.a = np.ones(shape=self.n_CPs, dtype=np.float64)
+        self.b = np.ones(shape=self.n_CPs, dtype=np.float64)
 
         if copula == "gaussian":
-            self.R = np.eye(N=self.n_CP)
+            self.R = np.eye(N=self.n_CPs)
 
         self.eta = eta
         self.rho_min = rho_min
         self.kappa_max = (1 / rho_min) - 1
-        self.n_elite = int(n_elite)
+        self.n_elites = int(n_elites)
         self.update_freq = update_freq
 
         self.elite_weighting = elite_weighting
@@ -38,11 +46,13 @@ class BetaEDA(EDAAdapter):
             samples = beta.ppf(U, self.a, self.b)
         else:
             samples = beta.rvs(
-                self.a, self.b, size=(N, self.n_CP), random_state=self.rng
+                self.a, self.b, size=(N, self.n_CPs), random_state=self.rng
             )
         return self.CP_lbs + samples * (self.CP_ubs - self.CP_lbs)
 
-    def check_update(self, problem_lb, problem_ub, t, X, f_X, CP):
+    def check_update(
+        self, problem_lb, problem_ub, t, X, f_X, adaptable_CPs, adaptable_CP_names
+    ):
         if (t + 1) % self.update_freq != 0:
             return None
 
@@ -53,32 +63,33 @@ class BetaEDA(EDAAdapter):
 
         f_X_feasible = f_X[feasible]
         X_feasible = X[feasible]
-        CP_feasible = CP[feasible]
+        adapted_CPs = self.select_own_CPs(adaptable_CPs, adaptable_CP_names)
+        adapted_CPs_feasible = adapted_CPs[feasible]
 
-        elite_CPs = self.get_elite_CPs(f_X_feasible, X_feasible, CP_feasible)
+        elite_CPs = self.get_elite_CPs(f_X_feasible, X_feasible, adapted_CPs_feasible)
         return elite_CPs
 
-    def get_elite_CPs(self, f_X_feasible, X_feasible, CP_feasible):
-        return CP_feasible[
-            np.argsort(f_X_feasible)[: min(len(X_feasible), self.n_elite)]
+    def get_elite_CPs(self, f_X_feasible, X_feasible, adapted_CPs_feasible):
+        return adapted_CPs_feasible[
+            np.argsort(f_X_feasible)[: min(len(X_feasible), self.n_elites)]
         ]
 
     def update(self, elite_CPs):
-        scaled_CP = (elite_CPs - self.CP_lbs) / (self.CP_ubs - self.CP_lbs)
+        scaled_CPs = (elite_CPs - self.CP_lbs) / (self.CP_ubs - self.CP_lbs)
         eps = 1e-6
-        scaled_CP = np.clip(scaled_CP, eps, 1 - eps)
+        scaled_CPs = np.clip(scaled_CPs, eps, 1 - eps)
 
         # Step 1 (Fit marginals):
         eps = 1e-8  # numerical stability
 
-        weights = self.compute_weights(scaled_CP)
+        weights = self.compute_weights(scaled_CPs)
 
-        mu = np.average(scaled_CP, axis=0, weights=weights)
+        mu = np.average(scaled_CPs, axis=0, weights=weights)
 
         if weights is None:
-            var = np.var(scaled_CP, axis=0, ddof=1)
+            var = np.var(scaled_CPs, axis=0, ddof=1)
         else:
-            diff = scaled_CP - mu
+            diff = scaled_CPs - mu
             var = np.sum(weights[:, None] * diff**2, axis=0)
             var = np.maximum(var, eps)
         var = np.maximum(var, eps)
@@ -93,7 +104,7 @@ class BetaEDA(EDAAdapter):
         self.b = (1 - self.eta) * self.b + self.eta * b_new
 
         if self.copula == "gaussian":
-            U = beta.cdf(scaled_CP, self.a, self.b)
+            U = beta.cdf(scaled_CPs, self.a, self.b)
 
             # Numerical safety
             U = np.clip(U, 1e-12, 1 - 1e-12)
@@ -104,18 +115,18 @@ class BetaEDA(EDAAdapter):
             R_new = np.corrcoef(Z.T)
             self.R = (1 - self.eta) * self.R + self.eta * R_new
 
-    def compute_weights(self, scaled_CP):
+    def compute_weights(self, scaled_CPs):
         weights = None
 
         if self.elite_weighting == "rank":
-            n = len(scaled_CP)
+            n = len(scaled_CPs)
 
             weights = np.arange(n, 0, -1, dtype=float)
 
             weights /= weights.sum()
 
         elif self.elite_weighting == "log-rank":
-            n = len(scaled_CP)
+            n = len(scaled_CPs)
 
             # ranks = 1, 2, ..., n
             ranks = np.arange(1, n + 1)

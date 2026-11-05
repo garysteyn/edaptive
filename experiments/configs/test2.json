@@ -13,7 +13,7 @@
             "lower" : 2,
             "upper" : 50
         },
-        "n_elite" : {
+        "n_elites" : {
             "tuned" : true,
             "type" : "categorical",
             "classes" : [5, 10, 15, 20]

@@ -25,10 +25,10 @@ class UniformRandomSolver(BaseSolver):
             CP_space=optimizer_params_adapted, rng=self.rng
         )
 
-        CP_init = self.adapter.sample(N=self.n_s)
-        CP_init_dict = {
-            param.name: CP_init[:, idx]
-            for idx, param in enumerate(optimizer_params_adapted)
+        initial_adapted_CPs = self.adapter.sample(N=self.n_s)
+        adapted_CPs_dict = {
+            name: initial_adapted_CPs[:, idx]
+            for idx, name in enumerate(self.adapter.CP_names)
         }
 
         self.optimizer = self.optimizer_type(
@@ -36,7 +36,7 @@ class UniformRandomSolver(BaseSolver):
                 {"problem": problem}
                 | {"rng": self.rng}
                 | optimizer_params_fixed
-                | CP_init_dict
+                | adapted_CPs_dict
             )
         )
 
@@ -47,8 +47,8 @@ class UniformRandomSolver(BaseSolver):
         for t in range(max_iterations):
             optimizer.step(t)
 
-            CP_new = adapter.sample(N=self.n_s)
-            optimizer.CP = CP_new
+            new_adapted_CPs = adapter.sample(N=self.n_s)
+            optimizer.set_adaptable_CPs(adapter.CP_names, new_adapted_CPs)
 
         optimizer.history["timings"] = optimizer._timings
         return (np.min(optimizer.history["f_best"]), optimizer.history)

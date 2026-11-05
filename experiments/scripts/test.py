@@ -35,7 +35,7 @@ def main():
         "adapter": {
             "eta": 0.001,
             "rho_min": 0.02,
-            "n_elite": 30,
+            "n_elites": 30,
             "update_freq": 1,
             "copula": None,
             "elite_weighting": "rank",

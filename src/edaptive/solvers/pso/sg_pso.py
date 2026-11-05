@@ -10,6 +10,8 @@ def check_stability(w, c1, c2):
 
 
 class stability_guided_PSO(BaseSolver):
+    adapted_CP_names = ("w", "c_1", "c_2")
+
     def __init__(self, **kwargs):
         super().__init__(optimizer_type=PSO, adapter_type=None, **kwargs)
 
@@ -18,36 +20,50 @@ class stability_guided_PSO(BaseSolver):
         optimizer_params_fixed = hyper_params["optimizer"]["fixed"]
         self.n_s = optimizer_params_fixed["n_s"]
 
-        self.CP_lb = [0, 0, 0]
-        self.CP_ub = [1, 4, 4]
+        self.adapted_CP_lbs = [0, 0, 0]
+        self.adapted_CP_ubs = [1, 4, 4]
 
-        CP_init = self.sample_CP(N=self.n_s)
-        CP_init_dict = {"w": CP_init[:, 0], "c_1": CP_init[:, 1], "c_2": CP_init[:, 2]}
+        initial_adapted_CPs = self.sample_adapted_CPs(N=self.n_s)
+        adapted_CPs_dict = {
+            name: initial_adapted_CPs[:, idx]
+            for idx, name in enumerate(self.adapted_CP_names)
+        }
 
         self.optimizer = self.optimizer_type(
             **(
                 {"problem": problem}
                 | {"rng": self.rng}
                 | optimizer_params_fixed
-                | CP_init_dict
+                | adapted_CPs_dict
             )
         )
 
-    def sample_CP(self, N):
-        CP = self.rng.uniform(low=self.CP_lb, high=self.CP_ub, size=(N, 3))
+    def is_stable(self, adapted_CPs):
+        column = {name: idx for idx, name in enumerate(self.adapted_CP_names)}
+        return check_stability(
+            adapted_CPs[:, column["w"]],
+            adapted_CPs[:, column["c_1"]],
+            adapted_CPs[:, column["c_2"]],
+        )
 
-        stable = check_stability(CP[:, 0], CP[:, 1], CP[:, 2])
+    def sample_adapted_CPs(self, N):
+        n_adapted_CPs = len(self.adapted_CP_names)
+        adapted_CPs = self.rng.uniform(
+            low=self.adapted_CP_lbs, high=self.adapted_CP_ubs, size=(N, n_adapted_CPs)
+        )
+
+        stable = self.is_stable(adapted_CPs)
 
         while not np.all(stable):
-            CP[~stable] = self.rng.uniform(
-                low=self.CP_lb,
-                high=self.CP_ub,
-                size=(np.sum(~stable), 3),
+            adapted_CPs[~stable] = self.rng.uniform(
+                low=self.adapted_CP_lbs,
+                high=self.adapted_CP_ubs,
+                size=(np.sum(~stable), n_adapted_CPs),
             )
 
-            stable = check_stability(CP[:, 0], CP[:, 1], CP[:, 2])
+            stable = self.is_stable(adapted_CPs)
 
-        return CP
+        return adapted_CPs
 
     def run(self, max_iterations=5000):
         optimizer = self.optimizer
@@ -55,9 +71,9 @@ class stability_guided_PSO(BaseSolver):
         for t in range(max_iterations):
             optimizer.step(t)
 
-            CP_new = self.sample_CP(N=self.n_s)
+            new_adapted_CPs = self.sample_adapted_CPs(N=self.n_s)
 
-            optimizer.CP = CP_new
+            optimizer.set_adaptable_CPs(self.adapted_CP_names, new_adapted_CPs)
 
         optimizer.history["timings"] = optimizer._timings
         return (np.min(optimizer.history["f_best"]), optimizer.history)

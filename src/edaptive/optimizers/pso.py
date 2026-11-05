@@ -5,6 +5,8 @@ from edaptive.utils.timing import timed
 
 
 class PSO(BaseOptimizer):
+    adaptable_CP_names = ("w", "c_1", "c_2")
+
     @timed
     def initialize(self, problem, rng, n_s, w, c_1, c_2):
         self.rng = rng
@@ -14,7 +16,10 @@ class PSO(BaseOptimizer):
         self.problem_lb = problem.lower
         self.problem_ub = problem.upper
 
-        self._CP = np.column_stack((w, c_1, c_2))
+        # Each CP may be a scalar (same for all particles) or a length-n_s array.
+        self._adaptable_CPs = np.column_stack(
+            [np.broadcast_to(np.asarray(cp, dtype=float), n_s) for cp in (w, c_1, c_2)]
+        )
 
         self.n_s = n_s
 
@@ -45,7 +50,9 @@ class PSO(BaseOptimizer):
         self.history["prop_stable"] = []
         self.history["prop_stable"].append(
             stable_particle_proportion(
-                w=self._CP[:, 0], c_1=self._CP[:, 1], c_2=self._CP[:, 2]
+                w=self._adaptable_CPs[:, 0],
+                c_1=self._adaptable_CPs[:, 1],
+                c_2=self._adaptable_CPs[:, 2],
             )
         )
 
@@ -84,9 +91,9 @@ class PSO(BaseOptimizer):
         r_1 = self.rng.uniform(size=(self.n_s, self.n_x))
         r_2 = self.rng.uniform(size=(self.n_s, self.n_x))
 
-        w = self._CP[:, 0, None]
-        c_1 = self._CP[:, 1, None]
-        c_2 = self._CP[:, 2, None]
+        w = self._adaptable_CPs[:, 0, None]
+        c_1 = self._adaptable_CPs[:, 1, None]
+        c_2 = self._adaptable_CPs[:, 2, None]
 
         # Update velocities
         V = (
@@ -110,7 +117,9 @@ class PSO(BaseOptimizer):
         self.history["prop_feasible"].append(feasible.sum() / self.n_s)
         self.history["prop_stable"].append(
             stable_particle_proportion(
-                w=self._CP[:, 0], c_1=self._CP[:, 1], c_2=self._CP[:, 2]
+                w=self._adaptable_CPs[:, 0],
+                c_1=self._adaptable_CPs[:, 1],
+                c_2=self._adaptable_CPs[:, 2],
             )
         )
 

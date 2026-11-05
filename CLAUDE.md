@@ -76,6 +76,8 @@ edaptive/
 │       └── test*.py, temp.py, sobol_owen.py   # ad-hoc scratch scripts, not tests
 ├── tests/                    # pytest (`testpaths` set in pyproject.toml); see "Tests"
 │   ├── conftest.py           # forces the Agg matplotlib backend
+│   ├── core/                 # unit tests: name-based adaptable-CP mapping (optimizer + adapter)
+│   ├── solvers/              # unit tests: subset / reordered "adapted" spaces
 │   └── characterisation/     # R8a: pinned seeded results of the current code
 │       ├── cases.py          # case definitions (solver/tuner builds + what gets pinned)
 │       ├── reference.json    # the pinned outputs
@@ -103,15 +105,22 @@ Three roles, connected by keyword-argument dictionaries:
 ### Optimizer (`core/optimizer.py: BaseOptimizer`)
 - `__init__(**kwargs)` → sets `_timings`, `history = {"f_best": []}`, calls `initialize(**kwargs)`, then `init_history()`.
 - Abstract: `initialize(**kwargs)`, `init_history()`, `step(t)`.
-- `CP` property: an `(n_s, n_cp)` array of **per-individual control parameters** (each particle has its own CPs).
-  Adapters/solvers write new CPs with `optimizer.CP = new_array`.
+- **Adaptable CPs** are the per-individual control parameters that may change during a run (PSO: `w`, `c_1`,
+  `c_2`). Other CPs, such as `n_s`, are fixed when the optimizer is built. Whether a solver actually adapts them is
+  set by its config (`"fixed"` vs `"adapted"`).
+- Class attribute `adaptable_CP_names` (column order) and read-only property `adaptable_CPs`, an
+  `(n_s, len(adaptable_CP_names))` array with one row per individual.
+- Columns are addressed **by name**: `column_indices(names)` (raises `ValueError` for unknown names) and
+  `set_adaptable_CPs(names, values)`, which writes only the named columns into a fresh copy of the array. Solvers use
+  this, so an `"adapted"` space may be any subset of the adaptable CPs, in any order.
 - `get_required_data(names)` returns `{name: getattr(self, name)}`. This is how adapters pull state from the optimizer
   generically, so attribute names on optimizers form an implicit interface (`problem_lb`, `problem_ub`, `t`, `X`,
-  `f_X`, `CP` for BetaEDA).
+  `f_X`, `adaptable_CPs`, `adaptable_CP_names` for BetaEDA).
 
 ### PSO (`optimizers/pso.py`)
-- `initialize(problem, rng, n_s, w, c_1, c_2)`. `w`, `c_1`, `c_2` may be scalars or length-`n_s` arrays;
-  `_CP = column_stack((w, c_1, c_2))`, so **CP column order is (w, c_1, c_2)**.
+- `adaptable_CP_names = ("w", "c_1", "c_2")`. `initialize(problem, rng, n_s, w, c_1, c_2)`: each of `w`, `c_1`,
+  `c_2` may be a scalar or a length-`n_s` array; each is broadcast to `n_s` and stacked into `_adaptable_CPs`.
+  PSO's own code indexes the columns by position.
 - Notation follows Engelbrecht: `X` positions, `V` velocities, `Y`/`f_Y` personal bests, `Y_hat`/`f_Y_hat`
   global best, `n_s` swarm size, `n_x` dimension, `r_1`, `r_2` uniform coefficients.
 - `iterate()` order: **evaluate X → update pbest/gbest (feasible particles only) → update V → X += V**.
@@ -125,7 +134,11 @@ Three roles, connected by keyword-argument dictionaries:
 
 ### Adapter (`core/adapter.py`)
 - `BaseAdapter.__init__(CP_space, **kwargs)`: `CP_space` is a `ParameterSpace` of the **adapted** CPs.
-  Sets `CP_space`, `CP_lbs`, `CP_ubs`, `n_CP` (= number of adapted CPs), then `initialize(**kwargs)`.
+  Sets `CP_space`, `CP_lbs`, `CP_ubs`, `n_CPs` (= number of adapted CPs), `CP_names` (in `CP_space` order), then
+  `initialize(**kwargs)`.
+- `select_own_CPs(adaptable_CPs, adaptable_CP_names)` picks this adapter's columns (in `CP_space` order) out of an
+  optimizer's `adaptable_CPs`. Solvers write the adapter's samples back with
+  `optimizer.set_adaptable_CPs(adapter.CP_names, samples)`.
 - `required_data()` lists optimizer attributes needed for an update. `EDAAdapter` adds abstract `sample(N)`.
 - Contract used by `EDASolver`: `check_update(**data) -> elites | None`, then `update(elites)`, then `sample(N)`.
   (`check_update` isn't declared on the ABC yet.)
@@ -133,12 +146,13 @@ Three roles, connected by keyword-argument dictionaries:
   (e.g. stability-guided PSO) are implemented directly as **solvers** instead.
 
 ### BetaEDA (`adapters/beta_eda.py`)
-`initialize(eta, rho_min, n_elite, update_freq, copula, elite_weighting, rng)`
+`initialize(eta, rho_min, n_elites, update_freq, copula, elite_weighting, rng)`
 - Model: independent **Beta(a_j, b_j) marginals** on CPs scaled to [0,1]; optional **Gaussian copula**
   (`copula == "gaussian"`) with correlation matrix `R`. Any other value (e.g. `None` / `"None"`) means independent marginals.
 - Init: `a = b = 1` (uniform), `R = I`.
 - `check_update`: only every `update_freq` iterations (`(t+1) % update_freq == 0`); filters to particles whose
-  `X` is inside problem bounds; needs ≥ 2 feasible; elites = CPs of the `n_elite` best `f_X`.
+  `X` is inside problem bounds; needs ≥ 2 feasible; selects its own columns with `select_own_CPs`;
+  elites = CPs of the `n_elites` best `f_X`.
 - `update`: scale elites to [0,1], clip to [1e-6, 1-1e-6]; weighted mean/variance (weights: `None` = uniform with
   ddof=1 variance, `"rank"` = linear, `"log-rank"` = log(n+1) - log(rank)); method-of-moments concentration
   `kappa = mu(1-mu)/var - 1`, clipped to `[eps, kappa_max]` with `kappa_max = 1/rho_min - 1`
@@ -158,18 +172,20 @@ Three roles, connected by keyword-argument dictionaries:
 - Each solver creates **one** `rng = np.random.default_rng(rnd_seed)` and passes it to both optimizer and adapter.
 - `BasicSolver`: optimizer gets `hyper_params["optimizer"]["fixed"]` (which must include w, c_1, c_2).
 - `EDASolver`: adapter built from `hyper_params["adapter"]` + rng over `hyper_params["optimizer"]["adapted"]`
-  (a `ParameterSpace`); initial CPs = `adapter.sample(n_s)`, passed to the optimizer by parameter name. Each iteration:
-  `optimizer.step(t)` → `check_update` → if elites: `update`, resample **all** `n_s` CPs.
-- `UniformRandomSolver`: resamples all CPs uniformly every iteration (hardwires `UniformRandomAdapter`).
-- `stability_guided_PSO`: hardcodes PSO and CP bounds `[0,1]×[0,4]×[0,4]`; resamples all CPs uniformly every
-  iteration with rejection sampling until every particle satisfies Poli's stability criterion. Its constructor
-  takes no `optimizer_type`/`adapter_type`.
+  (a `ParameterSpace`); initial adapted CPs = `adapter.sample(n_s)`, passed to the optimizer by name. Each
+  iteration: `optimizer.step(t)` → `check_update` → if elites: `update`, resample the adapted CPs of **all** `n_s`
+  particles (`set_adaptable_CPs`). CPs not in the `"adapted"` space come from `"fixed"` and never change.
+- `UniformRandomSolver`: resamples the adapted CPs uniformly every iteration (hardwires `UniformRandomAdapter`).
+- `stability_guided_PSO`: hardcodes PSO, `adapted_CP_names = ("w", "c_1", "c_2")` and bounds
+  `adapted_CP_lbs/ubs` = `[0,1]×[0,4]×[0,4]`; resamples them uniformly every iteration with rejection sampling
+  (`sample_adapted_CPs`) until every particle satisfies Poli's stability criterion. Its constructor takes no
+  `optimizer_type`/`adapter_type`.
 
 ### hyper_params dict (runtime form)
 ```python
 {
   "identifier": "name",                       # present when built from JSON
-  "adapter":   {"eta": 0.01, "rho_min": 0.02, "n_elite": 10, "update_freq": 1,
+  "adapter":   {"eta": 0.01, "rho_min": 0.02, "n_elites": 10, "update_freq": 1,
                 "copula": None, "elite_weighting": "log-rank"},
   "optimizer": {
       "fixed":   {"n_s": 30},                 # or w/c_1/c_2 too for BasicSolver
@@ -233,7 +249,7 @@ T_first=5, T_each=1, T_new=1, T_max=2, digits=4, results_directory="results/tuni
   "identifier": "my_alg",
   "adapter": {                                   // omit for adapter-free solvers
     "eta":     {"tuned": true,  "type": "continuous", "lower": 1e-4, "upper": 0.2, "log_scale_tuning": true},
-    "n_elite": {"tuned": true,  "type": "integer",    "lower": 2,    "upper": 30},
+    "n_elites": {"tuned": true, "type": "integer",    "lower": 2,    "upper": 30},
     "copula":  {"tuned": false, "type": "categorical", "value": "None"}
   },
   "optimizer": {
@@ -246,7 +262,7 @@ T_first=5, T_each=1, T_new=1, T_max=2, digits=4, results_directory="results/tuni
 `parse_config` returns `(config_template, tuning_parameter_space)`: tuned entries become `None` placeholders in the
 template; untuned entries take `value`; `adapted` becomes a `ParameterSpace`. `tuning_parameter_space` is `None` when
 nothing is tuned. Current configs: `basic.json` (static PSO, tunes w/c_1/c_2), `test.json` (BetaEDA-PSO),
-`sg_pso.json` (no tuning). `test2.json` is stale (uses `kappa_max` and categorical `n_elite`, which `BetaEDA` doesn't accept).
+`sg_pso.json` (no tuning). `test2.json` is stale (uses `kappa_max` and categorical `n_elites`, which `BetaEDA` doesn't accept).
 
 ## Running things
 
@@ -285,13 +301,14 @@ python experiments/scripts/execute.py --solver stability_guided_PSO --identifier
 
 ### Tests
 `python -m pytest` from the repo root (about 6 s). `tests/characterisation/` pins seeded outputs of the current code
-(not their correctness):
+(not their correctness). `tests/core/` and `tests/solvers/` hold unit tests (R8b grows these).
 - Every solver (`BasicSolver`, `UniformRandomSolver`, `stability_guided_PSO`, `EDASolver`+`BetaEDA` with each
-  elite weighting, with `update_freq=5`, and with the Gaussian copula) on Rosenbrock and GeneralizedEggCrate (`n_x=5`, `n_s=10`, 100
-  iterations). Pins the `f_best`/`prop_feasible`/`prop_stable` histories, final `X` and `CP`, and BetaEDA's `a`/`b` (and `R`).
+  elite weighting, with `update_freq=5`, and with the Gaussian copula) on Rosenbrock and GeneralizedEggCrate
+  (`n_x=5`, `n_s=10`, 100 iterations). Pins the `f_best`/`prop_feasible`/`prop_stable` histories, final `X` and
+  `adaptable_CPs`, and BetaEDA's `a`/`b` (and `R`).
 - Same seed reproduces; different seeds differ; no solver touches numpy's global RNG (its state is unchanged,
   and reseeding it doesn't change results).
-- Two small seeded `IFRace.tune` runs (BasicSolver tuning w/c_1/c_2; EDASolver+BetaEDA tuning eta/rho_min/n_elite
+- Two small seeded `IFRace.tune` runs (BasicSolver tuning w/c_1/c_2; EDASolver+BetaEDA tuning eta/rho_min/n_elites
   and the categorical elite_weighting) on 6 cheap ELA instances at `n_x=2`, `B=300`, 30 iterations per run. Pins
   `L`, the race history and the best configuration.
 
@@ -321,7 +338,8 @@ regenerate `scripts/calypso-integration.patch` (`git -C calypso diff > scripts/c
 
 ## Conventions
 
-- Notation/variable names follow PSO/EC literature: `CP` control parameters, `n_s`, `n_x`, `X`, `V`, `Y`, `Y_hat`,
+- Notation/variable names follow PSO/EC literature: `CP` control parameter (adaptable CPs: see "Optimizer"), `n_s`,
+  `n_x`, `X`, `V`, `Y`, `Y_hat`,
   `f_*` fitness, `w`, `c_1`, `c_2`, `eta`, `kappa`, `rho`, `I` instances, `B` budget, `L` races.
 - Minimisation everywhere.
 - Constructors take explicit keyword arguments that are spread from config dicts (`**(a | b | c)`), so
@@ -356,7 +374,8 @@ Suggested order (each step is checked against the R8a reference results):
 1. R7a: ruff config, `dev` extra, one formatting-only commit. Later diffs then show only real changes.
 2. R8a: characterisation tests (done; see "Tests"). They protect all later steps.
 3. Known issue 1 (seeded copula RNG; done, copula runs are now pinned). This changed copula results.
-4. R2 renaming pass (`adaptable_CPs`, plurals). Pinned results must stay unchanged.
+4. R2 (done): `adaptable_CPs`, name-based CP mapping, plurals. Only `BasicSolver`'s pinned `adaptable_CPs` changed
+   shape (`(1, 3)` → `(n_s, 3)`, same values).
 5. R3, together with the `StabilityGuidedPSO` rename from R7b. Results stay unchanged.
 6. R5a–d. These need the shared run loop from R3.
 7. R4 phase 1: pure restructuring. Its output must be bit-identical to the R8a reference.
@@ -368,31 +387,6 @@ Suggested order (each step is checked against the R8a reference results):
 R8b is not a separate step: add each component's unit tests in the step that touches it.
 Known issue 2 changes EDASolver behaviour, so resolve it before running EDASolver tuning/experiments. Steps 1–6
 don't depend on it.
-
-**R2 Name the adaptable CPs apart from the other CPs, and apply the plural rule.** Must not change numerical
-results.
-Definition: *adaptable CPs* are the per-individual control parameters (PSO: `w`, `c_1`, `c_2`) that may change during
-a run. Other CPs, such as `n_s`, are fixed when the optimizer is built. Whether a solver actually adapts them is set by
-the config's `"fixed"`/`"adapted"` split. The `"adapted"` key stays as it is, because it correctly describes what a
-solver does.
-- [ ] `BaseOptimizer.CP`/`_CP` → `adaptable_CPs`/`_adaptable_CPs`, shape `(n_s, n_adaptable_CPs)`.
-- [ ] Optimizers declare `adaptable_CP_names` (PSO: `("w", "c_1", "c_2")`). Solvers then map columns by name instead
-  of by position (this removes the hardcoded indexing in `sg_pso.py` and the order assumption in the solvers).
-- [ ] Rename the `required_data()` entry `"CP"` (and the matching `BetaEDA.check_update` argument) to `"adaptable_CPs"`.
-- [ ] Solvers: their CP names must say they hold the CPs this solver *adapts* (the config's `"adapted"` subset), not
-  CPs in general. Bare `CP_*` names read as "all CPs", and these values are merged with fixed CPs such as `n_s` when
-  the optimizer is built. Rename `CP_init`/`CP_init_dict`/`CP_new` → `initial_adapted_CPs`/`adapted_CPs_dict`/
-  `new_adapted_CPs` (`EDASolver`, `UniformRandomSolver`, `stability_guided_PSO`). In `stability_guided_PSO`, also
-  rename `sample_CP` → `sample_adapted_CPs`, its local `CP` → `CPs`, and `self.CP_lb`/`self.CP_ub` →
-  `self.adapted_CP_lbs`/`self.adapted_CP_ubs`.
-- [ ] Adapters (everything refers to the adapter's `CP_space`): `n_CP` → `n_CPs`; in `BetaEDA`, `scaled_CP` →
-  `scaled_CPs`, `CP_feasible` → `CPs_feasible`. Keep `CP_lbs`/`CP_ubs`, `elite_CPs` and `get_elite_CPs`.
-- [ ] `n_elite` → `n_elites` (`BetaEDA.initialize` argument and attribute). This is also a config key, so migrate the
-  files: `experiments/configs/test.json` (and the stale `test2.json`) and `tests/characterisation/cases.py`. In
-  `reference.json`, rename only the key inside the pinned best configuration; the values must not change. Existing
-  `best_configuration.pkl` files with `n_elite` are not converted: re-tune, or rename the key by hand.
-- [ ] Define "adaptable CPs" in the `BaseOptimizer` docstring, in "Core architecture → Optimizer", and in
-  "Conventions" (where `CP` is listed as notation).
 
 **R3 Cleaner solver construction (`hyper_params` unpacking).** This is a structural change, so confirm the design first.
 - [ ] Replace the nested `hyper_params["optimizer"]["fixed"]` access with a small frozen dataclass, e.g.
@@ -432,7 +426,7 @@ the code toward irace, but each one must be stated explicitly.
 - [ ] (a) Adapters: `BaseAdapter._timings`; `@timed` on `check_update`/`update`/`sample` of `BetaEDA` and the random
   adapter.
 - [ ] (b) Tailored adaptation logic: time the rejection sampling in `stability_guided_PSO`.
-- [ ] (c) Optimizer↔adapter interaction: time `get_required_data` and the `adaptable_CPs` setter in the solvers.
+- [ ] (c) Optimizer↔adapter interaction: time `get_required_data` and `set_adaptable_CPs` in the solvers.
   They pass references, so they are probably negligible. Measure, then keep or drop.
 - [ ] (d) `history["timings"]` → `{"optimizer": {...}, "adapter": {...}, "solver": {...}}` plus a helper
   `core_time(timings)` that sums them. It excludes `update_history`/`prop_stable` etc. Use `OMP_NUM_THREADS=1` for
@@ -462,7 +456,7 @@ the code toward irace, but each one must be stated explicitly.
 ## Known issues / things to verify (found by reading the code, not yet confirmed or fixed)
 
 2. **Possible credit-assignment / timing mismatch in `EDASolver`**: after `PSO.step`, `f_X` is the fitness of the
-   pre-move positions but `X` (used for the feasibility filter) is post-move, and `CP` is the matrix used for the move
+   pre-move positions but `X` (used for the feasibility filter) is post-move, and `adaptable_CPs` is the matrix used for the move
    just made, not the one that produced the positions in `f_X`. With `update_freq=1` and full resampling, the elites
    selected may not be the CPs responsible for the observed fitness. Confirm the intended semantics with the author.
 3. `BetaEDA.update`: weighted variance is not bias-corrected while the unweighted path uses `ddof=1`, and

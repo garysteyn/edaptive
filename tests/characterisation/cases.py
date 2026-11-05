@@ -59,7 +59,7 @@ def _eda_config(elite_weighting, update_freq=1, copula="None"):
         "adapter": (
             _fixed("eta", 0.1, "continuous")
             | _fixed("rho_min", 0.02, "continuous")
-            | _fixed("n_elite", 5, "integer")
+            | _fixed("n_elites", 5, "integer")
             | _fixed("update_freq", update_freq, "integer")
             | _fixed("copula", copula, "categorical")
             | _fixed("elite_weighting", elite_weighting, "categorical")
@@ -140,7 +140,7 @@ def run_solver(solver_type, adapter_type, config, problem_type, seed):
         "prop_feasible": _floats(history["prop_feasible"]),
         "prop_stable": _floats(history["prop_stable"]),
         "X": solver.optimizer.X.tolist(),
-        "CP": solver.optimizer.CP.tolist(),
+        "adaptable_CPs": solver.optimizer.adaptable_CPs.tolist(),
     }
     adapter = getattr(solver, "adapter", None)
     if isinstance(adapter, BetaEDA):
@@ -199,7 +199,7 @@ _EDA_TUNING_CONFIG = {
             "lower": 1e-4,
             "upper": 0.5,
         },
-        "n_elite": {"tuned": True, "type": "integer", "lower": 2, "upper": N_S},
+        "n_elites": {"tuned": True, "type": "integer", "lower": 2, "upper": N_S},
         "elite_weighting": {
             "tuned": True,
             "type": "categorical",
