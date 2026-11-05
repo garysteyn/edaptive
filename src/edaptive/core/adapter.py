@@ -3,11 +3,11 @@ from abc import ABC, abstractmethod
 
 
 class BaseAdapter(ABC):
-    def __init__(self, param_space, **kwargs):
-        self.param_space = param_space
-        self.CP_lb = param_space.lower_bounds
-        self.CP_ub = param_space.upper_bounds
-        self.n_params = param_space.dimension
+    def __init__(self, CP_space, **kwargs):
+        self.CP_space = CP_space
+        self.CP_lb = CP_space.lower_bounds
+        self.CP_ub = CP_space.upper_bounds
+        self.n_params = CP_space.dimension
 
         self.initialize(**kwargs)
 

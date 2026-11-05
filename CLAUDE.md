@@ -124,8 +124,8 @@ Three roles, connected by keyword-argument dictionaries:
 - `@timed` on `initialize` and `iterate`; solvers copy `_timings` into `history["timings"]`.
 
 ### Adapter (`core/adapter.py`)
-- `BaseAdapter.__init__(param_space, **kwargs)`: `param_space` is a `ParameterSpace` of the **adapted** CPs.
-  Sets `param_space`, `CP_lb`, `CP_ub`, `n_params` (= number of adapted CPs), then `initialize(**kwargs)`.
+- `BaseAdapter.__init__(CP_space, **kwargs)`: `CP_space` is a `ParameterSpace` of the **adapted** CPs.
+  Sets `CP_space`, `CP_lb`, `CP_ub`, `n_params` (= number of adapted CPs), then `initialize(**kwargs)`.
 - `required_data()` lists optimizer attributes needed for an update. `EDAAdapter` adds abstract `sample(N)`.
 - Contract used by `EDASolver`: `check_update(**data) -> elites | None`, then `update(elites)`, then `sample(N)`.
   (`check_update` isn't declared on the ABC yet.)
@@ -375,8 +375,14 @@ solver does, so configs and `best_configuration.pkl` files need no migration.
 - [ ] Optimizers declare `adaptable_CP_names` (PSO: `("w", "c_1", "c_2")`). Solvers then map columns by name instead
   of by position (this removes the hardcoded indexing in `sg_pso.py` and the order assumption in the solvers).
 - [ ] Rename the `required_data()` entry `"CP"` (and the matching `BetaEDA.check_update` argument) to `"adaptable_CP"`.
-- [ ] Keep `CP_lb`/`CP_ub`, `elite_CPs`, `get_elite_CPs`, `scaled_CP` and the solver locals (`CP_init`, `CP_new`,
-  `sample_CP`). They already refer only to adaptable CPs, so they are accurate.
+- [ ] Solvers: their CP names must say they hold the CPs this solver *adapts* (the config's `"adapted"` subset), not
+  CPs in general. Bare `CP_*` names read as "all CPs", and these values are merged with fixed CPs such as `n_s` when
+  the optimizer is built. Rename `CP_init`/`CP_init_dict`/`CP_new` → `adapted_CP_init`/`adapted_CP_init_dict`/
+  `adapted_CP_new` (`EDASolver`, `UniformRandomSolver`, `stability_guided_PSO`). In `stability_guided_PSO`, also
+  rename `sample_CP` → `sample_adapted_CP`, its local `CP`, and `self.CP_lb`/`self.CP_ub` →
+  `self.adapted_CP_lb`/`self.adapted_CP_ub`.
+- [ ] Keep `CP_lb`/`CP_ub`, `elite_CPs`, `get_elite_CPs` and `scaled_CP` in the adapters, where everything refers to
+  the adapter's `CP_space`.
 - [ ] Define "adaptable CPs" in the `BaseOptimizer` docstring, in "Core architecture → Optimizer", and in
   "Conventions" (where `CP` is listed as notation).
 
