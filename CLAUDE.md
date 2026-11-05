@@ -145,8 +145,8 @@ Three roles, connected by keyword-argument dictionaries:
   (`rho = 1/(kappa+1) = var/(mu(1-mu))` is the normalised variance, so `rho_min` is a floor on it).
   Then `a, b ← (1-eta)·old + eta·(mu·kappa, (1-mu)·kappa)` (exponential smoothing with learning rate `eta`).
   Copula: transform elites through the *updated* beta CDFs → `norm.ppf` → `corrcoef` → EMA into `R` with the same `eta`.
-- `sample(N)`: copula path = Cholesky of `R + 1e-10·I`, correlated normals → `norm.cdf` → `beta.ppf`;
-  otherwise `beta.rvs(..., random_state=self.rng)`. Output is rescaled to `[CP_lb, CP_ub]`.
+- `sample(N)`: copula path = Cholesky of `R + 1e-10·I`, correlated normals (`self.rng.standard_normal`) →
+  `norm.cdf` → `beta.ppf`; otherwise `beta.rvs(..., random_state=self.rng)`. Output is rescaled to `[CP_lb, CP_ub]`.
 - Older separate classes (`BetaMarginalsEDA`, rank/log-rank variants, `BetaMarginalsGaussianCopulaEDA`) remain
   commented out at the bottom of the file; `BetaEDA` replaces them.
 
@@ -287,13 +287,13 @@ python experiments/scripts/execute.py --solver stability_guided_PSO --identifier
 `python -m pytest` from the repo root (about 6 s). `tests/characterisation/` pins seeded outputs of the current code
 (not their correctness):
 - Every solver (`BasicSolver`, `UniformRandomSolver`, `stability_guided_PSO`, `EDASolver`+`BetaEDA` with each
-  elite weighting and with `update_freq=5`) on Rosenbrock and GeneralizedEggCrate (`n_x=5`, `n_s=10`, 100
-  iterations). Pins the `f_best`/`prop_feasible`/`prop_stable` histories, final `X` and `CP`, and BetaEDA's `a`/`b`.
-- Same seed reproduces; different seeds differ.
+  elite weighting, with `update_freq=5`, and with the Gaussian copula) on Rosenbrock and GeneralizedEggCrate (`n_x=5`, `n_s=10`, 100
+  iterations). Pins the `f_best`/`prop_feasible`/`prop_stable` histories, final `X` and `CP`, and BetaEDA's `a`/`b` (and `R`).
+- Same seed reproduces; different seeds differ; no solver touches numpy's global RNG (its state is unchanged,
+  and reseeding it doesn't change results).
 - Two small seeded `IFRace.tune` runs (BasicSolver tuning w/c_1/c_2; EDASolver+BetaEDA tuning eta/rho_min/n_elite
   and the categorical elite_weighting) on 6 cheap ELA instances at `n_x=2`, `B=300`, 30 iterations per run. Pins
   `L`, the race history and the best configuration.
-- Copula reproducibility is a strict `xfail` (Known issue 1). Once it's fixed, drop the marker and pin a copula case.
 
 Comparison is exact (bit-for-bit). The reference was generated in the dev container; another numpy/scipy/libm
 build (e.g. the host venv) may not match even when nothing is wrong. A behaviour-preserving change must pass
@@ -351,7 +351,7 @@ Decisions already made:
 Suggested order (each step is checked against the R8a reference results):
 1. R7a: ruff config, `dev` extra, one formatting-only commit. Later diffs then show only real changes.
 2. R8a: characterisation tests (done; see "Tests"). They protect all later steps.
-3. Known issue 1 (seeded copula RNG), so copula runs can be pinned too. This changes copula results.
+3. Known issue 1 (seeded copula RNG; done, copula runs are now pinned). This changed copula results.
 4. R2 renaming pass. Pinned results must stay unchanged. Settle the `"adapted"` key question here.
 5. R3, together with the `StabilityGuidedPSO` rename from R7b. Results stay unchanged.
 6. R5a–d. These need the shared run loop from R3.
@@ -435,14 +435,12 @@ the code toward irace, but each one must be stated explicitly.
 **R8b Unit tests** (pytest, `tests/` mirroring `src/edaptive/`; R8a, the characterisation tests, is done).
 - [ ] (b) Unit tests: `Parameter`/`ParameterSpace` validation; `parse_config`; `BenchmarkProblem` batching and
   NaN/inf mapping; PSO shapes, feasibility-gated pbest/gbest and the stability criterion; `BetaEDA` (uniform init,
-  moment fit recovers a known Beta, `rho_min` floor, bounds, seeded copula, which exposes Known issue 1); timing
+  moment fit recovers a known Beta, `rho_min` floor, bounds, seeded copula); timing
   structure; IFRace pieces (N_l/budget formulas, elite selection, sampling bounds including log scale, soft restart).
   Skip COCO/opfunu tests if they aren't installed. Add an optional `mpirun -n 2` test that must equal the serial run.
 
 ## Known issues / things to verify (found by reading the code, not yet confirmed or fixed)
 
-1. **Unseeded RNG in the copula sampler**: `BetaEDA.sample` with `copula="gaussian"` uses global `np.random.randn`,
-   not `self.rng`, so copula runs aren't reproducible from `rnd_seed`.
 2. **Possible credit-assignment / timing mismatch in `EDASolver`**: after `PSO.step`, `f_X` is the fitness of the
    pre-move positions but `X` (used for the feasibility filter) is post-move, and `CP` is the matrix used for the move
    just made, not the one that produced the positions in `f_X`. With `update_freq=1` and full resampling, the elites

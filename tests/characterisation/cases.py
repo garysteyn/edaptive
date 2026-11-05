@@ -99,10 +99,12 @@ SOLVER_CASES = {
     "eda_rank": (EDASolver, BetaEDA, _eda_config("rank")),
     "eda_log_rank": (EDASolver, BetaEDA, _eda_config("log-rank")),
     "eda_log_rank_freq5": (EDASolver, BetaEDA, _eda_config("log-rank", 5)),
+    "eda_log_rank_copula": (
+        EDASolver,
+        BetaEDA,
+        _eda_config("log-rank", copula="gaussian"),
+    ),
 }
-
-# Not pinned: the copula sampler draws from the global numpy RNG (Known issue 1).
-COPULA_CASE = (EDASolver, BetaEDA, _eda_config("log-rank", copula="gaussian"))
 
 
 def build_solver(solver_type, adapter_type, config, problem_type, seed):

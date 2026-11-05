@@ -55,17 +55,19 @@ def test_solver_different_seed_differs(case_name):
     assert first["X"] != second["X"]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Known issue 1: BetaEDA's copula sampler uses the global numpy RNG, "
-    "so copula runs aren't reproducible from rnd_seed. Remove this marker (and "
-    "pin a copula case) once it's fixed.",
-)
-def test_copula_same_seed_reproduces():
+@pytest.mark.parametrize("case_name", list(cases.SOLVER_CASES))
+def test_solver_ignores_global_rng(case_name):
+    """All randomness must come from rnd_seed, never numpy's global RNG."""
     np.random.seed(1)
-    first = cases.run_solver(*cases.COPULA_CASE, cases.Rosenbrock, seed=11)
+    before = np.random.get_state()
+    first = cases.run_solver_case(case_name, "Rosenbrock", seed=11)
+    after = np.random.get_state()
+    assert before[0] == after[0]
+    np.testing.assert_array_equal(before[1], after[1])
+    assert before[2:] == after[2:]
+
     np.random.seed(2)
-    second = cases.run_solver(*cases.COPULA_CASE, cases.Rosenbrock, seed=11)
+    second = cases.run_solver_case(case_name, "Rosenbrock", seed=11)
     assert_matches(second, first)
 
 

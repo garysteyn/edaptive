@@ -33,7 +33,7 @@ class BetaEDA(EDAAdapter):
             chol_eps = 1e-10  # used to ensure matrix is positive definite
             d = len(self.a)
             L = np.linalg.cholesky(self.R + chol_eps * np.eye(d))
-            Z = np.random.randn(N, len(self.a)) @ L.T
+            Z = self.rng.standard_normal(size=(N, d)) @ L.T
             U = norm.cdf(Z)
             samples = beta.ppf(U, self.a, self.b)
         else:
