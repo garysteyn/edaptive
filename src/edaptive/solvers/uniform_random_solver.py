@@ -1,16 +1,16 @@
 import numpy as np
 from edaptive.core.solver import BaseSolver
 
-from edaptive.adapters.simple_random import RandomAdapter
+from edaptive.adapters.uniform_random import UniformRandomAdapter
 from edaptive.problems.ela_benchmark_suite import *
 from edaptive.optimizers.pso import PSO
 from edaptive.core.parameters import ParameterType, Parameter, ParameterSpace
 import numpy as np
 
 
-class RandomSolver(BaseSolver):
+class UniformRandomSolver(BaseSolver):
     def __init__(self, optimizer_type, **kwargs):
-        super().__init__(optimizer_type, adapter_type=RandomAdapter, **kwargs)
+        super().__init__(optimizer_type, adapter_type=UniformRandomAdapter, **kwargs)
 
     def initialize(self, problem, hyper_params, rnd_seed=0):
         self.rng = np.random.default_rng(rnd_seed)
@@ -97,7 +97,7 @@ def main():
     }
 
     for problem in problems:
-        solver = RandomSolver(
+        solver = UniformRandomSolver(
             optimizer_type=PSO, problem=problem(dimensions=10), hyper_params=params
         )
         res = solver.run(max_iterations=5000)

@@ -41,13 +41,13 @@ edaptive/
 │   │   └── parameters.py     # ParameterType, Parameter, ParameterSpace
 │   ├── adapters/             # generic (optimizer-agnostic) adapters
 │   │   ├── beta_eda.py       # BetaEDA (beta marginals, optional Gaussian copula) + commented-out legacy variants
-│   │   └── simple_random.py  # RandomAdapter (uniform resampling baseline)
+│   │   └── uniform_random.py # UniformRandomAdapter (EDAAdapter; uniform resampling baseline)
 │   ├── optimizers/
 │   │   └── pso.py            # PSO (gbest, per-particle CPs), swarm_diversity, stable_particle_proportion
 │   ├── solvers/              # wrappers that run optimizer (+ adapter)
 │   │   ├── basic_solver.py   # BasicSolver: static CPs, no adapter
 │   │   ├── eda_solver.py     # EDASolver: optimizer + any EDAAdapter
-│   │   ├── random_solver.py  # RandomSolver: optimizer + RandomAdapter (also has a scratch main())
+│   │   ├── uniform_random_solver.py # UniformRandomSolver: optimizer + UniformRandomAdapter (also has a scratch main())
 │   │   └── pso/
 │   │       ├── sg_pso.py     # stability_guided_PSO: PSO-specific adaptation implemented as a solver
 │   │       └── tvac_pso.py   # empty placeholder
@@ -153,7 +153,7 @@ Three roles, connected by keyword-argument dictionaries:
 - `EDASolver`: adapter built from `hyper_params["adapter"]` + rng over `hyper_params["optimizer"]["adapted"]`
   (a `ParameterSpace`); initial CPs = `adapter.sample(n_s)`, passed to the optimizer by parameter name. Each iteration:
   `optimizer.step(t)` → `check_update` → if elites: `update`, resample **all** `n_s` CPs.
-- `RandomSolver`: resamples all CPs uniformly every iteration (hardwires `RandomAdapter`).
+- `UniformRandomSolver`: resamples all CPs uniformly every iteration (hardwires `UniformRandomAdapter`).
 - `stability_guided_PSO`: hardcodes PSO and CP bounds `[0,1]×[0,4]×[0,4]`; resamples all CPs uniformly every
   iteration with rejection sampling until every particle satisfies Poli's stability criterion. Its constructor
   takes no `optimizer_type`/`adapter_type`.
@@ -327,7 +327,7 @@ Suggested order (each step is checked against the R8a reference results):
 1. R7a: ruff config, `dev` extra, one formatting-only commit. Later diffs then show only real changes.
 2. R8a: characterisation tests (pinned seeded results). This protects all later steps.
 3. Known issue 1 (seeded copula RNG), so copula runs can be pinned too. This changes copula results.
-4. R6 + R2 as one renaming pass. Pinned results must stay unchanged. Settle the `"adapted"` key question here.
+4. R2 renaming pass. Pinned results must stay unchanged. Settle the `"adapted"` key question here.
 5. R3, together with the `StabilityGuidedPSO` rename from R7b. Results stay unchanged.
 6. R5a–d. These need the shared run loop from R3.
 7. R4 phase 1: pure restructuring. Its output must be bit-identical to the R8a reference.
@@ -397,10 +397,6 @@ the code toward irace, but each one must be stated explicitly.
   logging and MPI); `total` = their sum. Write to `tuning.log` and `results/tuning_results/<id>/tuning_times.json`,
   including the grand total. Depends on R4.
 
-**R6 Rename `adapters/simple_random.py`.**
-- [ ] Proposal: `adapters/uniform_random.py` / `UniformRandomAdapter` (subclass `EDAAdapter`, since it implements
-  `sample`), with the unused scipy imports removed. Update `random_solver.py`. Confirm the name with the author.
-
 **R7 PEP 8 compliance.**
 - [x] (a) ruff config, `dev` extra, `ruff format` applied (the AST is identical before and after).
 - [ ] (b) Fix the remaining `ruff check` violations (about 280): wildcard imports (`F403/F405`, mostly in
@@ -438,10 +434,10 @@ the code toward irace, but each one must be stated explicitly.
    The same constructor mismatch means `tune.py` can't drive `stability_guided_PSO`. (Constructor parts → R3.)
 5. `CECProblem._evaluate` forwards batched `(N, D)` input straight to opfunu's `evaluate`, which is likely 1-D only.
    Verify before using CEC problems with PSO.
-6. `create_adapted_parameter_space` ignores integer/categorical specifics; `RandomAdapter`/`BetaEDA` assume continuous CPs.
+6. `create_adapted_parameter_space` ignores integer/categorical specifics; `UniformRandomAdapter`/`BetaEDA` assume continuous CPs.
 7. `BaseAdapter`'s abstract interface doesn't declare `check_update`; `BaseSolver` lacks shared run-loop logic
    (duplicated across solvers). (→ R3.)
 8. PSO history keys `velocities`/`diversity` are only populated at initialisation.
 9. Empty placeholders: `solvers/pso/tvac_pso.py`, `problems/misc_problems.py`. Scratch `main()` blocks live in
-   `random_solver.py` and `ela_benchmark_suite.py`. (→ R7b.)
+   `uniform_random_solver.py` and `ela_benchmark_suite.py`. (→ R7b.)
 10. Git: branches `main` and `elitist-ifrace` (also on origin).
