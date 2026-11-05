@@ -5,9 +5,9 @@ from abc import ABC, abstractmethod
 class BaseAdapter(ABC):
     def __init__(self, CP_space, **kwargs):
         self.CP_space = CP_space
-        self.CP_lb = CP_space.lower_bounds
-        self.CP_ub = CP_space.upper_bounds
-        self.n_params = CP_space.dimension
+        self.CP_lbs = CP_space.lower_bounds
+        self.CP_ubs = CP_space.upper_bounds
+        self.n_CP = CP_space.dimension
 
         self.initialize(**kwargs)
 

@@ -14,11 +14,11 @@ class BetaEDA(EDAAdapter):
 
         self.copula = copula
 
-        self.a = np.ones(shape=self.n_params, dtype=np.float64)
-        self.b = np.ones(shape=self.n_params, dtype=np.float64)
+        self.a = np.ones(shape=self.n_CP, dtype=np.float64)
+        self.b = np.ones(shape=self.n_CP, dtype=np.float64)
 
         if copula == "gaussian":
-            self.R = np.eye(N=self.n_params)
+            self.R = np.eye(N=self.n_CP)
 
         self.eta = eta
         self.rho_min = rho_min
@@ -38,9 +38,9 @@ class BetaEDA(EDAAdapter):
             samples = beta.ppf(U, self.a, self.b)
         else:
             samples = beta.rvs(
-                self.a, self.b, size=(N, self.n_params), random_state=self.rng
+                self.a, self.b, size=(N, self.n_CP), random_state=self.rng
             )
-        return self.CP_lb + samples * (self.CP_ub - self.CP_lb)
+        return self.CP_lbs + samples * (self.CP_ubs - self.CP_lbs)
 
     def check_update(self, problem_lb, problem_ub, t, X, f_X, CP):
         if (t + 1) % self.update_freq != 0:
@@ -64,7 +64,7 @@ class BetaEDA(EDAAdapter):
         ]
 
     def update(self, elite_CPs):
-        scaled_CP = (elite_CPs - self.CP_lb) / (self.CP_ub - self.CP_lb)
+        scaled_CP = (elite_CPs - self.CP_lbs) / (self.CP_ubs - self.CP_lbs)
         eps = 1e-6
         scaled_CP = np.clip(scaled_CP, eps, 1 - eps)
 

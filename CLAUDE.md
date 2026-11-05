@@ -125,7 +125,7 @@ Three roles, connected by keyword-argument dictionaries:
 
 ### Adapter (`core/adapter.py`)
 - `BaseAdapter.__init__(CP_space, **kwargs)`: `CP_space` is a `ParameterSpace` of the **adapted** CPs.
-  Sets `CP_space`, `CP_lb`, `CP_ub`, `n_params` (= number of adapted CPs), then `initialize(**kwargs)`.
+  Sets `CP_space`, `CP_lbs`, `CP_ubs`, `n_CP` (= number of adapted CPs), then `initialize(**kwargs)`.
 - `required_data()` lists optimizer attributes needed for an update. `EDAAdapter` adds abstract `sample(N)`.
 - Contract used by `EDASolver`: `check_update(**data) -> elites | None`, then `update(elites)`, then `sample(N)`.
   (`check_update` isn't declared on the ABC yet.)
@@ -146,7 +146,7 @@ Three roles, connected by keyword-argument dictionaries:
   Then `a, b ← (1-eta)·old + eta·(mu·kappa, (1-mu)·kappa)` (exponential smoothing with learning rate `eta`).
   Copula: transform elites through the *updated* beta CDFs → `norm.ppf` → `corrcoef` → EMA into `R` with the same `eta`.
 - `sample(N)`: copula path = Cholesky of `R + 1e-10·I`, correlated normals (`self.rng.standard_normal`) →
-  `norm.cdf` → `beta.ppf`; otherwise `beta.rvs(..., random_state=self.rng)`. Output is rescaled to `[CP_lb, CP_ub]`.
+  `norm.cdf` → `beta.ppf`; otherwise `beta.rvs(..., random_state=self.rng)`. Output is rescaled to `[CP_lbs, CP_ubs]`.
 - Older separate classes (`BetaMarginalsEDA`, rank/log-rank variants, `BetaMarginalsGaussianCopulaEDA`) remain
   commented out at the bottom of the file; `BetaEDA` replaces them.
 
@@ -380,8 +380,8 @@ solver does, so configs and `best_configuration.pkl` files need no migration.
   the optimizer is built. Rename `CP_init`/`CP_init_dict`/`CP_new` → `adapted_CP_init`/`adapted_CP_init_dict`/
   `adapted_CP_new` (`EDASolver`, `UniformRandomSolver`, `stability_guided_PSO`). In `stability_guided_PSO`, also
   rename `sample_CP` → `sample_adapted_CP`, its local `CP`, and `self.CP_lb`/`self.CP_ub` →
-  `self.adapted_CP_lb`/`self.adapted_CP_ub`.
-- [ ] Keep `CP_lb`/`CP_ub`, `elite_CPs`, `get_elite_CPs` and `scaled_CP` in the adapters, where everything refers to
+  `self.adapted_CP_lbs`/`self.adapted_CP_ubs`.
+- [ ] Keep `CP_lbs`/`CP_ubs`, `elite_CPs`, `get_elite_CPs` and `scaled_CP` in the adapters, where everything refers to
   the adapter's `CP_space`.
 - [ ] Define "adaptable CPs" in the `BaseOptimizer` docstring, in "Core architecture → Optimizer", and in
   "Conventions" (where `CP` is listed as notation).
