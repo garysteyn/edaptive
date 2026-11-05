@@ -352,7 +352,7 @@ Suggested order (each step is checked against the R8a reference results):
 1. R7a: ruff config, `dev` extra, one formatting-only commit. Later diffs then show only real changes.
 2. R8a: characterisation tests (done; see "Tests"). They protect all later steps.
 3. Known issue 1 (seeded copula RNG; done, copula runs are now pinned). This changed copula results.
-4. R2 renaming pass. Pinned results must stay unchanged. Settle the `"adapted"` key question here.
+4. R2 renaming pass (`adaptable_CP`). Pinned results must stay unchanged.
 5. R3, together with the `StabilityGuidedPSO` rename from R7b. Results stay unchanged.
 6. R5a–d. These need the shared run loop from R3.
 7. R4 phase 1: pure restructuring. Its output must be bit-identical to the R8a reference.
@@ -365,21 +365,26 @@ R8b is not a separate step: add each component's unit tests in the step that tou
 Known issue 2 changes EDASolver behaviour, so resolve it before running EDASolver tuning/experiments. Steps 1–6
 don't depend on it.
 
-**R2 Separate adaptive control parameters from fixed ones (e.g. `n_s`).** Must not change numerical results.
-- [ ] `BaseOptimizer.CP`/`_CP` → `adaptive_params`/`_adaptive_params`, shape `(n_s, n_adaptive)`.
-- [ ] Optimizers declare `adaptive_param_names` (PSO: `("w", "c_1", "c_2")`). Solvers then map columns by name instead of
-  by position (this removes the hardcoded indexing in `sg_pso.py` and the order assumption in the solvers).
-- [ ] `CP_lb`/`CP_ub` → `param_lb`/`param_ub`; in `BetaEDA`, `elite_CPs`/`get_elite_CPs`/`scaled_CP` → `elite_params`/…;
-  the `required_data()` entry `"CP"` → `"adaptive_params"`.
-- [ ] Solver locals: `CP_init`/`CP_new`/`sample_CP` → `initial_params`/`new_params`/`sample_params`.
-- [ ] Decide whether the hyper_params/JSON key `"adapted"` → `"adaptive"`. Renaming it breaks existing configs and
-  `best_configuration.pkl` files, so it needs a migration or a backward-compatible loader.
+**R2 Name the adaptable CPs apart from the other CPs.** Must not change numerical results.
+Definition: *adaptable CPs* are the per-individual control parameters (PSO: `w`, `c_1`, `c_2`) that may change during
+a run. Other CPs, such as `n_s`, are fixed when the optimizer is built. Whether a solver actually adapts them is set by
+the config's `"fixed"`/`"adapted"` split. The `"adapted"` key stays as it is, because it correctly describes what a
+solver does, so configs and `best_configuration.pkl` files need no migration.
+- [ ] `BaseOptimizer.CP`/`_CP` → `adaptable_CP`/`_adaptable_CP`, shape `(n_s, n_adaptable)`. The matrix name is
+  singular, like `X`; names for collections stay plural (`elite_CPs`).
+- [ ] Optimizers declare `adaptable_CP_names` (PSO: `("w", "c_1", "c_2")`). Solvers then map columns by name instead
+  of by position (this removes the hardcoded indexing in `sg_pso.py` and the order assumption in the solvers).
+- [ ] Rename the `required_data()` entry `"CP"` (and the matching `BetaEDA.check_update` argument) to `"adaptable_CP"`.
+- [ ] Keep `CP_lb`/`CP_ub`, `elite_CPs`, `get_elite_CPs`, `scaled_CP` and the solver locals (`CP_init`, `CP_new`,
+  `sample_CP`). They already refer only to adaptable CPs, so they are accurate.
+- [ ] Define "adaptable CPs" in the `BaseOptimizer` docstring, in "Core architecture → Optimizer", and in
+  "Conventions" (where `CP` is listed as notation).
 
 **R3 Cleaner solver construction (`hyper_params` unpacking).** This is a structural change, so confirm the design first.
 - [ ] Replace the nested `hyper_params["optimizer"]["fixed"]` access with a small frozen dataclass, e.g.
   `SolverConfig(identifier, fixed_params, adaptive_space, adapter_params)`, produced by `parse_config`, with
   `from_dict()` for old pickles.
-- [ ] Move the shared logic into `BaseSolver`: RNG creation, `_build_optimizer(problem, initial_params=None)`,
+- [ ] Move the shared logic into `BaseSolver`: RNG creation, `_build_optimizer(problem, initial_CP=None)`,
   `_build_adapter()`, a common `run()` loop with a per-iteration hook `adapt(t)`, and timing collection
   (covers Known issue 7).
 - [ ] Give every solver the same constructor signature, `stability_guided_PSO` included (fixes the constructor parts of
@@ -412,7 +417,7 @@ the code toward irace, but each one must be stated explicitly.
 - [ ] (a) Adapters: `BaseAdapter._timings`; `@timed` on `check_update`/`update`/`sample` of `BetaEDA` and the random
   adapter.
 - [ ] (b) Tailored adaptation logic: time the rejection sampling in `stability_guided_PSO`.
-- [ ] (c) Optimizer↔adapter interaction: time `get_required_data` and the adaptive-params setter in the solvers.
+- [ ] (c) Optimizer↔adapter interaction: time `get_required_data` and the `adaptable_CP` setter in the solvers.
   They pass references, so they are probably negligible. Measure, then keep or drop.
 - [ ] (d) `history["timings"]` → `{"optimizer": {...}, "adapter": {...}, "solver": {...}}` plus a helper
   `core_time(timings)` that sums them. It excludes `update_history`/`prop_stable` etc. Use `OMP_NUM_THREADS=1` for
