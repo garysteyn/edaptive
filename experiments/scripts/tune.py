@@ -1,15 +1,30 @@
+import argparse
 import json
-from edaptive.utils.experiment_utils import parse_config
-from edaptive.solvers.eda_solver import EDASolver
-from edaptive.solvers.basic_solver import BasicSolver
-from edaptive.adapters.beta_eda import *
-from edaptive.optimizers.pso import PSO
+from pathlib import Path
+
+from edaptive.problems.ela_benchmark_suite import (
+    BBOB_FID2_IID1,
+    BBOB_FID6_IID1,
+    BBOB_FID16_IID1,
+    BBOB_FID17_IID2,
+    Brown,
+    CosineMixture,
+    CosineMixture_OG,
+    Exponential,
+    GeneralizedGiunta,
+    GeneralizedPaviani,
+    GeneralizedPrice2,
+    Mishra01,
+    Mishra07,
+    NeedleEye,
+    Ripple25,
+    Schwefel1,
+    Step3,
+)
+from edaptive.registry import resolve
 from edaptive.tuning.ifrace import IFRace
 from edaptive.tuning.ifrace_sampling_model import IFRaceDefaultSamplingModel
-from edaptive.problems.ela_benchmark_suite import *
-from edaptive.core.parameters import ParameterType, Parameter, ParameterSpace
-import argparse
-from pathlib import Path
+from edaptive.utils.experiment_utils import parse_config
 
 
 def parse_args():
@@ -30,13 +45,9 @@ def parse_args():
 def main():
     args = parse_args()
 
-    solver_type = eval(args.solver)
-    optimizer_type = eval(args.optimizer)
-
-    if args.adapter:
-        adapter_type = eval(args.adapter)
-    else:
-        adapter_type = None
+    solver_type = resolve("solver", args.solver)
+    optimizer_type = resolve("optimizer", args.optimizer)
+    adapter_type = resolve("adapter", args.adapter or None)
 
     with args.config.open("r") as file:
         config = json.load(file)

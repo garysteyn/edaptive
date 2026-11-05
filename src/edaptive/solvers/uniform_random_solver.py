@@ -1,11 +1,7 @@
 import numpy as np
-from edaptive.core.solver import BaseSolver
 
 from edaptive.adapters.uniform_random import UniformRandomAdapter
-from edaptive.problems.ela_benchmark_suite import *
-from edaptive.optimizers.pso import PSO
-from edaptive.core.parameters import ParameterType, Parameter, ParameterSpace
-import numpy as np
+from edaptive.core.solver import BaseSolver
 
 
 class UniformRandomSolver(BaseSolver):
@@ -52,57 +48,3 @@ class UniformRandomSolver(BaseSolver):
 
         optimizer.history["timings"] = optimizer._timings
         return (np.min(optimizer.history["f_best"]), optimizer.history)
-
-
-def main():
-    problems = [
-        Schwefel1,
-        Ripple25,
-        Exponential,
-        NeedleEye,
-        Step3,
-        GeneralizedGiunta,
-        GeneralizedPaviani,
-        Brown,
-        CosineMixture_OG,
-        CosineMixture,
-        Mishra07,
-        Mishra01,
-        GeneralizedPrice2,
-        BBOB_FID2_IID1,
-        BBOB_FID6_IID1,
-        BBOB_FID16_IID1,
-        BBOB_FID17_IID2,
-    ]
-
-    params = {
-        "optimizer": {
-            "fixed": {
-                "n_s": 30,
-            },
-            "adapted": ParameterSpace(
-                [
-                    Parameter(
-                        name="w", lower=0.0, upper=1.0, type=ParameterType.CONTINUOUS
-                    ),
-                    Parameter(
-                        name="c_1", lower=0.0, upper=4.0, type=ParameterType.CONTINUOUS
-                    ),
-                    Parameter(
-                        name="c_2", lower=0.0, upper=4.0, type=ParameterType.CONTINUOUS
-                    ),
-                ]
-            ),
-        }
-    }
-
-    for problem in problems:
-        solver = UniformRandomSolver(
-            optimizer_type=PSO, problem=problem(dimensions=10), hyper_params=params
-        )
-        res = solver.run(max_iterations=5000)
-        print(res[0])
-
-
-if __name__ == "__main__":
-    main()

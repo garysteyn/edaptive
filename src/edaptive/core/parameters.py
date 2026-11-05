@@ -1,7 +1,8 @@
-import numpy as np
 from dataclasses import dataclass
 from enum import Enum
 from typing import Iterator
+
+import numpy as np
 
 
 class ParameterType(Enum):

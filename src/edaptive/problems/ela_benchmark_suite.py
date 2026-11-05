@@ -1,10 +1,11 @@
-from edaptive.problems.bbob import BBOBProblem
-from scipy.special import factorial
-import numpy as np
 import matplotlib.pyplot as plt
-from abc import ABC, abstractmethod
-from edaptive.const import max_float
+import numpy as np
+from scipy.special import factorial
+
+from edaptive.problems.bbob import BBOBProblem
 from edaptive.problems.benchmark_problem import BenchmarkProblem
+
+SQRT_PI = np.sqrt(np.pi)
 
 
 def plot_benchmark_3d(
@@ -101,7 +102,7 @@ class Schwefel1(BenchmarkProblem):
     f(0, ..., 0) = 0
     """
 
-    def __init__(self, dimensions, alpha=np.sqrt(np.pi)):
+    def __init__(self, dimensions, alpha=SQRT_PI):
         super().__init__(
             dimensions=dimensions,
         )
@@ -480,7 +481,8 @@ class CosineMixture(BenchmarkProblem):
         return -0.1 * np.sum(np.cos(5.0 * np.pi * x), axis=-1) - np.sum(x**2, axis=-1)
 
 
-# Note: The bounds of this function should be changed to [-D, D]. This ensures that an optimal value of f=0 is attainable at any dimension.
+# Note: The bounds of this function should be changed to [-D, D]. This ensures that an
+# optimal value of f=0 is attainable at any dimension.
 class Mishra07(BenchmarkProblem):
     """
     Mishra No. 7 (Factorial) benchmark function.
@@ -1161,11 +1163,3 @@ class Elliptic(BenchmarkProblem):
             10.0 ** (6.0 * i / (self.dimensions - 1.0)) * x**2,
             axis=-1,
         )
-
-
-def main():
-    plot_benchmark_3d(BBOB_FID17_IID2)
-
-
-if __name__ == "__main__":
-    main()

@@ -1,4 +1,4 @@
-"""Characterisation tests: pinned seeded results of the current code (R8a).
+"""Characterisation tests: pinned seeded results of the current code.
 
 These pin behaviour, not correctness. A failure means results changed. If that
 was intended, regenerate the reference (see ``make_reference.py``) and explain

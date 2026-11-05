@@ -1,7 +1,7 @@
 import numpy as np
+
 from edaptive.core.solver import BaseSolver
 from edaptive.optimizers.pso import PSO
-from scipy.integrate import cumulative_trapezoid
 
 
 # Poli's stability criterion
@@ -9,7 +9,7 @@ def check_stability(w, c1, c2):
     return (c1 + c2) < (24 * (1 - w**2) / (7 - 5 * w))
 
 
-class stability_guided_PSO(BaseSolver):
+class StabilityGuidedPSO(BaseSolver):
     adapted_CP_names = ("w", "c_1", "c_2")
 
     def __init__(self, **kwargs):

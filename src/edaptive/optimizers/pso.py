@@ -1,6 +1,7 @@
 import numpy as np
-from edaptive.core.optimizer import BaseOptimizer
+
 from edaptive.const import max_float
+from edaptive.core.optimizer import BaseOptimizer
 from edaptive.utils.timing import timed
 
 

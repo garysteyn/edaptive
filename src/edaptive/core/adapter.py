@@ -1,4 +1,3 @@
-import numpy as np
 from abc import ABC, abstractmethod
 
 
@@ -18,9 +17,9 @@ class BaseAdapter(ABC):
         columns = [adaptable_CP_names.index(name) for name in self.CP_names]
         return adaptable_CPs[:, columns]
 
-    # Data required of the optimizer (to perform an update)
     def required_data(self):
-        pass
+        """Names of optimizer attributes this adapter needs for an update."""
+        return []
 
     @abstractmethod
     def initialize(self, **kwargs):

@@ -1,5 +1,5 @@
 from edaptive.problems.ela_benchmark_suite import *
-from edaptive.solvers.pso.sg_pso import stability_guided_PSO
+from edaptive.solvers.pso.sg_pso import StabilityGuidedPSO
 from edaptive.core.parameters import ParameterType, Parameter, ParameterSpace
 import numpy as np
 
@@ -31,7 +31,7 @@ def main():
     ]
 
     for i in range(30):
-        pso = stability_guided_PSO(
+        pso = StabilityGuidedPSO(
             problem=Mishra07(dimensions=30), hyper_params=params, rnd_seed=i
         )
         res = pso.run(max_iterations=5000)

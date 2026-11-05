@@ -1,4 +1,5 @@
 import numpy as np
+
 from edaptive.core.solver import BaseSolver
 
 

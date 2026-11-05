@@ -1,6 +1,4 @@
-import argparse
-from pathlib import Path
-from edaptive.core.parameters import ParameterType, Parameter, ParameterSpace
+from edaptive.core.parameters import Parameter, ParameterSpace, ParameterType
 
 
 def create_adapted_parameter_space(config: dict) -> ParameterSpace:

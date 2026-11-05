@@ -1,6 +1,7 @@
 from edaptive.core.adapter import EDAAdapter
 
-# TODO: Generalize the implementation to accommodate integer- and categorical-valued parameters. Currently, the implementation assumes that all parameters are continuous.
+# TODO: Generalize the implementation to accommodate integer- and categorical-valued
+# parameters. Currently, the implementation assumes that all parameters are continuous.
 
 
 class UniformRandomAdapter(EDAAdapter):

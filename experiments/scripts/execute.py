@@ -1,17 +1,52 @@
-import numpy as np
 import argparse
-from pathlib import Path
-from edaptive.utils.experiment_utils import parse_config
-from edaptive.solvers.eda_solver import EDASolver
-from edaptive.solvers.basic_solver import BasicSolver
-from edaptive.solvers.pso.sg_pso import stability_guided_PSO
-from edaptive.adapters.beta_eda import *
-from edaptive.optimizers.pso import PSO
-from edaptive.problems.ela_benchmark_suite import *
-from edaptive.problems.custom_test_set import *
-from mpi4py import MPI
-import pickle
 import json
+import pickle
+from pathlib import Path
+
+from mpi4py import MPI
+
+# BBOB_FID17_IID2 also exists in ela_benchmark_suite; this script uses the evaluation
+# set's version.
+from edaptive.problems.custom_test_set import (
+    BBOB_FID1_IID4,
+    BBOB_FID1_IID5,
+    BBOB_FID12_IID3,
+    BBOB_FID14_IID1,
+    BBOB_FID14_IID2,
+    BBOB_FID14_IID5,
+    BBOB_FID16_IID2,
+    BBOB_FID16_IID5,
+    BBOB_FID17_IID2,
+    BBOB_FID17_IID5,
+    BBOB_FID18_IID4,
+    BBOB_FID18_IID5,
+    BBOB_FID19_IID1,
+    BBOB_FID19_IID4,
+    BBOB_FID20_IID5,
+    BBOB_FID21_IID1,
+    BBOB_FID23_IID5,
+    CEC_2013_FID13,
+    CEC_2015_FID3,
+    CEC_2015_FID4,
+    CEC_2017_FID28,
+)
+from edaptive.problems.ela_benchmark_suite import (
+    Brown,
+    CosineMixture,
+    CosineMixture_OG,
+    Exponential,
+    GeneralizedGiunta,
+    GeneralizedPaviani,
+    GeneralizedPrice2,
+    Mishra01,
+    Mishra07,
+    NeedleEye,
+    Ripple25,
+    Schwefel1,
+    Step3,
+)
+from edaptive.registry import resolve
+from edaptive.utils.experiment_utils import parse_config
 
 comm = MPI.COMM_WORLD
 
@@ -23,7 +58,8 @@ size = comm.Get_size()
 def parse_args():
     parser = argparse.ArgumentParser(description="")
 
-    # We should just save the solver, optimizer, and adapter class details in the tuning directory. Then the identifier can be used to retrieve this information.
+    # We should just save the solver, optimizer, and adapter class details in the
+    # tuning directory. Then the identifier can be used to retrieve this information.
     parser.add_argument("--solver", type=str, required=True, help="Solver to run.")
 
     parser.add_argument(
@@ -36,7 +72,8 @@ def parse_args():
         "--identifier",
         type=str,
         required=True,
-        help="Alias for the algorithm. Corresponds to the 'identifier' field in the tuning .json file, as well as the directory containing the tuning results.",
+        help="Alias for the algorithm. Corresponds to the 'identifier' field in the "
+        "tuning .json file, as well as the directory containing the tuning results.",
     )
 
     parser.add_argument(
@@ -66,17 +103,9 @@ def parse_args():
 
 args = parse_args()
 
-solver_type = eval(args.solver)
-
-if args.optimizer:
-    optimizer_type = eval(args.optimizer)
-else:
-    optimizer_type = None
-
-if args.adapter:
-    adapter_type = eval(args.adapter)
-else:
-    adapter_type = None
+solver_type = resolve("solver", args.solver)
+optimizer_type = resolve("optimizer", args.optimizer or None)
+adapter_type = resolve("adapter", args.adapter or None)
 
 identifier = args.identifier
 
@@ -171,14 +200,18 @@ for i, p in enumerate(tuning_problems):
             )
 
         else:
-            if optimizer_type:  # Solver uses a general tuning-free adapter (can be applied to different kinds of optimizers)
+            # Solver uses a general tuning-free adapter (can be applied to different
+            # kinds of optimizers)
+            if optimizer_type:
                 solver = solver_type(
                     optimizer_type=optimizer_type,
                     problem=p(dimensions=n_x),
                     hyper_params=config,
                     rnd_seed=j,
                 )
-            else:  # Solver uses an adaptation method tailored to a specific kind of optimizer
+            # Otherwise the solver uses an adaptation method tailored to a specific kind
+            # of optimizer
+            else:
                 solver = solver_type(
                     problem=p(dimensions=n_x), hyper_params=config, rnd_seed=j
                 )

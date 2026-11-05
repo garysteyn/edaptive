@@ -1,5 +1,6 @@
-import numpy as np
 import cocoex
+import numpy as np
+
 from edaptive.problems.benchmark_problem import BenchmarkProblem
 
 

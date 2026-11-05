@@ -47,9 +47,9 @@ edaptive/
 │   ├── solvers/              # wrappers that run optimizer (+ adapter)
 │   │   ├── basic_solver.py   # BasicSolver: static CPs, no adapter
 │   │   ├── eda_solver.py     # EDASolver: optimizer + any EDAAdapter
-│   │   ├── uniform_random_solver.py # UniformRandomSolver: optimizer + UniformRandomAdapter (also has a scratch main())
+│   │   ├── uniform_random_solver.py # UniformRandomSolver: optimizer + UniformRandomAdapter
 │   │   └── pso/
-│   │       ├── sg_pso.py     # stability_guided_PSO: PSO-specific adaptation implemented as a solver
+│   │       ├── sg_pso.py     # StabilityGuidedPSO: PSO-specific adaptation implemented as a solver
 │   │       └── tvac_pso.py   # empty placeholder
 │   ├── problems/
 │   │   ├── benchmark_problem.py   # BenchmarkProblem ABC
@@ -64,7 +64,7 @@ edaptive/
 │   ├── integrations/calypso/       # subprocess wrappers around the external calypso repo
 │   │   ├── bs_pso.py               # BS_PSO   → calypso `scripts.pso.execute` (belief-space SA-PSO)
 │   │   └── sac_pso.py              # CalypsoWrapper.train() → calypso `scripts.rl.calypsoTrainSAC` (SAC SA-PSO)
-│   │   (integrations/test.py is a scratch driver script)
+│   ├── registry.py                 # CLI names → solver/optimizer/adapter classes (`resolve(kind, name)`)
 │   └── utils/
 │       ├── experiment_utils.py     # JSON config → (config_template, tuning ParameterSpace)
 │       └── timing.py               # @timed decorator → obj._timings[func_name] accumulates seconds
@@ -72,8 +72,8 @@ edaptive/
 │   ├── configs/*.json        # algorithm configs (see "Config schema")
 │   └── scripts/
 │       ├── tune.py           # run I/F-race for a solver/optimizer/adapter + config
-│       ├── execute.py        # run final experiments (uses tuned config if present), MPI-parallel
-│       └── test*.py, temp.py, sobol_owen.py   # ad-hoc scratch scripts, not tests
+│       └── execute.py        # run final experiments (uses tuned config if present), MPI-parallel
+├── scratch/                  # ad-hoc driver scripts (kept in git, excluded from ruff, not tests)
 ├── tests/                    # pytest (`testpaths` set in pyproject.toml); see "Tests"
 │   ├── conftest.py           # forces the Agg matplotlib backend
 │   ├── core/                 # unit tests: name-based adaptable-CP mapping (optimizer + adapter)
@@ -176,7 +176,7 @@ Three roles, connected by keyword-argument dictionaries:
   iteration: `optimizer.step(t)` → `check_update` → if elites: `update`, resample the adapted CPs of **all** `n_s`
   particles (`set_adaptable_CPs`). CPs not in the `"adapted"` space come from `"fixed"` and never change.
 - `UniformRandomSolver`: resamples the adapted CPs uniformly every iteration (hardwires `UniformRandomAdapter`).
-- `stability_guided_PSO`: hardcodes PSO, `adapted_CP_names = ("w", "c_1", "c_2")` and bounds
+- `StabilityGuidedPSO`: hardcodes PSO, `adapted_CP_names = ("w", "c_1", "c_2")` and bounds
   `adapted_CP_lbs/ubs` = `[0,1]×[0,4]×[0,4]`; resamples them uniformly every iteration with rejection sampling
   (`sample_adapted_CPs`) until every particle satisfies Poli's stability criterion. Its constructor takes no
   `optimizer_type`/`adapter_type`.
@@ -267,7 +267,8 @@ nothing is tuned. Current configs: `basic.json` (static PSO, tunes w/c_1/c_2), `
 ## Running things
 
 Run from the **repo root**, since result paths are relative to CWD. Solver/optimizer/adapter are given as class names
-and resolved with `eval` against the script's imports.
+and looked up in `edaptive/registry.py` (unknown names raise an error listing the valid ones). Register new classes
+there. The old name `stability_guided_PSO` is still accepted as an alias.
 
 ```bash
 # Tuning (MPI optional)
@@ -278,7 +279,7 @@ python experiments/scripts/tune.py --solver BasicSolver --optimizer PSO --config
 # Experiments: uses results/tuning_results/<identifier>/best_configuration.pkl if present, else --config
 mpirun -n 8 python experiments/scripts/execute.py --solver EDASolver --optimizer PSO --adapter BetaEDA \
     --identifier testname --n_x 30 --max_iter 5000 --n_trials 50
-python experiments/scripts/execute.py --solver stability_guided_PSO --identifier sg_pso \
+python experiments/scripts/execute.py --solver StabilityGuidedPSO --identifier sg_pso \
     --config experiments/configs/sg_pso.json
 ```
 `execute.py` writes `results/experiment_results/<identifier>.pkl` as `{problem_name: {trial: history_dict}}`
@@ -297,12 +298,12 @@ python experiments/scripts/execute.py --solver stability_guided_PSO --identifier
   pinned commit `0a7b447f…`). It resets and rebuilds the shared `.coco/` checkout.
 - calypso: `scripts/setup_calypso.sh` (clones `git@github.com:garysteyn/calypso-clean.git` into `./calypso`, **deletes any
   existing `./calypso` first**, applies `calypso-integration.patch`, installs requirements, patches tf_agents).
-- `experiments/scripts/test*.py` are manual smoke scripts, not tests.
+- `scratch/` holds manual driver scripts, not tests.
 
 ### Tests
 `python -m pytest` from the repo root (about 6 s). `tests/characterisation/` pins seeded outputs of the current code
 (not their correctness). `tests/core/` and `tests/solvers/` hold unit tests (R8b grows these).
-- Every solver (`BasicSolver`, `UniformRandomSolver`, `stability_guided_PSO`, `EDASolver`+`BetaEDA` with each
+- Every solver (`BasicSolver`, `UniformRandomSolver`, `StabilityGuidedPSO`, `EDASolver`+`BetaEDA` with each
   elite weighting, with `update_freq=5`, and with the Gaussian copula) on Rosenbrock and GeneralizedEggCrate
   (`n_x=5`, `n_s=10`, 100 iterations). Pins the `f_best`/`prop_feasible`/`prop_stable` histories, final `X` and
   `adaptable_CPs`, and BetaEDA's `a`/`b` (and `R`).
@@ -348,8 +349,10 @@ regenerate `scripts/calypso-integration.patch` (`git -C calypso diff > scripts/c
 - Numpy-vectorised over the population; avoid per-particle Python loops.
 - Formatting/linting: ruff, configured in `pyproject.toml` (line length 88, target py310). Run `ruff format .` and
   `ruff check .` from the repo root. Rules: `E, W, F, I, N, B`, with `N802/N803/N806/N815/N816` ignored so
-  literature notation (`X`, `Y_hat`, `B`, `L`, `T_first`, …) stays. `*.md` files, `calypso/`, `.coco/` and `venv/`
-  are excluded. The code is ruff-formatted; lint violations remain (see R7b). Otherwise snake_case, with some
+  literature notation (`X`, `Y_hat`, `B`, `L`, `T_first`, …) stays. Per-file ignores: `N801` in `problems/`
+  (class names such as `BBOB_FID2_IID1` are keys in result pickles and calypso's dotted paths) and `E741` in
+  `ifrace.py` (the paper's race index `l`). `*.md` files, `scratch/`, `calypso/`, `.coco/` and `venv/` are excluded.
+  `ruff format --check .` and `ruff check .` both pass; keep it that way. Otherwise snake_case, with some
   descriptive comments.
   Formatting-only commits are listed in `.git-blame-ignore-revs` (enable locally with
   `git config blame.ignoreRevsFile .git-blame-ignore-revs`). Add any future formatting-only commit there.
@@ -376,13 +379,13 @@ Suggested order (each step is checked against the R8a reference results):
 3. Known issue 1 (seeded copula RNG; done, copula runs are now pinned). This changed copula results.
 4. R2 (done): `adaptable_CPs`, name-based CP mapping, plurals. Only `BasicSolver`'s pinned `adaptable_CPs` changed
    shape (`(1, 3)` → `(n_s, 3)`, same values).
-5. R3, together with the `StabilityGuidedPSO` rename from R7b. Results stay unchanged.
+5. R3. Results stay unchanged.
 6. R5a–d. These need the shared run loop from R3.
 7. R4 phase 1: pure restructuring. Its output must be bit-identical to the R8a reference.
 8. R5e: serial tuning time.
 9. R4 phase 2: fidelity audit, one behaviour change per commit, each with its difference from the reference
    explained.
-10. The rest of R7b.
+10. R7b (done): the code passes `ruff check`.
 
 R8b is not a separate step: add each component's unit tests in the step that touches it.
 Known issue 2 changes EDASolver behaviour, so resolve it before running EDASolver tuning/experiments. Steps 1–6
@@ -395,7 +398,7 @@ don't depend on it.
 - [ ] Move the shared logic into `BaseSolver`: RNG creation, `_build_optimizer(problem, initial_adapted_CPs=None)`,
   `_build_adapter()`, a common `run()` loop with a per-iteration hook `adapt(t)`, and timing collection
   (covers Known issue 7).
-- [ ] Give every solver the same constructor signature, `stability_guided_PSO` included (fixes the constructor parts of
+- [ ] Give every solver the same constructor signature, `StabilityGuidedPSO` included (fixes the constructor parts of
   Known issue 4).
 - Constraint: keep the RNG consumption order (in `EDASolver`, the adapter samples initial params before PSO draws `X`).
 
@@ -425,7 +428,7 @@ the code toward irace, but each one must be stated explicitly.
 **R5 Timing of the core algorithm components** (exclude logging and performance measures).
 - [ ] (a) Adapters: `BaseAdapter._timings`; `@timed` on `check_update`/`update`/`sample` of `BetaEDA` and the random
   adapter.
-- [ ] (b) Tailored adaptation logic: time the rejection sampling in `stability_guided_PSO`.
+- [ ] (b) Tailored adaptation logic: time the rejection sampling in `StabilityGuidedPSO`.
 - [ ] (c) Optimizer↔adapter interaction: time `get_required_data` and `set_adaptable_CPs` in the solvers.
   They pass references, so they are probably negligible. Measure, then keep or drop.
 - [ ] (d) `history["timings"]` → `{"optimizer": {...}, "adapter": {...}, "solver": {...}}` plus a helper
@@ -435,16 +438,6 @@ the code toward irace, but each one must be stated explicitly.
   (cached elite results add 0); `tuner_time` = sampling, tests, elimination and elite selection on rank 0 (excluding
   logging and MPI); `total` = their sum. Write to `tuning.log` and `results/tuning_results/<id>/tuning_times.json`,
   including the grand total. Depends on R4.
-
-**R7 PEP 8 compliance.**
-- [x] (a) ruff config, `dev` extra, `ruff format` applied (the AST is identical before and after).
-- [ ] (b) Fix the remaining `ruff check` violations (about 280): wildcard imports (`F403/F405`, mostly in
-  `experiments/scripts`), unused/unsorted imports (`F401/I001`, auto-fixable), `E501` long lines (mostly
-  `ifrace.py`), `E741` (the race index `l` in `ifrace.py`: rename it or ignore the rule there), `B905/B027/B008`,
-  `stability_guided_PSO` → `StabilityGuidedPSO` (update the commands above), and the scratch `main()` blocks
-  (Known issue 9). Decide on `N801` for the problem classes (`BBOB_FID2_IID1`, `CEC_2013_FID13`,
-  `CosineMixture_OG`, …). Their names are used as keys in result pickles and in calypso's dotted paths, so a
-  per-file ignore for `problems/` is probably better than renaming them.
 
 **R8b Unit tests** (pytest, `tests/` mirroring `src/edaptive/`; R8a, the characterisation tests, is done).
 - [ ] (b) Unit tests: `Parameter`/`ParameterSpace` validation; `parse_config`; `BenchmarkProblem` batching and
@@ -464,16 +457,15 @@ the code toward irace, but each one must be stated explicitly.
 4. `execute.py`: iterates over `tuning_problems` (the `evaluation_problems` list is defined but unused); has a hardcoded
    debug print `results["CosineMixture_OG"][k] for k in range(0, 50)` (fails if `n_trials < 50`); `config` is undefined
    when there's neither a tuned pkl nor `--config`; untuned branch doesn't pass `adapter_type` (breaks `EDASolver`);
-   tuned branch passes `optimizer_type`/`adapter_type`, which `stability_guided_PSO` doesn't accept (duplicate kwarg).
-   The same constructor mismatch means `tune.py` can't drive `stability_guided_PSO`. (Constructor parts → R3.)
+   tuned branch passes `optimizer_type`/`adapter_type`, which `StabilityGuidedPSO` doesn't accept (duplicate kwarg).
+   The same constructor mismatch means `tune.py` can't drive `StabilityGuidedPSO`. (Constructor parts → R3.)
 5. `CECProblem._evaluate` forwards batched `(N, D)` input straight to opfunu's `evaluate`, which is likely 1-D only.
    Verify before using CEC problems with PSO.
 6. `create_adapted_parameter_space` ignores integer/categorical specifics; `UniformRandomAdapter`/`BetaEDA` assume continuous CPs.
 7. `BaseAdapter`'s abstract interface doesn't declare `check_update`; `BaseSolver` lacks shared run-loop logic
    (duplicated across solvers). (→ R3.)
 8. PSO history keys `velocities`/`diversity` are only populated at initialisation.
-9. Empty placeholders: `solvers/pso/tvac_pso.py`, `problems/misc_problems.py`. Scratch `main()` blocks live in
-   `uniform_random_solver.py` and `ela_benchmark_suite.py`. (→ R7b.)
+9. Empty placeholders: `solvers/pso/tvac_pso.py`, `problems/misc_problems.py`.
 10. Git: branches `main` and `elitist-ifrace` (also on origin).
 11. `parse_config` only builds `optimizer.adapted` when the config has an `"adapter"` section, so
     `UniformRandomSolver` (adapted space, no adapter params) can't be built from a JSON config. The
@@ -481,3 +473,7 @@ the code toward irace, but each one must be stated explicitly.
 12. `IFRace.setup_loggers` names its loggers by a timestamp with one-second resolution. Two `tune()` calls
     started within the same second in one process share loggers, so the second run also writes into the first
     run's log files. Logs only; results are unaffected.
+13. `BBOB_FID17_IID2` is defined twice, as two separate classes: in `ela_benchmark_suite.py` (tuning set) and in
+    `custom_test_set.py` (evaluation set). They compute the same function, but result pickles and calypso paths
+    identify problems by class name, so the tuning and evaluation versions are indistinguishable there.
+    `execute.py` imports the evaluation-set version.

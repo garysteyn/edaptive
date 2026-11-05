@@ -23,7 +23,7 @@ from edaptive.problems.ela_benchmark_suite import (
 )
 from edaptive.solvers.basic_solver import BasicSolver
 from edaptive.solvers.eda_solver import EDASolver
-from edaptive.solvers.pso.sg_pso import stability_guided_PSO
+from edaptive.solvers.pso.sg_pso import StabilityGuidedPSO
 from edaptive.solvers.uniform_random_solver import UniformRandomSolver
 from edaptive.tuning.ifrace import IFRace
 from edaptive.tuning.ifrace_sampling_model import IFRaceDefaultSamplingModel
@@ -94,7 +94,7 @@ _SG_PSO_CONFIG = {
 SOLVER_CASES = {
     "basic": (BasicSolver, None, _BASIC_CONFIG),
     "uniform_random": (UniformRandomSolver, None, _UNIFORM_RANDOM_CONFIG),
-    "sg_pso": (stability_guided_PSO, None, _SG_PSO_CONFIG),
+    "sg_pso": (StabilityGuidedPSO, None, _SG_PSO_CONFIG),
     "eda_uniform_weights": (EDASolver, BetaEDA, _eda_config("None")),
     "eda_rank": (EDASolver, BetaEDA, _eda_config("rank")),
     "eda_log_rank": (EDASolver, BetaEDA, _eda_config("log-rank")),
@@ -118,8 +118,9 @@ def build_solver(solver_type, adapter_type, config, problem_type, seed):
         "hyper_params": hyper_params,
         "rnd_seed": seed,
     }
-    # These two fix their own optimizer/adapter (constructor mismatch → R3).
-    if solver_type is stability_guided_PSO:
+    # These two fix their own optimizer/adapter, so their constructors take fewer
+    # arguments.
+    if solver_type is StabilityGuidedPSO:
         return solver_type(**kwargs)
     if solver_type is UniformRandomSolver:
         return solver_type(optimizer_type=PSO, **kwargs)

@@ -1,6 +1,7 @@
 import numpy as np
-from edaptive.core.adapter import EDAAdapter
 from scipy.stats import beta, norm
+
+from edaptive.core.adapter import EDAAdapter
 
 
 class BetaEDA(EDAAdapter):
@@ -183,7 +184,9 @@ class BetaEDA(EDAAdapter):
 #         return elite_CPs
 
 #     def get_elite_CPs(self, f_X_feasible, X_feasible, CP_feasible):
-#         return CP_feasible[np.argsort(f_X_feasible)[:min(len(X_feasible), self.n_elite)]]
+#         return CP_feasible[
+#             np.argsort(f_X_feasible)[:min(len(X_feasible), self.n_elite)]
+#         ]
 
 #     def update(self, elite_CPs):
 #         scaled_CP = (elite_CPs - self.CP_lb) / (self.CP_ub - self.CP_lb)
@@ -289,7 +292,9 @@ class BetaEDA(EDAAdapter):
 #         f_X = kwargs["f_X"]
 #         CP = kwargs["CP"]
 
-#         feasible = np.all((X >= kwargs["problem_lb"]) & (X <= kwargs["problem_ub"]), axis=1)
+#         feasible = np.all(
+#             (X >= kwargs["problem_lb"]) & (X <= kwargs["problem_ub"]), axis=1
+#         )
 #         f_X_feasible = f_X[feasible]
 #         X_feasible = X[feasible]
 #         CP_feasible = CP[feasible]

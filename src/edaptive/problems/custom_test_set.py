@@ -1,6 +1,5 @@
 from edaptive.problems.bbob import BBOBProblem
 from edaptive.problems.cec import CECProblem
-import numpy as np
 
 
 class BBOB_FID21_IID1(BBOBProblem):

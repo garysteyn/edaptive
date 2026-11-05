@@ -1,8 +1,9 @@
 from abc import ABC, abstractmethod
 
 import numpy as np
-from edaptive.core.parameters import ParameterType
 from scipy.stats import qmc, truncnorm
+
+from edaptive.core.parameters import ParameterType
 
 
 class IFRaceSamplingModel(ABC):
@@ -30,7 +31,8 @@ class IFRaceDefaultSamplingModel(IFRaceSamplingModel):
         # Maps each configuration's explicit ID to its numerical standard deviations.
         self.numeric_sigma = {}
 
-        # Maps each configuration's explicit ID to its categorical probability distributions.
+        # Maps each configuration's explicit ID to its categorical probability
+        # distributions.
         self.categorical_probabilities = {}
 
         self.sampled_elites = []
@@ -53,7 +55,7 @@ class IFRaceDefaultSamplingModel(IFRaceSamplingModel):
         }
 
     def _distance(self, config1, config2):
-        """Calculate the normalized distance between two configurations for soft restart."""
+        """Normalized distance between two configurations (for soft restart)."""
         max_dist = 0.0
         threshold = 10.0**-self.digits
 
@@ -245,7 +247,7 @@ class IFRaceDefaultSamplingModel(IFRaceSamplingModel):
 
                         if sigma <= 0:
                             raise ValueError(
-                                f"Sampling standard deviation must be positive."
+                                "Sampling standard deviation must be positive."
                             )
 
                         if param.log_scale_tuning:

@@ -1,15 +1,15 @@
-import numpy as np
-from numpy import round, log2, floor
-from scipy.stats import friedmanchisquare, rankdata
-from copy import deepcopy
-from mpi4py import MPI
-from scikit_posthocs import posthoc_conover_friedman
-import matplotlib.pyplot as plt
-
 import logging
+import pickle
+from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
-import pickle
+
+import matplotlib.pyplot as plt
+import numpy as np
+from mpi4py import MPI
+from numpy import floor, log2
+from scikit_posthocs import posthoc_conover_friedman
+from scipy.stats import friedmanchisquare, rankdata
 
 
 def set_parameters(config: dict, updates: dict) -> None:
@@ -34,11 +34,19 @@ class IFRace:
         n_iter_per_run=5000,
         friedman_alpha=0.05,
         conover_alpha=0.05,
-        T_first=5,  # no. initial instances evaluated before statistical tests are performed
-        T_each=1,  # frequency of statistical tests after the T_first initial evaluations
-        T_new=1,  # minimum number of new instances introduced at the beginning of each subsequent race
-        T_max=2,  # maximum number of consecutive statistical tests with no elimination before the race terminates
-        digits=4,  # influences the leniency of the threshold used to trigger the soft-restart mechanism (threshold = 10^(digits))
+        # no. initial instances evaluated before statistical tests are performed
+        T_first=5,
+        # frequency of statistical tests after the T_first initial evaluations
+        T_each=1,
+        # minimum number of new instances introduced at the beginning of each
+        # subsequent race
+        T_new=1,
+        # maximum number of consecutive statistical tests with no elimination before
+        # the race terminates
+        T_max=2,
+        # influences the leniency of the threshold used to trigger the soft-restart
+        # mechanism (threshold = 10^(digits))
+        digits=4,
         results_directory="results/tuning_results",
     ):
         self.I = I
@@ -288,7 +296,8 @@ class IFRace:
                         for parameter, sigma in numeric_dists.items():
                             self.log(
                                 "sampling",
-                                f"Race {l}: sigma [elite {elite_index}][{parameter}]={sigma}",
+                                f"Race {l}: sigma [elite {elite_index}]"
+                                f"[{parameter}]={sigma}",
                             )
 
                     distributions = self.sampling_model.categorical_probabilities[
@@ -297,7 +306,8 @@ class IFRace:
                     for parameter, probabilities in distributions.items():
                         self.log(
                             "sampling",
-                            f"Race {l}: categorical probabilities [elite {elite_index}][{parameter}]={probabilities}",
+                            f"Race {l}: categorical probabilities "
+                            f"[elite {elite_index}][{parameter}]={probabilities}",
                         )
 
                 N_l = N_new + len(self.prev_elites)
@@ -316,7 +326,8 @@ class IFRace:
                 ):
                     self.log(
                         "sampling",
-                        f"Race {l}: new configuration {i} sampled from elite {elite_index + 1}",
+                        f"Race {l}: new configuration {i} sampled from elite "
+                        f"{elite_index + 1}",
                     )
 
                 for i, configuration in enumerate(new_configurations, start=1):
@@ -379,12 +390,13 @@ class IFRace:
                     zip(
                         self.prev_elite_instances[previous_index],
                         self.prev_elite_results[previous_index],
+                        strict=True,
                     )
                 )
             else:
                 history = {}
 
-            for instance_seed_tuple, result in zip(instances, results[i]):
+            for instance_seed_tuple, result in zip(instances, results[i], strict=True):
                 history[instance_seed_tuple] = result
 
             elite_instances.append(list(history.keys()))
@@ -393,7 +405,8 @@ class IFRace:
             self.log("elites", f"Elite {elite_rank}: history length={len(history)}")
             self.log(
                 "elites",
-                f"Elite {elite_rank}: instances={[inst.__name__ for inst, s in history.keys()]}",
+                f"Elite {elite_rank}: instances="
+                f"{[inst.__name__ for inst, s in history.keys()]}",
             )
             self.log("elites", f"Elite {elite_rank}: results={list(history.values())}")
 
@@ -403,11 +416,12 @@ class IFRace:
         self.log("elites", f"Selected {n_elites} elite configurations")
 
         for rank, (index, configuration, weight) in enumerate(
-            zip(elite_indices, elite_configurations, weights), start=1
+            zip(elite_indices, elite_configurations, weights, strict=True), start=1
         ):
             self.log(
                 "elites",
-                f"Elite {rank}: configuration index={index}, weight={weight:.6f}, configuration={configuration}",
+                f"Elite {rank}: configuration index={index}, weight={weight:.6f}, "
+                f"configuration={configuration}",
             )
 
         return (elite_configurations, weights, elite_instances, elite_results)
@@ -431,7 +445,8 @@ class IFRace:
                 self.log("races", f"Elite {i + 1}: {elite}")
                 self.log(
                     "races",
-                    f"Elite {i + 1} history length: {len(self.prev_elite_instances[i])}",
+                    f"Elite {i + 1} history length: "
+                    f"{len(self.prev_elite_instances[i])}",
                 )
 
         run_counter = 0
@@ -484,6 +499,7 @@ class IFRace:
                         zip(
                             self.prev_elite_instances[elite_index],
                             self.prev_elite_results[elite_index],
+                            strict=True,
                         )
                     )
                     for elite_index in range(len(self.prev_elites))
@@ -495,17 +511,20 @@ class IFRace:
                 )
                 self.log(
                     "races",
-                    f"Previous elite instances: {[inst.__name__ for inst, s in previous_problems]}",
+                    f"Previous elite instances: "
+                    f"{[inst.__name__ for inst, s in previous_problems]}",
                 )
                 self.log(
                     "races",
-                    f"Remaining instances: {[inst.__name__ for inst in remaining_insts]}",
+                    f"Remaining instances: "
+                    f"{[inst.__name__ for inst in remaining_insts]}",
                 )
 
             if l == 1:
                 self.log(
                     "races",
-                    f"Initial instance order: {[inst.__name__ for inst, s in problems]}",
+                    f"Initial instance order: "
+                    f"{[inst.__name__ for inst, s in problems]}",
                 )
 
             results = [[] for _ in C]
@@ -601,7 +620,8 @@ class IFRace:
                 local_results.append((i, result, is_cached))
 
                 print(
-                    f"[Rank {self.rank}] Instance {k}, configuration {c}, result={result}"
+                    f"[Rank {self.rank}] Instance {k}, configuration {c}, "
+                    f"result={result}"
                 )
 
             gathered_results = self.comm.gather(local_results, root=0)
@@ -614,12 +634,14 @@ class IFRace:
                         if is_cached:
                             self.log(
                                 "evaluations",
-                                f"Race {l}, instance {k}, configuration {c}: cached result reused = {result}",
+                                f"Race {l}, instance {k}, configuration {c}: "
+                                f"cached result reused = {result}",
                             )
                         else:
                             self.log(
                                 "evaluations",
-                                f"Race {l}, instance {k}, configuration {c}: evaluated, result={result}, seed={iteration_seed}",
+                                f"Race {l}, instance {k}, configuration {c}: "
+                                f"evaluated, result={result}, seed={iteration_seed}",
                             )
 
             run_counter += self.comm.allreduce(local_run_count, op=MPI.SUM)

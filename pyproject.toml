@@ -27,13 +27,21 @@ dev = [
 [tool.ruff]
 line-length = 88
 target-version = "py310"
-extend-exclude = ["calypso", ".coco", ".coco-unpatched", "venv", "*.md"]
+# scratch/ holds ad-hoc driver scripts that are kept but not linted.
+extend-exclude = ["calypso", ".coco", ".coco-unpatched", "venv", "scratch", "*.md"]
 
 [tool.ruff.lint]
 # pycodestyle (E, W), pyflakes (F), isort (I), pep8-naming (N), bugbear (B)
 select = ["E", "W", "F", "I", "N", "B"]
 # Literature notation (X, Y_hat, B, L, T_first, N_new, ...) is kept deliberately.
 ignore = ["N802", "N803", "N806", "N815", "N816"]
+
+[tool.ruff.lint.per-file-ignores]
+# Problem class names (BBOB_FID2_IID1, CEC_2013_FID13, CosineMixture_OG, ...) are keys
+# in result pickles and calypso's dotted paths, so they keep their names.
+"src/edaptive/problems/*" = ["N801"]
+# `l` is the race index in the irace paper's notation.
+"src/edaptive/tuning/ifrace.py" = ["E741"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["edaptive"]
