@@ -11,7 +11,7 @@ class EDASolver(BaseSolver):
     uses_adapter = True
 
     def adapt(self, t):
-        data = self.optimizer.get_required_data(self.adapter.required_data())
+        data = self._get_required_data()
         elite_CPs = self.adapter.check_update(**data)
 
         if elite_CPs is None:
@@ -19,4 +19,4 @@ class EDASolver(BaseSolver):
 
         self.adapter.update(elite_CPs)
         new_adapted_CPs = self.adapter.sample(N=self.n_s)
-        self.optimizer.set_adaptable_CPs(self.adapter.CP_names, new_adapted_CPs)
+        self._set_adapted_CPs(self.adapter.CP_names, new_adapted_CPs)

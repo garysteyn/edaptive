@@ -1,7 +1,14 @@
+import os
+
+# One BLAS/OpenMP thread per process (set before numpy is imported).
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+
 from edaptive.problems.ela_benchmark_suite import *
 from edaptive.solvers.pso.sg_pso import StabilityGuidedPSO
 from edaptive.core.config import SolverConfig
 import numpy as np
+
+from edaptive.utils.timing import core_time
 
 
 def main():
@@ -29,7 +36,7 @@ def main():
         )
         res = pso.run(max_iterations=5000)
 
-        print(res[1]["timings"], res[0])
+        print(core_time(res[1]["timings"]), res[0])
 
 
 if __name__ == "__main__":

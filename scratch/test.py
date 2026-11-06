@@ -1,3 +1,8 @@
+import os
+
+# One BLAS/OpenMP thread per process (set before numpy is imported).
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+
 from edaptive.problems.ela_benchmark_suite import *
 from edaptive.solvers.eda_solver import EDASolver
 from edaptive.optimizers.pso import PSO
@@ -7,6 +12,8 @@ from edaptive.adapters.beta_eda import BetaEDA
 from edaptive.core.config import SolverConfig
 from edaptive.core.parameters import ParameterType, Parameter, ParameterSpace
 import numpy as np
+
+from edaptive.utils.timing import core_time
 
 problems = [
     # Schwefel1,
@@ -62,7 +69,7 @@ def main():
         )
 
         res = eda_pso.run()
-        print(res[1]["timings"], res[0])
+        print(core_time(res[1]["timings"]), res[0])
         # print(res[1]["prop_stable"])
         # print(eda_pso.metaheuristic.f_Y_hat, eda_pso.metaheuristic.X.mean())
         # print(eda_pso.metaheuristic.history["timings"])

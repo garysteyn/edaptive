@@ -68,7 +68,7 @@ edaptive/
 │   ├── registry.py                 # CLI names → solver/optimizer/adapter classes (`resolve(kind, name)`)
 │   └── utils/
 │       ├── experiment_utils.py     # parse_config: JSON config → (SolverConfig, tuning ParameterSpace)
-│       └── timing.py               # @timed decorator → obj._timings[func_name] accumulates seconds
+│       └── timing.py               # @timed (wall + CPU time per method), core_time(timings)
 ├── experiments/
 │   ├── configs/*.json        # algorithm configs (see "Config schema")
 │   └── scripts/
@@ -78,7 +78,8 @@ edaptive/
 ├── tests/                    # pytest (`testpaths` set in pyproject.toml); see "Tests"
 │   ├── conftest.py           # forces the Agg matplotlib backend
 │   ├── core/                 # unit tests: adaptable-CP mapping, SolverConfig/parse_config
-│   ├── solvers/              # unit tests: subset / reordered "adapted" spaces, construction
+│   ├── solvers/              # unit tests: subset / reordered "adapted" spaces, construction, timings
+│   ├── utils/                # unit tests: @timed, core_time
 │   └── characterisation/     # R8a: pinned seeded results of the current code
 │       ├── cases.py          # case definitions (solver/tuner builds + what gets pinned)
 │       ├── reference.json    # the pinned outputs
@@ -131,7 +132,8 @@ Three roles, connected by keyword-argument dictionaries:
 - History: `f_best` (gbest per iteration), `prop_feasible`, `prop_stable` (Poli stability criterion
   `c1 + c2 < 24(1 - w²)/(7 - 5w)`); `velocities` and `diversity` are currently only recorded at init.
   `stable_particle_proportion` raises if any `w ∉ [-1, 1]`.
-- `@timed` on `initialize` and `iterate`; solvers copy `_timings` into `history["timings"]`.
+- `@timed` on `initialize` and `iterate` (fitness evaluation is part of `iterate`). `update_history` (performance
+  measures) is not timed.
 
 ### Adapter (`core/adapter.py`)
 - `BaseAdapter.__init__(CP_space, **kwargs)`: `CP_space` is a `ParameterSpace` of the **adapted** CPs.
@@ -184,15 +186,32 @@ Three roles, connected by keyword-argument dictionaries:
   → `initial_adapted_CPs()` (hook; default: `adapter.sample(n_s)` by name, `{}` without an adapter) →
   `_build_optimizer()` (`problem`, `rng`, `**(config.fixed_CPs | initial_adapted_CPs)`). `n_s` is read from
   `config.fixed_CPs["n_s"]`.
-- `run(max_iterations=5000)`: `for t: optimizer.step(t); self.adapt(t)`, then copies `optimizer._timings` into
+- `run(max_iterations=5000)`: `for t: optimizer.step(t); self.adapt(t)`, then stores `self.timings()` in
   `history["timings"]` and returns `(min(history["f_best"]), history)`. `adapt(t)` is a no-op hook by default.
+- Solvers exchange data with the optimizer through the timed helpers `_get_required_data()` and
+  `_set_adapted_CPs(names, values)`, so this interaction lands in the solver's own timings.
 - `BasicSolver`: no overrides; all CPs come from `fixed_CPs` (which must include w, c_1, c_2).
 - `EDASolver.adapt`: `check_update` → if elites: `update`, resample the adapted CPs of **all** `n_s` particles
   (`set_adaptable_CPs`). CPs not in `adapted_CP_space` come from `fixed_CPs` and never change.
 - `UniformRandomSolver.adapt`: resamples the adapted CPs uniformly every iteration.
-- `StabilityGuidedPSO`: class attributes `adapted_CP_names = ("w", "c_1", "c_2")` and bounds
-  `adapted_CP_lbs/ubs` = `[0,1]×[0,4]×[0,4]`; overrides `initial_adapted_CPs` and `adapt` to resample them uniformly
-  with rejection sampling (`sample_adapted_CPs`) until every particle satisfies Poli's stability criterion.
+- `StabilityGuidedPSO`: class attributes `adapted_CP_names = ("w", "c_1", "c_2")`, `n_adapted_CPs`,
+  `stability_CP_columns` (columns of w, c_1, c_2) and bounds `adapted_CP_lbs/ubs` = `[0,1]×[0,4]×[0,4]`; overrides
+  `initial_adapted_CPs` and `adapt` to resample them uniformly with rejection sampling (`sample_adapted_CPs`, timed)
+  until every particle satisfies Poli's stability criterion.
+
+### Timing (`utils/timing.py`)
+- `@timed` accumulates `self._timings[method] = {"wall": s, "cpu": s}` per call (`perf_counter` and the
+  process's `process_time`). `BaseOptimizer`, `BaseAdapter` and `BaseSolver` each own a `_timings` dict. Only
+  leaf methods are timed, so nothing is counted twice. Each timed call adds about 0.5 µs of clock overhead.
+- `history["timings"]` = `{"optimizer": {...}, "adapter": {...}, "solver": {...}}` (adapter `{}` without one).
+  Timed: optimizer `initialize`/`iterate`; adapter `initialize`/`check_update`/`update`/`sample`
+  (where implemented); solver `_get_required_data`/`_set_adapted_CPs`, plus `sample_adapted_CPs` in
+  `StabilityGuidedPSO`. Measured cost of the interaction helpers: about 3.5 µs per iteration, roughly 2% of
+  core time (`n_s=n_x=30`, BetaEDA).
+- `core_time(timings)` → `{"wall": total, "cpu": total}` over all components.
+- Runs execute in parallel (MPI ranks) and per-run times are summed afterwards, so each process must be
+  single-threaded: `execute.py` and `tune.py` set `OMP_NUM_THREADS=1` by default (a shell value wins). Use no more
+  ranks than physical cores, or wall times include waiting; CPU time is robust to that.
 
 ### SolverConfig (`core/config.py`)
 Frozen dataclass `SolverConfig(identifier, fixed_CPs, adapted_CP_space, adapter_params)`:
@@ -303,7 +322,7 @@ python experiments/scripts/execute.py --solver StabilityGuidedPSO --identifier s
     --config experiments/configs/sg_pso.json
 ```
 `execute.py` writes `results/experiment_results/<identifier>.pkl` as `{problem_name: {trial: history_dict}}`
-(trial index = seed).
+(trial index = seed; `history_dict["timings"]` as in "Timing").
 
 ### Environment setup
 - Python **3.10** (TensorFlow 2.9 for calypso), `numpy<2`. Install with `pip install -e '.[dev]'` (`dev` adds ruff and pytest).
@@ -322,7 +341,7 @@ python experiments/scripts/execute.py --solver StabilityGuidedPSO --identifier s
 
 ### Tests
 `python -m pytest` from the repo root (about 6 s). `tests/characterisation/` pins seeded outputs of the current code
-(not their correctness). `tests/core/` and `tests/solvers/` hold unit tests (R8b grows these).
+(not their correctness). `tests/core/`, `tests/solvers/` and `tests/utils/` hold unit tests (R8b grows these).
 - Every solver (`BasicSolver`, `UniformRandomSolver`, `StabilityGuidedPSO`, `EDASolver`+`BetaEDA` with each
   elite weighting, with `update_freq=5`, and with the Gaussian copula) on Rosenbrock and GeneralizedEggCrate
   (`n_x=5`, `n_s=10`, 100 iterations). Pins the `f_best`/`prop_feasible`/`prop_stable` histories, final `X` and
@@ -400,9 +419,9 @@ Suggested order (each step is checked against the R8a reference results):
 4. R2 (done): `adaptable_CPs`, name-based CP mapping, plurals. Only `BasicSolver`'s pinned `adaptable_CPs` changed
    shape (`(1, 3)` → `(n_s, 3)`, same values).
 5. R3 (done): `SolverConfig`, shared `BaseSolver` construction/run loop. Results unchanged.
-6. R5a–d (they build on the shared run loop).
+6. R5a–d (done): per-component wall/CPU timings, see "Timing". Results unchanged.
 7. R4 phase 1: pure restructuring. Its output must be bit-identical to the R8a reference.
-8. R5e: serial tuning time.
+8. R5e: tuning time (per-process times summed).
 9. R4 phase 2: fidelity audit, one behaviour change per commit, each with its difference from the reference
    explained.
 10. R7b (done): the code passes `ruff check`.
@@ -434,25 +453,17 @@ the code toward irace, but each one must be stated explicitly.
 - [ ] Out of scope: conditional parameters, forbidden configurations, capping, recovery files.
 - The R8a tuning cases are the seeded reference, so every change in results can be explained against it.
 
-**R5 Timing of the core algorithm components** (exclude logging and performance measures).
-- [ ] (a) Adapters: `BaseAdapter._timings`; `@timed` on `check_update`/`update`/`sample` of `BetaEDA` and the random
-  adapter.
-- [ ] (b) Tailored adaptation logic: time the rejection sampling in `StabilityGuidedPSO`.
-- [ ] (c) Optimizer↔adapter interaction: time `get_required_data` and `set_adaptable_CPs` in the solvers.
-  They pass references, so they are probably negligible. Measure, then keep or drop.
-- [ ] (d) `history["timings"]` → `{"optimizer": {...}, "adapter": {...}, "solver": {...}}` plus a helper
-  `core_time(timings)` that sums them. It excludes `update_history`/`prop_stable` etc. Use `OMP_NUM_THREADS=1` for
-  honest serial times.
-- [ ] (e) IFRace serial tuning time for each race: `solver_time` = Σ `core_time` over the runs actually executed
-  (cached elite results add 0); `tuner_time` = sampling, tests, elimination and elite selection on rank 0 (excluding
-  logging and MPI); `total` = their sum. Write to `tuning.log` and `results/tuning_results/<id>/tuning_times.json`,
-  including the grand total. Depends on R4.
+**R5e Tuning time** (exclude logging and performance measures; per-run solver timings are in place, see "Timing").
+- [ ] IFRace tuning time for each race, wall and CPU, summed over the processes that ran in parallel:
+  `solver_time` = Σ `core_time` over the runs actually executed (cached elite results add 0); `tuner_time` =
+  sampling, tests, elimination and elite selection on rank 0 (excluding logging and MPI); `total` = their sum.
+  Write to `tuning.log` and `results/tuning_results/<id>/tuning_times.json`, including the grand total. Depends on R4.
 
 **R8b Unit tests** (pytest, `tests/` mirroring `src/edaptive/`; R8a, the characterisation tests, is done).
 - [ ] (b) Unit tests: `Parameter`/`ParameterSpace` validation; `parse_config`; `BenchmarkProblem` batching and
   NaN/inf mapping; PSO shapes, feasibility-gated pbest/gbest and the stability criterion; `BetaEDA` (uniform init,
-  moment fit recovers a known Beta, `rho_min` floor, bounds, seeded copula); timing
-  structure; IFRace pieces (N_l/budget formulas, elite selection, sampling bounds including log scale, soft restart).
+  moment fit recovers a known Beta, `rho_min` floor, bounds, seeded copula);
+  IFRace pieces (N_l/budget formulas, elite selection, sampling bounds including log scale, soft restart).
   Skip COCO/opfunu tests if they aren't installed. Add an optional `mpirun -n 2` test that must equal the serial run.
 
 ## Known issues / things to verify (found by reading the code, not yet confirmed or fixed)

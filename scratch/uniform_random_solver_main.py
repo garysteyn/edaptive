@@ -1,5 +1,10 @@
 """Scratch driver: runs UniformRandomSolver with PSO on a set of ELA benchmark problems."""
 
+import os
+
+# One BLAS/OpenMP thread per process (set before numpy is imported).
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+
 from edaptive.core.config import SolverConfig
 from edaptive.core.parameters import Parameter, ParameterSpace, ParameterType
 from edaptive.optimizers.pso import PSO

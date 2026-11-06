@@ -1,5 +1,7 @@
 import numpy as np
 
+from edaptive.utils.timing import timed
+
 
 class BaseSolver:
     """Runs an optimizer and, optionally, adapts its CPs during the run.
@@ -19,6 +21,11 @@ class BaseSolver:
     - ``fixed_optimizer_type`` / ``fixed_adapter_type``: the solver always uses this
       type; callers may pass ``None`` or the same type.
     - ``uses_adapter``: whether the solver builds an adapter at all.
+
+    ``run`` returns the timings of the optimizer, the adapter and the solver itself
+    (see ``edaptive.utils.timing``). Solvers exchange data with the optimizer
+    through ``_get_required_data`` and ``_set_adapted_CPs`` so that this
+    interaction is timed too.
     """
 
     fixed_optimizer_type = None
@@ -34,6 +41,7 @@ class BaseSolver:
         self.problem = problem
         self.config = config
         self.rng = np.random.default_rng(rnd_seed)
+        self._timings = {}
 
         self.adapter = self._build_adapter()
         self.optimizer = self._build_optimizer(self.initial_adapted_CPs())
@@ -108,8 +116,27 @@ class BaseSolver:
             )
         )
 
+    @timed
+    def _get_required_data(self):
+        """The optimizer attributes named by the adapter's ``required_data()``."""
+        return self.optimizer.get_required_data(self.adapter.required_data())
+
+    @timed
+    def _set_adapted_CPs(self, names, values):
+        """Write ``values`` into the optimizer's adaptable CPs called ``names``."""
+        self.optimizer.set_adaptable_CPs(names, values)
+
     def adapt(self, t):
         """Called after every ``optimizer.step(t)``. Does nothing by default."""
+
+    def timings(self):
+        """``{"optimizer": ..., "adapter": ..., "solver": ...}``, each mapping a
+        timed method to its accumulated ``{"wall": s, "cpu": s}``."""
+        return {
+            "optimizer": self.optimizer._timings,
+            "adapter": self.adapter._timings if self.adapter is not None else {},
+            "solver": self._timings,
+        }
 
     def run(self, max_iterations=5000):
         optimizer = self.optimizer
@@ -118,5 +145,5 @@ class BaseSolver:
             optimizer.step(t)
             self.adapt(t)
 
-        optimizer.history["timings"] = optimizer._timings
+        optimizer.history["timings"] = self.timings()
         return (np.min(optimizer.history["f_best"]), optimizer.history)

@@ -26,6 +26,8 @@ class BaseAdapter(ABC):
         self.n_CPs = CP_space.dimension
         self.CP_names = tuple(parameter.name for parameter in CP_space)
 
+        self._timings = {}
+
         self.initialize(**kwargs)
 
     def select_own_CPs(self, adaptable_CPs, adaptable_CP_names):

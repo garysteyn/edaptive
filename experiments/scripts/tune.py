@@ -1,3 +1,9 @@
+import os
+
+# One BLAS/OpenMP thread per process, so each process's recorded times are its own
+# compute effort (set before numpy is imported; a value from the shell wins).
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+
 import argparse
 import json
 from pathlib import Path

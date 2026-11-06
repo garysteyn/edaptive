@@ -2,6 +2,7 @@ import numpy as np
 from scipy.stats import beta, norm
 
 from edaptive.core.adapter import EDAAdapter
+from edaptive.utils.timing import timed
 
 
 class BetaEDA(EDAAdapter):
@@ -16,6 +17,7 @@ class BetaEDA(EDAAdapter):
             "adaptable_CP_names",
         ]
 
+    @timed
     def initialize(
         self, eta, rho_min, n_elites, update_freq, copula, elite_weighting, rng
     ):
@@ -37,6 +39,7 @@ class BetaEDA(EDAAdapter):
 
         self.elite_weighting = elite_weighting
 
+    @timed
     def sample(self, N):
         if self.copula == "gaussian":
             chol_eps = 1e-10  # used to ensure matrix is positive definite
@@ -51,6 +54,7 @@ class BetaEDA(EDAAdapter):
             )
         return self.CP_lbs + samples * (self.CP_ubs - self.CP_lbs)
 
+    @timed
     def check_update(
         self, problem_lb, problem_ub, t, X, f_X, adaptable_CPs, adaptable_CP_names
     ):
@@ -75,6 +79,7 @@ class BetaEDA(EDAAdapter):
             np.argsort(f_X_feasible)[: min(len(X_feasible), self.n_elites)]
         ]
 
+    @timed
     def update(self, elite_CPs):
         scaled_CPs = (elite_CPs - self.CP_lbs) / (self.CP_ubs - self.CP_lbs)
         eps = 1e-6

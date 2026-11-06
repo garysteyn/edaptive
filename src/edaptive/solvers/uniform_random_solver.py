@@ -10,4 +10,4 @@ class UniformRandomSolver(BaseSolver):
 
     def adapt(self, t):
         new_adapted_CPs = self.adapter.sample(N=self.n_s)
-        self.optimizer.set_adaptable_CPs(self.adapter.CP_names, new_adapted_CPs)
+        self._set_adapted_CPs(self.adapter.CP_names, new_adapted_CPs)
