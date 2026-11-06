@@ -1,5 +1,6 @@
 """Scratch driver: runs UniformRandomSolver with PSO on a set of ELA benchmark problems."""
 
+from edaptive.core.config import SolverConfig
 from edaptive.core.parameters import Parameter, ParameterSpace, ParameterType
 from edaptive.optimizers.pso import PSO
 from edaptive.problems.ela_benchmark_suite import *  # noqa: F403
@@ -27,30 +28,20 @@ def main():
         BBOB_FID17_IID2,
     ]
 
-    params = {
-        "optimizer": {
-            "fixed": {
-                "n_s": 30,
-            },
-            "adapted": ParameterSpace(
-                [
-                    Parameter(
-                        name="w", lower=0.0, upper=1.0, type=ParameterType.CONTINUOUS
-                    ),
-                    Parameter(
-                        name="c_1", lower=0.0, upper=4.0, type=ParameterType.CONTINUOUS
-                    ),
-                    Parameter(
-                        name="c_2", lower=0.0, upper=4.0, type=ParameterType.CONTINUOUS
-                    ),
-                ]
-            ),
-        }
-    }
+    config = SolverConfig(
+        fixed_CPs={"n_s": 30},
+        adapted_CP_space=ParameterSpace(
+            [
+                Parameter(name="w", lower=0.0, upper=1.0, type=ParameterType.CONTINUOUS),
+                Parameter(name="c_1", lower=0.0, upper=4.0, type=ParameterType.CONTINUOUS),
+                Parameter(name="c_2", lower=0.0, upper=4.0, type=ParameterType.CONTINUOUS),
+            ]
+        ),
+    )
 
     for problem in problems:
         solver = UniformRandomSolver(
-            optimizer_type=PSO, problem=problem(dimensions=10), hyper_params=params
+            PSO, problem=problem(dimensions=10), config=config
         )
         res = solver.run(max_iterations=5000)
         print(res[0])

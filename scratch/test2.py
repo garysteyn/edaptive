@@ -1,17 +1,12 @@
 from edaptive.problems.ela_benchmark_suite import *
 from edaptive.solvers.basic_solver import BasicSolver
 from edaptive.optimizers.pso import PSO
-from edaptive.core.parameters import ParameterType, Parameter, ParameterSpace
+from edaptive.core.config import SolverConfig
 import numpy as np
 
 
 def main():
-    params = {
-        "adapter": None,
-        "optimizer": {
-            "fixed": {"n_s": 30, "w": 0.5, "c_1": 1.2, "c_2": 0.8},
-        },
-    }
+    config = SolverConfig(fixed_CPs={"n_s": 30, "w": 0.5, "c_1": 1.2, "c_2": 0.8})
 
     problems = [
         Schwefel1,
@@ -34,7 +29,7 @@ def main():
     ]
 
     for p in problems:
-        pso = BasicSolver(PSO, problem=p(dimensions=10), hyper_params=params)
+        pso = BasicSolver(PSO, problem=p(dimensions=10), config=config)
         res = pso.run(max_iterations=5000)
 
         print(res[1]["timings"], res[0])

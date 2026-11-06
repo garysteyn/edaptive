@@ -1,18 +1,11 @@
 from edaptive.problems.ela_benchmark_suite import *
 from edaptive.solvers.pso.sg_pso import StabilityGuidedPSO
-from edaptive.core.parameters import ParameterType, Parameter, ParameterSpace
+from edaptive.core.config import SolverConfig
 import numpy as np
 
 
 def main():
-    params = {
-        "adapter": None,
-        "optimizer": {
-            "fixed": {
-                "n_s": 30,
-            },
-        },
-    }
+    config = SolverConfig(fixed_CPs={"n_s": 30})
 
     problems = [
         # Schwefel1,
@@ -32,7 +25,7 @@ def main():
 
     for i in range(30):
         pso = StabilityGuidedPSO(
-            problem=Mishra07(dimensions=30), hyper_params=params, rnd_seed=i
+            problem=Mishra07(dimensions=30), config=config, rnd_seed=i
         )
         res = pso.run(max_iterations=5000)
 

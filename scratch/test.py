@@ -4,6 +4,7 @@ from edaptive.optimizers.pso import PSO
 
 # from edaptive.adapters.beta_eda import BetaMarginalsEDA, BetaMarginals_log_rank_weights_EDA, BetaMarginals_rank_weights_EDA
 from edaptive.adapters.beta_eda import BetaEDA
+from edaptive.core.config import SolverConfig
 from edaptive.core.parameters import ParameterType, Parameter, ParameterSpace
 import numpy as np
 
@@ -31,8 +32,8 @@ problems = [
 
 
 def main():
-    params = {
-        "adapter": {
+    config = SolverConfig(
+        adapter_params={
             "eta": 0.001,
             "rho_min": 0.02,
             "n_elites": 30,
@@ -40,33 +41,23 @@ def main():
             "copula": None,
             "elite_weighting": "rank",
         },
-        "optimizer": {
-            "fixed": {
-                "n_s": 30,
-            },
-            "adapted": ParameterSpace(
-                [
-                    Parameter(
-                        name="w", lower=0.0, upper=1.0, type=ParameterType.CONTINUOUS
-                    ),
-                    Parameter(
-                        name="c_1", lower=0.0, upper=4.0, type=ParameterType.CONTINUOUS
-                    ),
-                    Parameter(
-                        name="c_2", lower=0.0, upper=4.0, type=ParameterType.CONTINUOUS
-                    ),
-                ]
-            ),
-        },
-    }
+        fixed_CPs={"n_s": 30},
+        adapted_CP_space=ParameterSpace(
+            [
+                Parameter(name="w", lower=0.0, upper=1.0, type=ParameterType.CONTINUOUS),
+                Parameter(name="c_1", lower=0.0, upper=4.0, type=ParameterType.CONTINUOUS),
+                Parameter(name="c_2", lower=0.0, upper=4.0, type=ParameterType.CONTINUOUS),
+            ]
+        ),
+    )
 
     for i, problem in enumerate(problems):
         # print(problem)
         eda_pso = EDASolver(
-            optimizer_type=PSO,
-            adapter_type=BetaEDA,
+            PSO,
+            BetaEDA,
             problem=problem(dimensions=30),
-            hyper_params=params,
+            config=config,
             rnd_seed=i,
         )
 
