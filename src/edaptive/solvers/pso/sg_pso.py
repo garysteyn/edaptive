@@ -20,12 +20,6 @@ class StabilityGuidedPSO(BaseSolver):
     adapted_CP_lbs = (0, 0, 0)
     adapted_CP_ubs = (1, 4, 4)
     n_adapted_CPs = len(adapted_CP_names)
-    # Columns of w, c_1 and c_2 in the sampled arrays, as check_stability needs them.
-    stability_CP_columns = (
-        adapted_CP_names.index("w"),
-        adapted_CP_names.index("c_1"),
-        adapted_CP_names.index("c_2"),
-    )
 
     def initial_adapted_CPs(self):
         initial_adapted_CPs = self.sample_adapted_CPs(N=self.n_s)
@@ -39,7 +33,8 @@ class StabilityGuidedPSO(BaseSolver):
         self._set_adapted_CPs(self.adapted_CP_names, new_adapted_CPs)
 
     def is_stable(self, adapted_CPs):
-        w, c_1, c_2 = (adapted_CPs[:, idx] for idx in self.stability_CP_columns)
+        # Columns follow adapted_CP_names.
+        w, c_1, c_2 = adapted_CPs.T
         return check_stability(w, c_1, c_2)
 
     @timed

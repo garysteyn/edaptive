@@ -194,10 +194,10 @@ Three roles, connected by keyword-argument dictionaries:
 - `EDASolver.adapt`: `check_update` → if elites: `update`, resample the adapted CPs of **all** `n_s` particles
   (`set_adaptable_CPs`). CPs not in `adapted_CP_space` come from `fixed_CPs` and never change.
 - `UniformRandomSolver.adapt`: resamples the adapted CPs uniformly every iteration.
-- `StabilityGuidedPSO`: class attributes `adapted_CP_names = ("w", "c_1", "c_2")`, `n_adapted_CPs`,
-  `stability_CP_columns` (columns of w, c_1, c_2) and bounds `adapted_CP_lbs/ubs` = `[0,1]×[0,4]×[0,4]`; overrides
-  `initial_adapted_CPs` and `adapt` to resample them uniformly with rejection sampling (`sample_adapted_CPs`, timed)
-  until every particle satisfies Poli's stability criterion.
+- `StabilityGuidedPSO`: class attributes `adapted_CP_names = ("w", "c_1", "c_2")`, `n_adapted_CPs` and
+  bounds `adapted_CP_lbs/ubs` = `[0,1]×[0,4]×[0,4]`; overrides `initial_adapted_CPs` and `adapt` to resample them
+  uniformly with rejection sampling (`sample_adapted_CPs`, timed) until every particle satisfies Poli's stability
+  criterion. `is_stable` unpacks the sampled columns in `adapted_CP_names` order.
 
 ### Timing (`utils/timing.py`)
 - `@timed` accumulates `self._timings[method] = {"wall": s, "cpu": s}` per call (`perf_counter` and the
