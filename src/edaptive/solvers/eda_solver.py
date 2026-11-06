@@ -1,56 +1,22 @@
-import numpy as np
-
 from edaptive.core.solver import BaseSolver
 
 
 class EDASolver(BaseSolver):
-    def initialize(self, problem, hyper_params, rnd_seed=0):
-        self.rng = np.random.default_rng(rnd_seed)
-        self.problem = problem
-        self.hyper_params = hyper_params
+    """Adapts the CPs in ``adapted_CP_space`` with an EDA adapter.
 
-        adapter_params = hyper_params["adapter"]
-        optimizer_params_adapted = hyper_params["optimizer"]["adapted"]
-        optimizer_params_fixed = hyper_params["optimizer"]["fixed"]
-        self.n_s = optimizer_params_fixed["n_s"]
+    After each step the adapter checks for an update; when it returns elites, it
+    updates its model and resamples the adapted CPs of all ``n_s`` individuals.
+    """
 
-        self.adapter = self.adapter_type(
-            CP_space=optimizer_params_adapted,
-            **(adapter_params | {"rng": self.rng}),
-        )
+    uses_adapter = True
 
-        initial_adapted_CPs = self.adapter.sample(N=self.n_s)
-        adapted_CPs_dict = {
-            name: initial_adapted_CPs[:, idx]
-            for idx, name in enumerate(self.adapter.CP_names)
-        }
+    def adapt(self, t):
+        data = self.optimizer.get_required_data(self.adapter.required_data())
+        elite_CPs = self.adapter.check_update(**data)
 
-        self.optimizer = self.optimizer_type(
-            **(
-                {"problem": problem}
-                | {"rng": self.rng}
-                | optimizer_params_fixed
-                | adapted_CPs_dict
-            )
-        )
+        if elite_CPs is None:
+            return
 
-    def run(self, max_iterations=5000):
-        optimizer = self.optimizer
-        adapter = self.adapter
-
-        required_data = adapter.required_data()
-        for t in range(max_iterations):
-            optimizer.step(t)
-
-            data = optimizer.get_required_data(required_data)
-            samples = adapter.check_update(**data)
-
-            if samples is None:
-                continue
-
-            adapter.update(samples)
-            new_adapted_CPs = adapter.sample(N=self.n_s)
-            optimizer.set_adaptable_CPs(adapter.CP_names, new_adapted_CPs)
-
-        optimizer.history["timings"] = optimizer._timings
-        return (np.min(optimizer.history["f_best"]), optimizer.history)
+        self.adapter.update(elite_CPs)
+        new_adapted_CPs = self.adapter.sample(N=self.n_s)
+        self.optimizer.set_adaptable_CPs(self.adapter.CP_names, new_adapted_CPs)

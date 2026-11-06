@@ -1,3 +1,4 @@
+from edaptive.core.config import SolverConfig
 from edaptive.core.parameters import Parameter, ParameterSpace, ParameterType
 
 
@@ -37,29 +38,27 @@ def create_tuning_parameter_space(config: dict) -> ParameterSpace:
 
 
 def parse_config(config):
-    if "adapter" in config:
-        adapted_parameter_space = create_adapted_parameter_space(config=config)
-        config_template = {
-            "adapter": dict(),
-            "optimizer": {"fixed": dict(), "adapted": adapted_parameter_space},
+    """JSON config → ``(SolverConfig, tuning ParameterSpace or None)``.
+
+    Tuned entries become ``None`` placeholders in the ``SolverConfig``; untuned
+    entries take their ``value``.
+    """
+
+    def values(section):
+        return {
+            name: None if spec["tuned"] else spec["value"]
+            for name, spec in section.items()
         }
 
-        for name, spec in config["adapter"].items():
-            if spec["tuned"]:
-                config_template["adapter"][name] = None
-            else:
-                config_template["adapter"][name] = spec["value"]
-    else:
-        config_template = {"optimizer": {"fixed": dict()}}
+    adapted_CP_space = None
+    if "adapted" in config["optimizer"]:
+        adapted_CP_space = create_adapted_parameter_space(config=config)
 
-    for name, spec in config["optimizer"]["fixed"].items():
-        if spec["tuned"]:
-            config_template["optimizer"]["fixed"][name] = None
-        else:
-            config_template["optimizer"]["fixed"][name] = spec["value"]
+    solver_config = SolverConfig(
+        identifier=config["identifier"],
+        fixed_CPs=values(config["optimizer"]["fixed"]),
+        adapted_CP_space=adapted_CP_space,
+        adapter_params=values(config.get("adapter", {})),
+    )
 
-    tuning_parameter_space = create_tuning_parameter_space(config=config)
-
-    config_template["identifier"] = config["identifier"]
-
-    return (config_template, tuning_parameter_space)
+    return (solver_config, create_tuning_parameter_space(config=config))

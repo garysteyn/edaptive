@@ -2,6 +2,23 @@ from abc import ABC, abstractmethod
 
 
 class BaseAdapter(ABC):
+    """Adapts the CPs in ``CP_space`` (a subset of an optimizer's adaptable CPs).
+
+    How an adapter changes its state is up to the subclass. Solvers drive it
+    through:
+
+    - ``required_data()``: names of optimizer attributes the adapter reads;
+    - ``check_update``: decides whether an update should occur in this iteration.
+      Solvers call it with the optimizer attributes named by ``required_data()``
+      as keyword arguments. It returns the input for ``update`` if an update
+      should occur, otherwise ``None``;
+    - ``update``: changes the adapter's state. Solvers call it with the output of
+      ``check_update``.
+
+    The defaults read no data and never update, so subclasses that update override
+    both ``check_update`` and ``update`` with the arguments they need.
+    """
+
     def __init__(self, CP_space, **kwargs):
         self.CP_space = CP_space
         self.CP_lbs = CP_space.lower_bounds
@@ -25,11 +42,31 @@ class BaseAdapter(ABC):
     def initialize(self, **kwargs):
         pass
 
+    def check_update(self):
+        """Decide whether an update should occur in this iteration.
+
+        Subclasses define the criteria (e.g. an update frequency, or a condition on
+        the optimizer's state) and take the optimizer attributes named by
+        ``required_data()`` as keyword arguments. Returns the input for ``update``
+        if an update should occur, otherwise ``None``.
+        """
+        return None
+
     def update(self):
-        pass
+        """Change the adapter's state.
+
+        Subclasses take the output of ``check_update`` as their argument.
+        """
+        return None
 
 
 class EDAAdapter(BaseAdapter):
+    """Samples CPs from a probability distribution.
+
+    Adapters that learn the distribution return elite CPs from ``check_update`` and
+    fit their model to them in ``update``.
+    """
+
     @abstractmethod
     def sample(self, N):
-        pass
+        """``N`` samples of this adapter's CPs, shape ``(N, n_CPs)``."""

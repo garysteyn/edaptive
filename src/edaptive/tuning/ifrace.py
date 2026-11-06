@@ -1,6 +1,5 @@
 import logging
 import pickle
-from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
 
@@ -10,15 +9,6 @@ from mpi4py import MPI
 from numpy import floor, log2
 from scikit_posthocs import posthoc_conover_friedman
 from scipy.stats import friedmanchisquare, rankdata
-
-
-def set_parameters(config: dict, updates: dict) -> None:
-    for key, value in config.items():
-        if key in updates:
-            config[key] = updates[key]
-
-        elif isinstance(value, dict):
-            set_parameters(value, updates)
 
 
 class IFRace:
@@ -207,7 +197,7 @@ class IFRace:
 
         # Save pickle of best config dict
         if self.rank == 0:
-            best_config_dict = self.create_config_dict(self.best_configuration)
+            best_config_dict = self.create_config(self.best_configuration).to_dict()
             config_path = self.results_directory / "best_configuration.pkl"
 
             with open(config_path, "wb") as f:
@@ -591,12 +581,12 @@ class IFRace:
                         result = cached_results[(I_inst, iteration_seed)]
                         is_cached = True
                     else:
-                        config = self.create_config_dict(c)
+                        config = self.create_config(c)
                         solver = self.solver_type(
                             optimizer_type=self.optimizer_type,
                             adapter_type=self.adapter_type,
                             problem=I_inst(dimensions=self.n_x),
-                            hyper_params=config,
+                            config=config,
                             rnd_seed=iteration_seed,
                         )
 
@@ -604,12 +594,12 @@ class IFRace:
                         local_run_count += 1
                         is_cached = False
                 else:
-                    config = self.create_config_dict(c)
+                    config = self.create_config(c)
                     solver = self.solver_type(
                         optimizer_type=self.optimizer_type,
                         adapter_type=self.adapter_type,
                         problem=I_inst(dimensions=self.n_x),
-                        hyper_params=config,
+                        config=config,
                         rnd_seed=iteration_seed,
                     )
 
@@ -802,11 +792,11 @@ class IFRace:
         output_file.parent.mkdir(parents=True, exist_ok=True)
         plt.savefig(output_file, dpi=300)
 
-    def create_config_dict(self, c):
-        config = deepcopy(self.config_template)
-        updates = {k: v for k, v in c.items() if k != "_config_id"}
-        set_parameters(config, updates)
-        return config
+    def create_config(self, c):
+        """The SolverConfig for configuration ``c`` (tuned values filled in)."""
+        return self.config_template.with_values(
+            {k: v for k, v in c.items() if k != "_config_id"}
+        )
 
     def setup_loggers(self):
         if self.rank == 0:
@@ -814,7 +804,7 @@ class IFRace:
 
             # Cast the base string to a Path object before using the '/' operator
             self.results_directory = (
-                Path(self.results_directory) / self.config_template["identifier"]
+                Path(self.results_directory) / self.config_template.identifier
             )
             self.log_directory = self.results_directory / "logs"
 

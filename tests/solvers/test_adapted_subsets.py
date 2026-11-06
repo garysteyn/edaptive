@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 from edaptive.adapters.beta_eda import BetaEDA
+from edaptive.core.config import SolverConfig
 from edaptive.core.parameters import Parameter, ParameterSpace, ParameterType
 from edaptive.optimizers.pso import PSO
 from edaptive.problems.ela_benchmark_suite import Rosenbrock
@@ -36,21 +37,19 @@ ADAPTER_PARAMS = {
 
 
 def build(solver_type, adapted_names, fixed):
-    hyper_params = {
-        "adapter": ADAPTER_PARAMS,
-        "optimizer": {
-            "fixed": {"n_s": N_S} | fixed,
-            "adapted": CP_space(*adapted_names),
-        },
-    }
-    kwargs = {
-        "problem": Rosenbrock(dimensions=3),
-        "hyper_params": hyper_params,
-        "rnd_seed": 0,
-    }
-    if solver_type is EDASolver:
-        return EDASolver(optimizer_type=PSO, adapter_type=BetaEDA, **kwargs)
-    return UniformRandomSolver(optimizer_type=PSO, **kwargs)
+    config = SolverConfig(
+        fixed_CPs={"n_s": N_S} | fixed,
+        adapted_CP_space=CP_space(*adapted_names),
+        adapter_params=ADAPTER_PARAMS if solver_type is EDASolver else {},
+    )
+    adapter_type = BetaEDA if solver_type is EDASolver else None
+    return solver_type(
+        PSO,
+        adapter_type,
+        problem=Rosenbrock(dimensions=3),
+        config=config,
+        rnd_seed=0,
+    )
 
 
 @pytest.mark.parametrize("solver_type", [EDASolver, UniformRandomSolver])

@@ -5,6 +5,8 @@ from pathlib import Path
 
 from mpi4py import MPI
 
+from edaptive.core.config import SolverConfig
+
 # BBOB_FID17_IID2 also exists in ela_benchmark_suite; this script uses the evaluation
 # set's version.
 from edaptive.problems.custom_test_set import (
@@ -124,12 +126,10 @@ tuning_results_path = Path("results/tuning_results") / identifier
 
 config_path = tuning_results_path / "best_configuration.pkl"
 
-was_tuned = True
 if config_path.exists():
     with open(config_path, "rb") as file:
-        config = pickle.load(file)
+        config = SolverConfig.from_dict(pickle.load(file))
 else:
-    was_tuned = False
     config, _ = parse_config(config)
 
 tuning_problems = [
@@ -190,31 +190,13 @@ for i, p in enumerate(tuning_problems):
         if task_id % size != rank:
             continue
 
-        if was_tuned:
-            solver = solver_type(
-                optimizer_type=optimizer_type,
-                adapter_type=adapter_type,
-                problem=p(dimensions=n_x),
-                hyper_params=config,
-                rnd_seed=j,
-            )
-
-        else:
-            # Solver uses a general tuning-free adapter (can be applied to different
-            # kinds of optimizers)
-            if optimizer_type:
-                solver = solver_type(
-                    optimizer_type=optimizer_type,
-                    problem=p(dimensions=n_x),
-                    hyper_params=config,
-                    rnd_seed=j,
-                )
-            # Otherwise the solver uses an adaptation method tailored to a specific kind
-            # of optimizer
-            else:
-                solver = solver_type(
-                    problem=p(dimensions=n_x), hyper_params=config, rnd_seed=j
-                )
+        solver = solver_type(
+            optimizer_type,
+            adapter_type,
+            problem=p(dimensions=n_x),
+            config=config,
+            rnd_seed=j,
+        )
 
         _, results_dict = solver.run(max_iterations=max_iter)
 

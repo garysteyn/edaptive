@@ -27,10 +27,7 @@ from edaptive.solvers.pso.sg_pso import StabilityGuidedPSO
 from edaptive.solvers.uniform_random_solver import UniformRandomSolver
 from edaptive.tuning.ifrace import IFRace
 from edaptive.tuning.ifrace_sampling_model import IFRaceDefaultSamplingModel
-from edaptive.utils.experiment_utils import (
-    create_adapted_parameter_space,
-    parse_config,
-)
+from edaptive.utils.experiment_utils import parse_config
 
 # ---------------------------------------------------------------------------
 # Solvers
@@ -108,23 +105,14 @@ SOLVER_CASES = {
 
 
 def build_solver(solver_type, adapter_type, config, problem_type, seed):
-    hyper_params, _ = parse_config(config)
-    # parse_config only builds the "adapted" space when the config has an
-    # "adapter" section, which UniformRandomSolver's config doesn't.
-    if "adapted" in config["optimizer"] and "adapted" not in hyper_params["optimizer"]:
-        hyper_params["optimizer"]["adapted"] = create_adapted_parameter_space(config)
-    kwargs = {
-        "problem": problem_type(dimensions=N_X),
-        "hyper_params": hyper_params,
-        "rnd_seed": seed,
-    }
-    # These two fix their own optimizer/adapter, so their constructors take fewer
-    # arguments.
-    if solver_type is StabilityGuidedPSO:
-        return solver_type(**kwargs)
-    if solver_type is UniformRandomSolver:
-        return solver_type(optimizer_type=PSO, **kwargs)
-    return solver_type(optimizer_type=PSO, adapter_type=adapter_type, **kwargs)
+    solver_config, _ = parse_config(config)
+    return solver_type(
+        PSO,
+        adapter_type,
+        problem=problem_type(dimensions=N_X),
+        config=solver_config,
+        rnd_seed=seed,
+    )
 
 
 def _floats(values):

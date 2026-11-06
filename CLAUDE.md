@@ -19,7 +19,7 @@ This file is the main source of project context for future sessions, so keep it 
 
 - If a change you make leaves anything here inaccurate, update the relevant section **as part of the same task**,
   not as a follow-up. That includes the repository layout, class interfaces or constructor signatures, the
-  hyper_params or JSON config schema, run or setup commands, output paths, conventions, and the calypso/COCO integration.
+  `SolverConfig` or JSON config schema, run or setup commands, output paths, conventions, and the calypso/COCO integration.
 - When you fix an item listed under "Known issues", remove it. When you find a new issue but don't fix it, add it there.
 - "Roadmap" holds planned improvements. Tick sub-tasks off as they're done. Once an item is finished, record the facts
   it established in the relevant sections and remove the item. New improvement ideas go into the Roadmap.
@@ -37,7 +37,8 @@ edaptive/
 │   ├── core/                 # abstract base classes + parameter-space types
 │   │   ├── adapter.py        # BaseAdapter, EDAAdapter
 │   │   ├── optimizer.py      # BaseOptimizer
-│   │   ├── solver.py         # BaseSolver
+│   │   ├── solver.py         # BaseSolver: shared construction + run loop
+│   │   ├── config.py         # SolverConfig (frozen dataclass)
 │   │   └── parameters.py     # ParameterType, Parameter, ParameterSpace
 │   ├── adapters/             # generic (optimizer-agnostic) adapters
 │   │   ├── beta_eda.py       # BetaEDA (beta marginals, optional Gaussian copula) + commented-out legacy variants
@@ -66,7 +67,7 @@ edaptive/
 │   │   └── sac_pso.py              # CalypsoWrapper.train() → calypso `scripts.rl.calypsoTrainSAC` (SAC SA-PSO)
 │   ├── registry.py                 # CLI names → solver/optimizer/adapter classes (`resolve(kind, name)`)
 │   └── utils/
-│       ├── experiment_utils.py     # JSON config → (config_template, tuning ParameterSpace)
+│       ├── experiment_utils.py     # parse_config: JSON config → (SolverConfig, tuning ParameterSpace)
 │       └── timing.py               # @timed decorator → obj._timings[func_name] accumulates seconds
 ├── experiments/
 │   ├── configs/*.json        # algorithm configs (see "Config schema")
@@ -76,8 +77,8 @@ edaptive/
 ├── scratch/                  # ad-hoc driver scripts (kept in git, excluded from ruff, not tests)
 ├── tests/                    # pytest (`testpaths` set in pyproject.toml); see "Tests"
 │   ├── conftest.py           # forces the Agg matplotlib backend
-│   ├── core/                 # unit tests: name-based adaptable-CP mapping (optimizer + adapter)
-│   ├── solvers/              # unit tests: subset / reordered "adapted" spaces
+│   ├── core/                 # unit tests: adaptable-CP mapping, SolverConfig/parse_config
+│   ├── solvers/              # unit tests: subset / reordered "adapted" spaces, construction
 │   └── characterisation/     # R8a: pinned seeded results of the current code
 │       ├── cases.py          # case definitions (solver/tuner builds + what gets pinned)
 │       ├── reference.json    # the pinned outputs
@@ -139,9 +140,16 @@ Three roles, connected by keyword-argument dictionaries:
 - `select_own_CPs(adaptable_CPs, adaptable_CP_names)` picks this adapter's columns (in `CP_space` order) out of an
   optimizer's `adaptable_CPs`. Solvers write the adapter's samples back with
   `optimizer.set_adaptable_CPs(adapter.CP_names, samples)`.
-- `required_data()` lists optimizer attributes needed for an update. `EDAAdapter` adds abstract `sample(N)`.
-- Contract used by `EDASolver`: `check_update(**data) -> elites | None`, then `update(elites)`, then `sample(N)`.
-  (`check_update` isn't declared on the ABC yet.)
+- Generic contract (`BaseAdapter`, which assumes nothing about how the adapter updates, so e.g. scheduled or
+  deterministic adapters fit): `required_data()` names the optimizer attributes it reads; `check_update` (called with those
+  attributes as keyword arguments) holds the criteria for whether an update occurs in this iteration and returns the
+  input for `update` if so, otherwise `None`; `update` (called with that input) changes its state.
+  Defaults: `[]`, `check_update(self)` → `None`, `update(self)` no-op; subclasses that update override both with
+  the arguments they need.
+- `EDAAdapter` adds abstract `sample(N)`. `EDASolver` after each step:
+  `data = optimizer.get_required_data(adapter.required_data())` → `elite_CPs = adapter.check_update(**data)` → if
+  not `None`: `update(elite_CPs)`, then `sample(n_s)`. `BetaEDA` overrides all of them; `UniformRandomAdapter`
+  only `sample`.
 - **Adapters are meant to be optimizer-agnostic.** Adaptation schemes tailored to one optimizer
   (e.g. stability-guided PSO) are implemented directly as **solvers** instead.
 
@@ -165,31 +173,43 @@ Three roles, connected by keyword-argument dictionaries:
   commented out at the bottom of the file; `BetaEDA` replaces them.
 
 ### Solvers (`core/solver.py: BaseSolver`)
-- `__init__(optimizer_type, adapter_type=None, **kwargs)` → `initialize(**kwargs)`; `run(max_iterations=5000)`
-  returns `(min(history["f_best"]), history)`.
-- Uniform construction convention (used by IFRace and execute.py):
-  `Solver(optimizer_type=..., adapter_type=..., problem=<instance>, hyper_params=<dict>, rnd_seed=<int>)`.
-- Each solver creates **one** `rng = np.random.default_rng(rnd_seed)` and passes it to both optimizer and adapter.
-- `BasicSolver`: optimizer gets `hyper_params["optimizer"]["fixed"]` (which must include w, c_1, c_2).
-- `EDASolver`: adapter built from `hyper_params["adapter"]` + rng over `hyper_params["optimizer"]["adapted"]`
-  (a `ParameterSpace`); initial adapted CPs = `adapter.sample(n_s)`, passed to the optimizer by name. Each
-  iteration: `optimizer.step(t)` → `check_update` → if elites: `update`, resample the adapted CPs of **all** `n_s`
-  particles (`set_adaptable_CPs`). CPs not in the `"adapted"` space come from `"fixed"` and never change.
-- `UniformRandomSolver`: resamples the adapted CPs uniformly every iteration (hardwires `UniformRandomAdapter`).
-- `StabilityGuidedPSO`: hardcodes PSO, `adapted_CP_names = ("w", "c_1", "c_2")` and bounds
-  `adapted_CP_lbs/ubs` = `[0,1]×[0,4]×[0,4]`; resamples them uniformly every iteration with rejection sampling
-  (`sample_adapted_CPs`) until every particle satisfies Poli's stability criterion. Its constructor takes no
-  `optimizer_type`/`adapter_type`.
+- Every solver has the same constructor (used by IFRace, execute.py and the tests):
+  `Solver(optimizer_type, adapter_type, problem=<instance>, config=<SolverConfig>, rnd_seed=<int>)`.
+- Type validation via class attributes: `fixed_optimizer_type` / `fixed_adapter_type` (the solver always uses that
+  type; callers may pass `None` or the same type) and `uses_adapter`. Mismatches raise `ValueError`:
+  `BasicSolver` takes no adapter, `EDASolver` needs one, `UniformRandomSolver` fixes `UniformRandomAdapter`,
+  `StabilityGuidedPSO` fixes `PSO` and takes no adapter.
+- Construction (and RNG consumption) order: **one** `rng = np.random.default_rng(rnd_seed)` shared by adapter,
+  solver and optimizer → `_build_adapter()` (`CP_space=config.adapted_CP_space`, `**config.adapter_params`, `rng`)
+  → `initial_adapted_CPs()` (hook; default: `adapter.sample(n_s)` by name, `{}` without an adapter) →
+  `_build_optimizer()` (`problem`, `rng`, `**(config.fixed_CPs | initial_adapted_CPs)`). `n_s` is read from
+  `config.fixed_CPs["n_s"]`.
+- `run(max_iterations=5000)`: `for t: optimizer.step(t); self.adapt(t)`, then copies `optimizer._timings` into
+  `history["timings"]` and returns `(min(history["f_best"]), history)`. `adapt(t)` is a no-op hook by default.
+- `BasicSolver`: no overrides; all CPs come from `fixed_CPs` (which must include w, c_1, c_2).
+- `EDASolver.adapt`: `check_update` → if elites: `update`, resample the adapted CPs of **all** `n_s` particles
+  (`set_adaptable_CPs`). CPs not in `adapted_CP_space` come from `fixed_CPs` and never change.
+- `UniformRandomSolver.adapt`: resamples the adapted CPs uniformly every iteration.
+- `StabilityGuidedPSO`: class attributes `adapted_CP_names = ("w", "c_1", "c_2")` and bounds
+  `adapted_CP_lbs/ubs` = `[0,1]×[0,4]×[0,4]`; overrides `initial_adapted_CPs` and `adapt` to resample them uniformly
+  with rejection sampling (`sample_adapted_CPs`) until every particle satisfies Poli's stability criterion.
 
-### hyper_params dict (runtime form)
+### SolverConfig (`core/config.py`)
+Frozen dataclass `SolverConfig(identifier, fixed_CPs, adapted_CP_space, adapter_params)`:
+- `fixed_CPs`: optimizer kwargs fixed for a run (`n_s`; `w`/`c_1`/`c_2` when not adapted). `adapted_CP_space`: a
+  `ParameterSpace` of the CPs the solver adapts (or `None`). `adapter_params`: e.g. `eta`, `rho_min`, `n_elites`,
+  `update_freq`, `copula`, `elite_weighting`. A CP in both `fixed_CPs` and `adapted_CP_space` raises `ValueError`.
+- Tuned entries hold `None` until `with_values({name: value})` returns a filled copy (names are looked up in
+  `fixed_CPs` and `adapter_params`; unknown or ambiguous names raise `ValueError`).
+- `to_dict()` / `from_dict()` convert to and from the plain dict stored in `best_configuration.pkl`:
 ```python
 {
-  "identifier": "name",                       # present when built from JSON
+  "identifier": "name",
   "adapter":   {"eta": 0.01, "rho_min": 0.02, "n_elites": 10, "update_freq": 1,
-                "copula": None, "elite_weighting": "log-rank"},
+                "copula": None, "elite_weighting": "log-rank"},   # omitted when there are no adapter params
   "optimizer": {
       "fixed":   {"n_s": 30},                 # or w/c_1/c_2 too for BasicSolver
-      "adapted": ParameterSpace([...]),       # CPs controlled by the adapter
+      "adapted": ParameterSpace([...]),       # omitted when nothing is adapted
   },
 }
 ```
@@ -237,10 +257,10 @@ T_first=5, T_each=1, T_new=1, T_max=2, digits=4, results_directory="results/tuni
 - **MPI**: rank 0 owns all decisions and logging; configurations are evaluated round-robin across ranks
   (`range(rank, len(C), size)`) and synced with `bcast`/`gather`/`allreduce`. Any rank-0-only change must keep
   the broadcast sequence identical on all ranks, or it will deadlock.
-- Configs are materialised with `create_config_dict` → deep-copies `config_template` and `set_parameters` overwrites
-  **any key with a matching name at any nesting depth**, so parameter names must be unique across adapter and optimizer.
+- `config_template` is a `SolverConfig`; `create_config(c)` = `config_template.with_values(c without '_config_id')`,
+  so tuned parameter names must be unique across `fixed_CPs` and `adapter_params`.
 - Outputs (relative to CWD): `results/tuning_results/<identifier>/logs/{tuning,evaluations,races,elites,sampling}.log`,
-  `candidate_trajectory.png`, `best_configuration.pkl` (a full hyper_params dict).
+  `candidate_trajectory.png`, `best_configuration.pkl` (`SolverConfig.to_dict()` of the best configuration).
 
 ## Config schema (`experiments/configs/*.json`) and `utils/experiment_utils.parse_config`
 
@@ -259,9 +279,9 @@ T_first=5, T_each=1, T_new=1, T_max=2, digits=4, results_directory="results/tuni
   }
 }
 ```
-`parse_config` returns `(config_template, tuning_parameter_space)`: tuned entries become `None` placeholders in the
-template; untuned entries take `value`; `adapted` becomes a `ParameterSpace`. `tuning_parameter_space` is `None` when
-nothing is tuned. Current configs: `basic.json` (static PSO, tunes w/c_1/c_2), `test.json` (BetaEDA-PSO),
+`parse_config` returns `(SolverConfig, tuning_parameter_space)`: tuned entries become `None` placeholders; untuned
+entries take `value`; `optimizer.adapted` becomes `adapted_CP_space` (with or without an `adapter` section).
+`tuning_parameter_space` is `None` when nothing is tuned. Current configs: `basic.json` (static PSO, tunes w/c_1/c_2), `test.json` (BetaEDA-PSO),
 `sg_pso.json` (no tuning). `test2.json` is stale (uses `kappa_max` and categorical `n_elites`, which `BetaEDA` doesn't accept).
 
 ## Running things
@@ -379,8 +399,8 @@ Suggested order (each step is checked against the R8a reference results):
 3. Known issue 1 (seeded copula RNG; done, copula runs are now pinned). This changed copula results.
 4. R2 (done): `adaptable_CPs`, name-based CP mapping, plurals. Only `BasicSolver`'s pinned `adaptable_CPs` changed
    shape (`(1, 3)` → `(n_s, 3)`, same values).
-5. R3. Results stay unchanged.
-6. R5a–d. These need the shared run loop from R3.
+5. R3 (done): `SolverConfig`, shared `BaseSolver` construction/run loop. Results unchanged.
+6. R5a–d (they build on the shared run loop).
 7. R4 phase 1: pure restructuring. Its output must be bit-identical to the R8a reference.
 8. R5e: serial tuning time.
 9. R4 phase 2: fidelity audit, one behaviour change per commit, each with its difference from the reference
@@ -390,17 +410,6 @@ Suggested order (each step is checked against the R8a reference results):
 R8b is not a separate step: add each component's unit tests in the step that touches it.
 Known issue 2 changes EDASolver behaviour, so resolve it before running EDASolver tuning/experiments. Steps 1–6
 don't depend on it.
-
-**R3 Cleaner solver construction (`hyper_params` unpacking).** This is a structural change, so confirm the design first.
-- [ ] Replace the nested `hyper_params["optimizer"]["fixed"]` access with a small frozen dataclass, e.g.
-  `SolverConfig(identifier, fixed_params, adaptive_space, adapter_params)`, produced by `parse_config`, with
-  `from_dict()` for old pickles.
-- [ ] Move the shared logic into `BaseSolver`: RNG creation, `_build_optimizer(problem, initial_adapted_CPs=None)`,
-  `_build_adapter()`, a common `run()` loop with a per-iteration hook `adapt(t)`, and timing collection
-  (covers Known issue 7).
-- [ ] Give every solver the same constructor signature, `StabilityGuidedPSO` included (fixes the constructor parts of
-  Known issue 4).
-- Constraint: keep the RNG consumption order (in `EDASolver`, the adapter samples initial params before PSO draws `X`).
 
 **R4 Rewrite the elitist I/F-race tuner for readability and fidelity.** Behaviour changes are allowed where they move
 the code toward irace, but each one must be stated explicitly.
@@ -456,20 +465,13 @@ the code toward irace, but each one must be stated explicitly.
    `np.maximum(var, eps)` is applied twice.
 4. `execute.py`: iterates over `tuning_problems` (the `evaluation_problems` list is defined but unused); has a hardcoded
    debug print `results["CosineMixture_OG"][k] for k in range(0, 50)` (fails if `n_trials < 50`); `config` is undefined
-   when there's neither a tuned pkl nor `--config`; untuned branch doesn't pass `adapter_type` (breaks `EDASolver`);
-   tuned branch passes `optimizer_type`/`adapter_type`, which `StabilityGuidedPSO` doesn't accept (duplicate kwarg).
-   The same constructor mismatch means `tune.py` can't drive `StabilityGuidedPSO`. (Constructor parts → R3.)
+   when there's neither a tuned pkl nor `--config`.
 5. `CECProblem._evaluate` forwards batched `(N, D)` input straight to opfunu's `evaluate`, which is likely 1-D only.
    Verify before using CEC problems with PSO.
 6. `create_adapted_parameter_space` ignores integer/categorical specifics; `UniformRandomAdapter`/`BetaEDA` assume continuous CPs.
-7. `BaseAdapter`'s abstract interface doesn't declare `check_update`; `BaseSolver` lacks shared run-loop logic
-   (duplicated across solvers). (→ R3.)
 8. PSO history keys `velocities`/`diversity` are only populated at initialisation.
 9. Empty placeholders: `solvers/pso/tvac_pso.py`, `problems/misc_problems.py`.
 10. Git: branches `main` and `elitist-ifrace` (also on origin).
-11. `parse_config` only builds `optimizer.adapted` when the config has an `"adapter"` section, so
-    `UniformRandomSolver` (adapted space, no adapter params) can't be built from a JSON config. The
-    characterisation tests work around it with `create_adapted_parameter_space`. (Confirmed.)
 12. `IFRace.setup_loggers` names its loggers by a timestamp with one-second resolution. Two `tune()` calls
     started within the same second in one process share loggers, so the second run also writes into the first
     run's log files. Logs only; results are unaffected.
