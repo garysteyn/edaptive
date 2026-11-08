@@ -29,7 +29,6 @@ from edaptive.problems.ela_benchmark_suite import (
 )
 from edaptive.registry import resolve
 from edaptive.tuning.ifrace import IFRace
-from edaptive.tuning.ifrace_sampling_model import IFRaceDefaultSamplingModel
 from edaptive.utils.experiment_utils import parse_config
 
 
@@ -81,7 +80,6 @@ def main():
             BBOB_FID17_IID2,
         ],
         n_x=30,
-        sampling_model=IFRaceDefaultSamplingModel,
         B=2000,
     )
 

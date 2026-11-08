@@ -26,7 +26,6 @@ from edaptive.solvers.eda_solver import EDASolver
 from edaptive.solvers.pso.sg_pso import StabilityGuidedPSO
 from edaptive.solvers.uniform_random_solver import UniformRandomSolver
 from edaptive.tuning.ifrace import IFRace
-from edaptive.tuning.ifrace_sampling_model import IFRaceDefaultSamplingModel
 from edaptive.utils.experiment_utils import parse_config
 
 # ---------------------------------------------------------------------------
@@ -228,7 +227,6 @@ def run_tuning_case(case_name, results_directory, seed=TUNING_SEED):
     tuner = IFRace(
         I=list(TUNING_INSTANCES),
         n_x=TUNING_N_X,
-        sampling_model=IFRaceDefaultSamplingModel,
         n_iter_per_run=TUNING_ITERATIONS_PER_RUN,
         results_directory=str(results_directory),
         **ifrace_kwargs,

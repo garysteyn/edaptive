@@ -60,8 +60,7 @@ edaptive/
 │   │   ├── custom_test_set.py     # evaluation set: BBOB_FIDx_IIDy and CEC_yyyy_FIDx classes
 │   │   └── misc_problems.py       # empty
 │   ├── tuning/
-│   │   ├── ifrace.py               # IFRace: elitist iterated F-race (MPI-parallel)
-│   │   └── ifrace_sampling_model.py# IFRaceSamplingModel ABC + IFRaceDefaultSamplingModel (irace-style)
+│   │   └── ifrace.py               # IFRace (elitist iterated F-race, MPI-parallel) + IFRaceSamplingModel
 │   ├── integrations/calypso/       # subprocess wrappers around the external calypso repo
 │   │   ├── bs_pso.py               # BS_PSO   → calypso `scripts.pso.execute` (belief-space SA-PSO)
 │   │   └── sac_pso.py              # CalypsoWrapper.train() → calypso `scripts.rl.calypsoTrainSAC` (SAC SA-PSO)
@@ -80,6 +79,7 @@ edaptive/
 │   ├── core/                 # unit tests: adaptable-CP mapping, SolverConfig/parse_config
 │   ├── solvers/              # unit tests: subset / reordered "adapted" spaces, construction, timings
 │   ├── utils/                # unit tests: @timed, core_time
+│   ├── tuning/               # unit tests of IFRace pieces; mpirun -n 2 vs serial reference
 │   └── characterisation/     # R8a: pinned seeded results of the current code
 │       ├── cases.py          # case definitions (solver/tuner builds + what gets pinned)
 │       ├── reference.json    # the pinned outputs
@@ -258,28 +258,98 @@ Adapters currently assume all adapted CPs are continuous.
 
 ## Tuning: elitist I/F-race (`tuning/ifrace.py`)
 
-`IFRace(I, n_x, sampling_model, B, L=None, n_min=None, mu=None, n_iter_per_run=5000, friedman_alpha, conover_alpha,
-T_first=5, T_each=1, T_new=1, T_max=2, digits=4, results_directory="results/tuning_results")`
-→ `.tune(solver_type, optimizer_type, adapter_type, config_template, tuning_parameter_space, rnd_seed=0)`.
+Reference: López-Ibáñez et al. 2016, "The irace package", Operations Research Perspectives 3:43–58 (a local copy
+may be at `scratch/irace.pdf`, untracked). Docstrings cite its sections/equations.
 
-- Follows irace's elitist variant: budget `B` split over `L = floor(2 + log2(N_param))` races (extended if budget
-  remains); `n_min` survivors become elites carried into the next race with their instance/result history cached
-  (elites aren't re-run on already-seen `(instance, seed)` pairs); new instances (`T_new`) are raced first;
-  Friedman test + Conover post-hoc for elimination after `T_first` instances; stop on `n_min` survivors or `T_max`
-  consecutive tests with no elimination; elites can't be eliminated before they've seen `e_j + T_new` instances.
-- An "instance" is a `(ProblemClass, seed)` pair. Results are final best fitness from `solver.run(n_iter_per_run)`.
-- `IFRaceDefaultSamplingModel`: race 1 = Owen-scrambled Sobol over the tuning space (log-scale aware);
-  later races sample from elites (rank-weighted) with truncated normals whose sigma shrinks by
-  `(1/N_new)^(1/n_params)` per race, categorical probabilities pulled toward the elite value, and irace-style
-  **soft restart** when sampled configs are too close (`10^-digits`) to each other or to elites.
-  Each config carries a `'_config_id'` key that indexes per-config sigma/probability state.
-- **MPI**: rank 0 owns all decisions and logging; configurations are evaluated round-robin across ranks
-  (`range(rank, len(C), size)`) and synced with `bcast`/`gather`/`allreduce`. Any rank-0-only change must keep
-  the broadcast sequence identical on all ranks, or it will deadlock.
-- `config_template` is a `SolverConfig`; `create_config(c)` = `config_template.with_values(c without '_config_id')`,
+`IFRace(I, n_x, B, L=None, n_min=None, mu=None, n_iter_per_run=5000, friedman_alpha=0.05, conover_alpha=0.05,
+T_first=5, T_each=1, T_new=1, T_max=2, digits=4, results_directory="results/tuning_results")`
+→ `.tune(solver_type, optimizer_type, adapter_type, config_template, tuning_parameter_space, rnd_seed=0)` returns the
+best configuration on every rank. `L` and `n_min` default to `floor(2 + log2(N_param))` and `mu` defaults to
+`T_first`. These defaults are recomputed on each `tune()` call, and every call starts from a fresh state.
+
+- An "instance" is a `(ProblemClass, seed)` pair. A configuration is a dict of tuned values plus a `'_config_id'`
+  key (`CONFIG_ID`), which indexes its sampling state. Its cost on an instance is the best fitness from
+  `solver.run(n_iter_per_run)`, and `B` counts solver runs.
+- How the methods map onto the paper:
+  - `_iterated_racing` (Alg. 1): race budget `B_l = (B-B_used)/(L-l+1)`. It stops when the budget is used up or
+    `N_new <= 0`, and extends `L` while budget remains.
+  - `_n_new_configurations`: `N_new = N_l − N_elite`, with `N_l` from eq. 5. `e` is the longest elite history.
+  - `_sample_configurations`: race 1 calls `sample_initial`. Later races call `update`, then `sample`, then
+    prepend the elites.
+  - `_instance_sequence` (§3.4): `T_new` unseen instances, then the shuffled history of the longest-history elite,
+    then the remaining unseen instances. Each new instance gets a fresh seed.
+  - `_race`: after the `T_new` new instances, elites reuse their cached results on `(instance, seed)` pairs they
+    have already seen; `_split_cached` handles this. The race stops when:
+    - the next instance doesn't fit in `B_l`;
+    - `≤ n_min` configurations survive;
+    - or `T_max` consecutive tests eliminate nothing. These tests are counted only once `k ≥ e + T_new`.
+  - `_test_and_eliminate`: a Friedman test at `T_first`, then every `T_each` instances. If it is significant,
+    Conover post-hoc tests compare each configuration with the best (lowest mean rank). Elite `j` is protected
+    until `k ≥ e_j + T_new`.
+  - `_select_elites`: the `min(N_surv, n_min)` survivors with the best mean rank become elites. Each keeps its
+    merged `{(instance, seed): result}` history, and eq. 1 gives the weights.
+- `IFRaceSamplingModel(space, n_races, rng, digits)`, created by `IFRace`. Each configuration carries its own
+  sigmas and categorical probabilities, and children inherit their parent's.
+  - `sample_initial`: an Owen-scrambled Sobol' sequence. Sigma starts at half the range (log range for log-scale
+    parameters), and categorical probabilities start uniform.
+  - `update`: eq. 2 sigma shrink, eqs. 3–4 categorical update, and the eq. 6 cap.
+  - `sample`: eq. 1 parent choice, then a truncated normal. Integers use `+0.5` and a floor; log-scale values are
+    sampled in log space. If two candidates, or a candidate and an elite, are at distance 0 (§3.3), it soft-restarts
+    the elites involved and resamples, at most once.
+- Read-only state:
+  - `IFRace`: `L`, `n_min`, `elites`, `elite_weights`, `best_configuration`, `race_history`, `sampling_model`.
+  - Model: `sigmas(id)`, `categorical_probabilities(id)` (copies), `parent_indices`, `soft_restarted_elites`,
+    `categorical_update_weight`.
+- **MPI.** Rank 0 runs the whole algorithm and owns `rng`. `_evaluate(jobs)` is the only code that communicates:
+  - It broadcasts the `(config, instance, seed)` jobs and runs `jobs[rank::size]` on each rank.
+  - It gathers `(result, history["timings"])` back into job order. The timings are for R5e.
+  - The other ranks sit in `_worker_loop` until `_stop_workers` sends `None`. This happens in a `finally` block,
+    so an exception on rank 0 doesn't deadlock the workers.
+  - Cached elite results never go to the workers.
+- **Logging** lives entirely in `_TuningLogger`, with one method per event and nothing on ranks other than 0.
+  - Each run gets uniquely named loggers, and their handlers are closed at the end.
+  - Per-run solver results go to the module logger at DEBUG level.
+  - `plot_race_history` draws the plot.
+- `config_template` is a `SolverConfig`. `create_config(c)` = `config_template.with_values(c without '_config_id')`,
   so tuned parameter names must be unique across `fixed_CPs` and `adapter_params`.
 - Outputs (relative to CWD): `results/tuning_results/<identifier>/logs/{tuning,evaluations,races,elites,sampling}.log`,
-  `candidate_trajectory.png`, `best_configuration.pkl` (`SolverConfig.to_dict()` of the best configuration).
+  `candidate_trajectory.png`, and `best_configuration.pkl` (`SolverConfig.to_dict()` of the best configuration).
+
+**Fidelity to the paper.** Checked against §3.2–3.4.
+- These match the paper:
+  - `N_iter`, `B_j` and eq. 5, including `nm`;
+  - `N_new = N_j − N_elite`, and stopping when `N_j ≤ N_elite`;
+  - eqs. 1–4 and 6;
+  - integer `+0.5`/floor sampling;
+  - the soft-restart distance, the categorical reset, the sigma reset, and the at-most-once rule;
+  - per-elite `e_j + T_new` protection, and counting `T_max` only after `T_new + e`;
+  - `mu = T_first`;
+  - the test schedule and the race stopping rules;
+  - elites chosen by mean rank.
+- Deliberate deviations:
+  - Sobol' initialisation instead of uniform sampling.
+  - Log-scale parameters: init, sigma, sampling, distance and soft restart all work in log space. This is sound,
+    apart from deviation 7 below.
+- Deviations found and not yet fixed (R4 phase 2):
+  1. **The model keeps the initial `L` as `N_iter`.** Once `L` is extended past it, the eq. 3 weight `(j−1)/N_iter`
+     reaches 1 and the elite's categorical distribution becomes one-hot. The eq. 6 cap can't undo this, because the
+     other entries are 0. If the weight goes above 1 after a soft restart has put mass back, the probabilities turn
+     negative and `choice` raises `ValueError` (reproduced with `digits=0`, `B=300` on the `eda` tuning case).
+  2. **Instances never repeat with new seeds.** Once every class in `I` has been seen, races have no new instances
+     and can't go beyond `e`. irace draws fresh `(instance, seed)` pairs from a cycling stream. With the 6-instance
+     test cases this already happens in race 2.
+  3. **Only the longest-history elite's instances are replayed.** An instance seen only by other elites is never
+     used again.
+  4. **The soft restart also resets an elite that a child matched**, not only the children's parents (§3.3 resets
+     only the parents).
+  5. **Real values aren't rounded to `digits` decimals** as in irace (Appendix A). The proposal is to keep this as a
+     deliberate deviation, because log-scale values near `1e-4` would collapse. This still needs the author's
+     decision.
+  6. **`L` is extended whenever `B_used < B`.** The paper extends only when the budget is "enough for a new race".
+     The `N_new <= 0` stop makes this equivalent in effect, so it is only documented.
+  7. **Log-scale integers use `round`** (Sobol' init and sampling), which reintroduces the endpoint bias that §3.2
+     footnote 2 removes. The fix is to sample `[log lb, log(ub+1))` and take the floor.
+  8. **`Parameter` accepts `log_scale_tuning` with `lower <= 0`.** It should be rejected.
 
 ## Config schema (`experiments/configs/*.json`) and `utils/experiment_utils.parse_config`
 
@@ -340,8 +410,10 @@ python experiments/scripts/execute.py --solver StabilityGuidedPSO --identifier s
 - `scratch/` holds manual driver scripts, not tests.
 
 ### Tests
-`python -m pytest` from the repo root (about 6 s). `tests/characterisation/` pins seeded outputs of the current code
-(not their correctness). `tests/core/`, `tests/solvers/` and `tests/utils/` hold unit tests (R8b grows these).
+`python -m pytest` from the repo root (about 30 s). `tests/characterisation/` pins seeded outputs of the current code
+(not their correctness). `tests/core/`, `tests/solvers/`, `tests/utils/` and `tests/tuning/` hold unit tests (R8b
+grows these). `tests/tuning/test_ifrace_mpi.py` runs both tuning cases under `mpirun -n 2`
+(`tests/tuning/mpi_case.py`) and requires exactly the serial reference. It is skipped without `mpirun`.
 - Every solver (`BasicSolver`, `UniformRandomSolver`, `StabilityGuidedPSO`, `EDASolver`+`BetaEDA` with each
   elite weighting, with `update_freq=5`, and with the Gaussian copula) on Rosenbrock and GeneralizedEggCrate
   (`n_x=5`, `n_s=10`, 100 iterations). Pins the `f_best`/`prop_feasible`/`prop_stable` histories, final `X` and
@@ -420,38 +492,28 @@ Suggested order (each step is checked against the R8a reference results):
    shape (`(1, 3)` → `(n_s, 3)`, same values).
 5. R3 (done): `SolverConfig`, shared `BaseSolver` construction/run loop. Results unchanged.
 6. R5a–d (done): per-component wall/CPU timings, see "Timing". Results unchanged.
-7. R4 phase 1: pure restructuring. Its output must be bit-identical to the R8a reference.
+7. R4 phase 1 (done): pure restructuring and the fidelity audit. Results unchanged.
 8. R5e: tuning time (per-process times summed).
-9. R4 phase 2: fidelity audit, one behaviour change per commit, each with its difference from the reference
-   explained.
+9. R4 phase 2: fidelity fixes from the audit, one behaviour change per commit, each with its difference from the
+   reference explained.
 10. R7b (done): the code passes `ruff check`.
 
 R8b is not a separate step: add each component's unit tests in the step that touches it.
 Known issue 2 changes EDASolver behaviour, so resolve it before running EDASolver tuning/experiments. Steps 1–6
 don't depend on it.
 
-**R4 Rewrite the elitist I/F-race tuner for readability and fidelity.** Behaviour changes are allowed where they move
-the code toward irace, but each one must be stated explicitly.
-- [ ] Merge `ifrace_sampling_model.py` into `tuning/ifrace.py` and drop the `IFRaceSamplingModel` ABC.
-- [ ] Structure the code to mirror the published algorithm: `tune()` is the outer loop (budget split, `L`, extending
-  `L`). Separate methods cover: configurations per race, sampling/model update, the race over instances, the
-  Friedman + Conover test and elimination, and elite selection. Docstrings cite the paper's sections/equations.
-- [ ] Isolate the parallelism in one `_evaluate(jobs)` that spreads `(config, instance, seed)` jobs over ranks and
-  gathers `(result, history timings)`. Rank 0 makes all decisions, and the state is broadcast once per step. The
-  algorithm code contains no `comm.*` calls.
-- [ ] Use explicit read-only properties for the tuner and sampling-model state (elites, weights, sigma per config,
-  categorical probabilities, sampled parent indices, best configuration, race history). The tuner must no longer
-  read model internals such as `numeric_sigma` and `categorical_update_elite`.
-- [ ] Separate logging from the logic (so R5e can exclude it). Replace `print` calls with logging. Rename `nm()`.
-  Apply the plural rule (`n_survive` → `n_survivors`; the sampling model's `n_parameters` is already plural).
-- [ ] Fidelity audit against irace, recording every deviation here: the N_l formula (`mu + T_each·min(5,l)`), the
-  budget split and extension of `L`, the per-race sigma reduction, the categorical update and cap, soft restart,
-  elite protection (`e_j + T_new`), the instance order (new instances, then seen ones, then the rest), the counter of
-  tests without elimination, and instance seeding.
-- [ ] Verify that the log-scale handling is consistent across Sobol' init, sigma init (half the log range), truncated
-  normal sampling in log space, integer rounding, the distance check and soft restart. Keep it if it is sound.
-- [ ] Out of scope: conditional parameters, forbidden configurations, capping, recovery files.
-- The R8a tuning cases are the seeded reference, so every change in results can be explained against it.
+**R4 phase 2: I/F-race fidelity fixes.** Phase 1 (restructure and audit) is done; see "Tuning". Make one commit
+per fix. Each commit regenerates the reference and explains the change against it.
+- [ ] Deviation 1: pass the current `L` to `IFRaceSamplingModel.update` for the eq. 3 weight. This fixes the
+  `ValueError` after `L` has been extended.
+- [ ] Deviation 2: a cycling stream of `(instance, seed)` pairs (shuffled `I`, fresh seeds), so new instances never
+  run out.
+- [ ] Deviation 3: replay the union of the elites' histories, in a defined order, instead of only the longest one.
+- [ ] Deviation 4: soft-restart only the parents of zero-distance candidates.
+- [ ] Deviation 7: log-scale integers on `[log lb, log(ub+1))` with a floor, at init and when sampling.
+- [ ] Deviation 8: `Parameter` rejects `log_scale_tuning` with `lower <= 0`. This changes no results.
+- [ ] Deviation 5 (rounding reals to `digits`): the author decides whether to keep it as a deliberate deviation.
+- Out of scope: conditional parameters, forbidden configurations, capping, recovery files.
 
 **R5e Tuning time** (exclude logging and performance measures; per-run solver timings are in place, see "Timing").
 - [ ] IFRace tuning time for each race, wall and CPU, summed over the processes that ran in parallel:
@@ -483,9 +545,6 @@ the code toward irace, but each one must be stated explicitly.
 8. PSO history keys `velocities`/`diversity` are only populated at initialisation.
 9. Empty placeholders: `solvers/pso/tvac_pso.py`, `problems/misc_problems.py`.
 10. Git: branches `main` and `elitist-ifrace` (also on origin).
-12. `IFRace.setup_loggers` names its loggers by a timestamp with one-second resolution. Two `tune()` calls
-    started within the same second in one process share loggers, so the second run also writes into the first
-    run's log files. Logs only; results are unaffected.
 13. `BBOB_FID17_IID2` is defined twice, as two separate classes: in `ela_benchmark_suite.py` (tuning set) and in
     `custom_test_set.py` (evaluation set). They compute the same function, but result pickles and calypso paths
     identify problems by class name, so the tuning and evaluation versions are indistinguishable there.
