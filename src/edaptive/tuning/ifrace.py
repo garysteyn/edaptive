@@ -21,8 +21,8 @@ import pickle
 import uuid
 from pathlib import Path
 
-import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.figure import Figure
 from mpi4py import MPI
 from numpy import floor, log2
 from scikit_posthocs import posthoc_conover_friedman
@@ -507,12 +507,13 @@ class IFRace:
             try:
                 self._log.tuning_started(self, rnd_seed)
                 self._iterated_racing()
+                # Save the result before plotting, so a plotting failure can't lose it.
+                self._save_best_configuration(output_directory)
                 plot_race_history(
                     self._race_history,
                     self._n_min,
                     output_directory / "candidate_trajectory.png",
                 )
-                self._save_best_configuration(output_directory)
             finally:
                 self._stop_workers()
                 self._log.close()
@@ -882,11 +883,16 @@ class IFRace:
 
 
 def plot_race_history(race_history, n_min, path):
-    """Plot the number of surviving configurations over every race and instance."""
+    """Plot the number of surviving configurations over every race and instance.
+
+    Uses a bare ``Figure`` rather than ``pyplot``, so no GUI backend or window is
+    involved (TkAgg segfaults in this environment). It only writes to ``path``.
+    """
     if not race_history:
         return
 
-    fig, ax = plt.subplots(figsize=(12, 6))
+    fig = Figure(figsize=(12, 6))
+    ax = fig.subplots()
     x = np.arange(len(race_history))
     counts = [entry["count"] for entry in race_history]
     labels = [
@@ -925,7 +931,6 @@ def plot_race_history(race_history, n_min, path):
 
     path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(path, dpi=300)
-    plt.close(fig)
 
 
 def _names(instances):

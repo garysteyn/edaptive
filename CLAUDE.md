@@ -309,7 +309,9 @@ best configuration on every rank. `L` and `n_min` default to `floor(2 + log2(N_p
 - **Logging** lives entirely in `_TuningLogger`, with one method per event and nothing on ranks other than 0.
   - Each run gets uniquely named loggers, and their handlers are closed at the end.
   - Per-run solver results go to the module logger at DEBUG level.
-  - `plot_race_history` draws the plot.
+  - `plot_race_history` draws the plot on a bare `matplotlib.figure.Figure` (no pyplot), so it works whatever
+    the backend. TkAgg segfaults here: Pillow 9.2.0's `_imagingtk` vs the uv Python's Tk 9.0. The pickle is
+    saved before the plot is drawn.
 - `config_template` is a `SolverConfig`. `create_config(c)` = `config_template.with_values(c without '_config_id')`,
   so tuned parameter names must be unique across `fixed_CPs` and `adapter_params`.
 - Outputs (relative to CWD): `results/tuning_results/<identifier>/logs/{tuning,evaluations,races,elites,sampling}.log`,
