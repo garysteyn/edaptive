@@ -294,8 +294,8 @@ best configuration on every rank. `L` and `n_min` default to `floor(2 + log2(N_p
     parameters), and categorical probabilities start uniform.
   - `update(..., n_races)`: eq. 2 sigma shrink, eqs. 3–4 categorical update with `N_iter` = the current `L`
     (passed by `IFRace`, so the weight stays below 1 after `L` is extended), and the eq. 6 cap.
-  - `sample`: eq. 1 parent choice, then a truncated normal. Integers use `+0.5` and a floor; log-scale values are
-    sampled in log space. If two candidates, or a candidate and an elite, are at distance 0 (§3.3), it soft-restarts
+  - `sample`: eq. 1 parent choice, then a truncated normal. Integers are sampled on `[lb, ub+1)` centred on the
+    elite's value `+0.5`, then floored; log-scale values (integers too) are sampled in log space. If two candidates, or a candidate and an elite, are at distance 0 (§3.3), it soft-restarts
     the elites involved and resamples, at most once.
 - Read-only state:
   - `IFRace`: `L`, `n_min`, `elites`, `elite_weights`, `best_configuration`, `race_history`, `sampling_model`,
@@ -332,7 +332,7 @@ best configuration on every rank. `L` and `n_min` default to `floor(2 + log2(N_p
   - `N_iter`, `B_j` and eq. 5, including `nm`;
   - `N_new = N_j − N_elite`, and stopping when `N_j ≤ N_elite`;
   - eqs. 1–4 and 6, with `N_iter` in eq. 3 being the current `L`;
-  - integer `+0.5`/floor sampling;
+  - integer `+0.5`/floor sampling, at init too (log-scale integers on `[log lb, log(ub+1))`);
   - the soft-restart distance, the categorical reset, the sigma reset, and the at-most-once rule;
   - per-elite `e_j + T_new` protection, and counting `T_max` only after `T_new + e`;
   - `mu = T_first`;
@@ -340,8 +340,7 @@ best configuration on every rank. `L` and `n_min` default to `floor(2 + log2(N_p
   - elites chosen by mean rank.
 - Deliberate deviations:
   - Sobol' initialisation instead of uniform sampling.
-  - Log-scale parameters: init, sigma, sampling, distance and soft restart all work in log space. This is sound,
-    apart from deviation 7 below.
+  - Log-scale parameters: init, sigma, sampling, distance and soft restart all work in log space. This is sound.
 - Deviations found and not yet fixed (R4 phase 2):
   2. **Instances never repeat with new seeds.** Once every class in `I` has been seen, races have no new instances
      and can't go beyond `e`. irace draws fresh `(instance, seed)` pairs from a cycling stream. With the 6-instance
@@ -355,8 +354,6 @@ best configuration on every rank. `L` and `n_min` default to `floor(2 + log2(N_p
      decision.
   6. **`L` is extended whenever `B_used < B`.** The paper extends only when the budget is "enough for a new race".
      The `N_new <= 0` stop makes this equivalent in effect, so it is only documented.
-  7. **Log-scale integers use `round`** (Sobol' init and sampling), which reintroduces the endpoint bias that §3.2
-     footnote 2 removes. The fix is to sample `[log lb, log(ub+1))` and take the floor.
 
 ## Config schema (`experiments/configs/*.json`) and `utils/experiment_utils.parse_config`
 
@@ -515,7 +512,6 @@ per fix. Each commit regenerates the reference and explains the change against i
   run out.
 - [ ] Deviation 3: replay the union of the elites' histories, in a defined order, instead of only the longest one.
 - [ ] Deviation 4: soft-restart only the parents of zero-distance candidates.
-- [ ] Deviation 7: log-scale integers on `[log lb, log(ub+1))` with a floor, at init and when sampling.
 - [ ] Deviation 5: round reals (rounding, not truncation, as the paper says). Linear-scale reals to `digits`
   decimal places, as in irace; log-scale reals to `digits` significant figures (part of the log-scale
   deviation: a fixed `1e-4` step would leave `[1e-4, 1e-3]` with 10 values). Decided by the author.

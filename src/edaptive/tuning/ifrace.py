@@ -282,40 +282,30 @@ class IFRaceSamplingModel:
         if sigma <= 0:
             raise ValueError("Sampling standard deviation must be positive.")
 
-        if param.log_scale_tuning:
-            mean = np.log(elite[param.name])
-            lower, upper = np.log(param.lower), np.log(param.upper)
+        if param.type is ParameterType.INTEGER:
+            # Truncated normal on [lower, upper + 1), centred on the elite's value
+            # + 0.5, then floored: avoids rounding's bias against the bounds
+            # (footnote 2). Log-scale integers do the same in log space.
+            mean = elite[param.name] + 0.5
+            lower, upper = param.lower, param.upper + 1.0
         else:
             mean = elite[param.name]
             lower, upper = param.lower, param.upper
+        if param.log_scale_tuning:
+            mean, lower, upper = np.log(mean), np.log(lower), np.log(upper)
 
-        if param.type is ParameterType.INTEGER and not param.log_scale_tuning:
-            # Truncated normal on [lower, upper + 1), centred on mean + 0.5, then
-            # floored: avoids rounding's bias against the bounds (footnote 2).
-            loc = mean + 0.5
-            value = truncnorm.rvs(
-                (lower - loc) / sigma,
-                (upper + 1.0 - loc) / sigma,
-                loc=loc,
-                scale=sigma,
-                random_state=self._rng,
-            )
-            value = int(np.floor(value))
-        else:
-            value = truncnorm.rvs(
-                (lower - mean) / sigma,
-                (upper - mean) / sigma,
-                loc=mean,
-                scale=sigma,
-                random_state=self._rng,
-            )
-            if param.log_scale_tuning:
-                value = np.exp(value)
-            if param.type is ParameterType.INTEGER:
-                value = int(np.round(value))
+        value = truncnorm.rvs(
+            (lower - mean) / sigma,
+            (upper - mean) / sigma,
+            loc=mean,
+            scale=sigma,
+            random_state=self._rng,
+        )
+        if param.log_scale_tuning:
+            value = np.exp(value)
 
         if param.type is ParameterType.INTEGER:
-            value = max(param.lower, min(value, param.upper))
+            value = max(param.lower, min(int(np.floor(value)), param.upper))
         return value
 
     def _initial_value(self, param, x):
@@ -326,12 +316,14 @@ class IFRaceSamplingModel:
             return param.lower + x * (param.upper - param.lower)
 
         if param.type is ParameterType.INTEGER:
+            # Uniform on [lower, upper + 1) (log space for log-scale ones), floored,
+            # so every value, the bounds included, gets its share (footnote 2).
+            upper = param.upper + 1
             if param.log_scale_tuning:
-                value = int(np.round(param.lower * (param.upper / param.lower) ** x))
+                value = param.lower * (upper / param.lower) ** x
             else:
-                n_values = param.upper - param.lower + 1
-                value = param.lower + int(np.floor(x * n_values))
-            return max(param.lower, min(value, param.upper))
+                value = param.lower + x * (upper - param.lower)
+            return max(param.lower, min(int(np.floor(value)), param.upper))
 
         if param.type is ParameterType.CATEGORICAL:
             return param.classes[

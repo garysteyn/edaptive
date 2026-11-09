@@ -370,6 +370,39 @@ def test_sampled_children_are_in_bounds_and_inherit_distributions():
         assert model.sigmas(child[CONFIG_ID]) == model.sigmas(parent_id)
 
 
+SMALL_LOG_INTEGER = Parameter(
+    "k", ParameterType.INTEGER, lower=1, upper=3, log_scale_tuning=True
+)
+# Each value v gets the log-space share of its cell [v, v + 1) in [1, 4).
+LOG_INTEGER_SHARES = [np.log((v + 1) / v) / np.log(4) for v in (1, 2, 3)]
+
+
+def value_shares(values):
+    return [values.count(v) / len(values) for v in (1, 2, 3)]
+
+
+def test_initial_log_scale_integers_give_each_value_its_log_cell():
+    model = IFRaceSamplingModel(
+        ParameterSpace([SMALL_LOG_INTEGER]), rng=np.random.default_rng(0)
+    )
+    values = [c["k"] for c in model.sample_initial(1024)]
+    np.testing.assert_allclose(value_shares(values), LOG_INTEGER_SHARES, atol=0.01)
+
+
+def test_sampled_log_scale_integers_reach_both_bounds_without_bias():
+    # With a very wide sigma the truncated normal is nearly uniform in log space,
+    # so each value should get its log-cell share (rounding would give 3 only
+    # about 17% instead of about 21%).
+    model = IFRaceSamplingModel(
+        ParameterSpace([SMALL_LOG_INTEGER]), rng=np.random.default_rng(0)
+    )
+    elite = model.sample_initial(1)[0] | {"k": 2}
+    model._sigmas[elite[CONFIG_ID]]["k"] = 1e6
+    values = [model._sample_value(SMALL_LOG_INTEGER, elite) for _ in range(20000)]
+    assert set(values) == {1, 2, 3}
+    np.testing.assert_allclose(value_shares(values), LOG_INTEGER_SHARES, atol=0.015)
+
+
 def test_state_accessors_return_copies():
     model, configurations = make_model(n_configs=2)
     config_id = configurations[0][CONFIG_ID]
