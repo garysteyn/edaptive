@@ -53,6 +53,21 @@ def _numerical_range(param):
     return param.upper - param.lower
 
 
+def _round_real(param, value, digits):
+    """Round a real parameter value to ``digits`` decimal places (Appendix A).
+
+    Log-scale parameters are rounded to ``digits`` significant figures instead
+    (at least one), so every decade keeps the same relative precision. The result
+    is clipped to the parameter's bounds, which may have more digits.
+    """
+    value = float(value)
+    if param.log_scale_tuning:
+        decimals = max(digits, 1) - 1 - int(np.floor(np.log10(value)))
+    else:
+        decimals = digits
+    return min(max(round(value, decimals), param.lower), param.upper)
+
+
 def _clock_readings():
     return {"wall": perf_counter(), "cpu": process_time()}
 
@@ -305,15 +320,17 @@ class IFRaceSamplingModel:
             value = np.exp(value)
 
         if param.type is ParameterType.INTEGER:
-            value = max(param.lower, min(int(np.floor(value)), param.upper))
-        return value
+            return max(param.lower, min(int(np.floor(value)), param.upper))
+        return _round_real(param, value, self._digits)
 
     def _initial_value(self, param, x):
         """Map a Sobol' coordinate ``x`` in [0, 1) to a parameter value."""
         if param.type is ParameterType.CONTINUOUS:
             if param.log_scale_tuning:
-                return param.lower * (param.upper / param.lower) ** x
-            return param.lower + x * (param.upper - param.lower)
+                value = param.lower * (param.upper / param.lower) ** x
+            else:
+                value = param.lower + x * (param.upper - param.lower)
+            return _round_real(param, value, self._digits)
 
         if param.type is ParameterType.INTEGER:
             # Uniform on [lower, upper + 1) (log space for log-scale ones), floored,

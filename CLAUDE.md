@@ -299,8 +299,11 @@ best configuration on every rank. `L` and `n_min` default to `floor(2 + log2(N_p
   - `update(..., n_races)`: eq. 2 sigma shrink, eqs. 3–4 categorical update with `N_iter` = the current `L`
     (passed by `IFRace`, so the weight stays below 1 after `L` is extended), and the eq. 6 cap.
   - `sample`: eq. 1 parent choice, then a truncated normal. Integers are sampled on `[lb, ub+1)` centred on the
-    elite's value `+0.5`, then floored; log-scale values (integers too) are sampled in log space.
-    If two candidates, or a candidate and an elite, are at distance 0 (§3.3), it soft-restarts the parents of those candidates (not an elite a candidate matched) and resamples, at most once.
+    elite's value `+0.5`, then floored; log-scale values (integers too) are sampled in log space. Reals (here and
+    in `sample_initial`) go through `_round_real`: `digits` decimal places, or `digits` significant figures for
+    log-scale ones, clipped to the bounds. If two candidates, or a candidate and an elite, are at distance 0
+    (§3.3), it soft-restarts the parents of those candidates (not an elite a candidate matched) and resamples,
+    at most once.
 - Read-only state:
   - `IFRace`: `L`, `n_min`, `elites`, `elite_weights`, `best_configuration`, `race_history`, `sampling_model`,
     `tuning_times`.
@@ -331,11 +334,12 @@ best configuration on every rank. `L` and `n_min` default to `floor(2 + log2(N_p
   `candidate_trajectory.png`, `best_configuration.pkl` (`SolverConfig.to_dict()` of the best configuration) and
   `tuning_times.json`.
 
-**Fidelity to the paper.** Checked against §3.2–3.4.
+**Fidelity to the paper.** Checked against §3.2–3.4 and Appendix A.
 - These match the paper:
   - `N_iter`, `B_j` and eq. 5, including `nm`;
   - `N_new = N_j − N_elite`, and stopping when `N_j ≤ N_elite`;
   - eqs. 1–4 and 6, with `N_iter` in eq. 3 being the current `L`;
+  - reals rounded (not truncated) to `digits` decimal places (Appendix A), clipped to the bounds;
   - integer `+0.5`/floor sampling, at init too (log-scale integers on `[log lb, log(ub+1))`);
   - the soft-restart distance, restarting only the parents, the categorical reset, the sigma reset, and the
     at-most-once rule;
@@ -348,12 +352,11 @@ best configuration on every rank. `L` and `n_min` default to `floor(2 + log2(N_p
 - Deliberate deviations:
   - Sobol' initialisation instead of uniform sampling.
   - Log-scale parameters: init, sigma, sampling, distance and soft restart all work in log space. This is sound.
-- Deviations found and not yet fixed (R4 phase 2):
-  5. **Real values aren't rounded to `digits` decimals** as in irace (Appendix A). The proposal is to keep this as a
-     deliberate deviation, because log-scale values near `1e-4` would collapse. This still needs the author's
-     decision.
-  6. **`L` is extended whenever `B_used < B`.** The paper extends only when the budget is "enough for a new race".
-     The `N_new <= 0` stop makes this equivalent in effect, so it is only documented.
+    Log-scale reals are rounded to `digits` significant figures, not decimal places: a fixed `1e-4` step would
+    leave `[1e-4, 1e-3]` with only 10 values (up to 33% relative error near `1e-4`).
+- Documented, not changed:
+  - **`L` is extended whenever `B_used < B`.** The paper extends only when the budget is "enough for a new race".
+    The `N_new <= 0` stop makes this equivalent in effect, so it is only documented.
 
 ## Config schema (`experiments/configs/*.json`) and `utils/experiment_utils.parse_config`
 
@@ -485,8 +488,9 @@ Decisions already made:
 - **PEP 8:** enforce it with ruff, but keep literature notation (`X`, `Y_hat`, `B`, `L`, `T_first`, …) by exempting
   the naming rules.
 - **I/F-race fidelity:** follow the original elitist irace (López-Ibáñez et al. 2016 / the irace R package).
-  Deliberate deviations: Sobol' initialisation and log-scale parameter handling. Conditional parameters and other
-  irace extras are out of scope.
+  Deliberate deviations: Sobol' initialisation and log-scale parameter handling (including significant-figure
+  rounding). Conditional parameters, forbidden configurations, capping, recovery files and other irace extras
+  are out of scope.
 
 Suggested order (each step is checked against the R8a reference results):
 1. R7a: ruff config, `dev` extra, one formatting-only commit. Later diffs then show only real changes.
@@ -498,20 +502,13 @@ Suggested order (each step is checked against the R8a reference results):
 6. R5a–d (done): per-component wall/CPU timings, see "Timing". Results unchanged.
 7. R4 phase 1 (done): pure restructuring and the fidelity audit. Results unchanged.
 8. R5e (done): tuning time (per-process times summed). Results unchanged.
-9. R4 phase 2: fidelity fixes from the audit, one behaviour change per commit, each with its difference from the
-   reference explained.
+9. R4 phase 2 (done): fidelity fixes from the audit, one behaviour change per commit, each with its difference
+   from the reference explained.
 10. R7b (done): the code passes `ruff check`.
 
 R8b is not a separate step: add each component's unit tests in the step that touches it.
 Known issue 2 changes EDASolver behaviour, so resolve it before running EDASolver tuning/experiments. Steps 1–6
 don't depend on it.
-
-**R4 phase 2: I/F-race fidelity fixes.** Phase 1 (restructure and audit) is done; see "Tuning". Make one commit
-per fix. Each commit regenerates the reference and explains the change against it.
-- [ ] Deviation 5: round reals (rounding, not truncation, as the paper says). Linear-scale reals to `digits`
-  decimal places, as in irace; log-scale reals to `digits` significant figures (part of the log-scale
-  deviation: a fixed `1e-4` step would leave `[1e-4, 1e-3]` with 10 values). Decided by the author.
-- Out of scope: conditional parameters, forbidden configurations, capping, recovery files.
 
 **R8b Unit tests** (pytest, `tests/` mirroring `src/edaptive/`; R8a, the characterisation tests, is done).
 - [ ] (b) Unit tests: `Parameter`/`ParameterSpace` validation; `parse_config`; `BenchmarkProblem` batching and

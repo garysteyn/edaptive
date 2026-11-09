@@ -13,6 +13,7 @@ from edaptive.tuning.ifrace import (
     IFRace,
     IFRaceSamplingModel,
     _ceil_to_multiple,
+    _round_real,
     _TuningLogger,
 )
 
@@ -448,6 +449,37 @@ def test_sampled_log_scale_integers_reach_both_bounds_without_bias():
     values = [model._sample_value(SMALL_LOG_INTEGER, elite) for _ in range(20000)]
     assert set(values) == {1, 2, 3}
     np.testing.assert_allclose(value_shares(values), LOG_INTEGER_SHARES, atol=0.015)
+
+
+@pytest.mark.parametrize(
+    "param, value, expected",
+    [
+        (CONTINUOUS, 0.734567, 0.7346),
+        (CONTINUOUS, 0.12341, 0.1234),
+        (LOG_CONTINUOUS, 0.1234567, 0.1235),
+        (LOG_CONTINUOUS, 0.000149237, 0.0001492),
+        (LOG_CONTINUOUS, 0.000151, 0.000151),
+    ],
+)
+def test_round_real_uses_decimals_or_significant_figures(param, value, expected):
+    assert _round_real(param, value, 4) == expected
+
+
+def test_round_real_stays_within_bounds_with_more_digits():
+    param = Parameter("p", ParameterType.CONTINUOUS, lower=0.123446, upper=0.123456)
+    # 0.123448 -> 0.1234 < lower; 0.123455 -> 0.1235 > upper.
+    assert _round_real(param, 0.123448, 4) == 0.123446
+    assert _round_real(param, 0.123455, 4) == 0.123456
+
+
+def test_sampled_reals_are_rounded():
+    model, configurations = make_model(n_configs=8)
+    model.update(
+        configurations[:2], np.array([2 / 3, 1 / 3]), race_index=1, N_new=20, n_races=4
+    )
+    for c in configurations + model.sample(20):
+        assert c["x"] == round(c["x"], 4)
+        assert c["eta"] == float(f"{c['eta']:.4g}")
 
 
 def test_state_accessors_return_copies():
