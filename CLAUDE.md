@@ -235,7 +235,7 @@ Frozen dataclass `SolverConfig(identifier, fixed_CPs, adapted_CP_space, adapter_
 
 ### Parameters (`core/parameters.py`)
 `Parameter` (frozen dataclass: `name`, `type` ∈ {continuous, integer, categorical}, `lower`, `upper`, `classes`,
-`log_scale_tuning`) with validation; `ParameterSpace(parameters)` with `dimension`, `lower_bounds`,
+`log_scale_tuning`) with validation (log-scale numerical parameters need `lower > 0`); `ParameterSpace(parameters)` with `dimension`, `lower_bounds`,
 `upper_bounds`, `get(name)`, iteration. The same types describe both **adapted CP spaces** and **tuning spaces**.
 Adapters currently assume all adapted CPs are continuous.
 
@@ -357,7 +357,6 @@ best configuration on every rank. `L` and `n_min` default to `floor(2 + log2(N_p
      The `N_new <= 0` stop makes this equivalent in effect, so it is only documented.
   7. **Log-scale integers use `round`** (Sobol' init and sampling), which reintroduces the endpoint bias that §3.2
      footnote 2 removes. The fix is to sample `[log lb, log(ub+1))` and take the floor.
-  8. **`Parameter` accepts `log_scale_tuning` with `lower <= 0`.** It should be rejected.
 
 ## Config schema (`experiments/configs/*.json`) and `utils/experiment_utils.parse_config`
 
@@ -517,8 +516,9 @@ per fix. Each commit regenerates the reference and explains the change against i
 - [ ] Deviation 3: replay the union of the elites' histories, in a defined order, instead of only the longest one.
 - [ ] Deviation 4: soft-restart only the parents of zero-distance candidates.
 - [ ] Deviation 7: log-scale integers on `[log lb, log(ub+1))` with a floor, at init and when sampling.
-- [ ] Deviation 8: `Parameter` rejects `log_scale_tuning` with `lower <= 0`. This changes no results.
-- [ ] Deviation 5 (rounding reals to `digits`): the author decides whether to keep it as a deliberate deviation.
+- [ ] Deviation 5: round reals (rounding, not truncation, as the paper says). Linear-scale reals to `digits`
+  decimal places, as in irace; log-scale reals to `digits` significant figures (part of the log-scale
+  deviation: a fixed `1e-4` step would leave `[1e-4, 1e-3]` with 10 values). Decided by the author.
 - Out of scope: conditional parameters, forbidden configurations, capping, recovery files.
 
 **R8b Unit tests** (pytest, `tests/` mirroring `src/edaptive/`; R8a, the characterisation tests, is done).

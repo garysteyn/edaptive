@@ -83,6 +83,13 @@ class Parameter:
         else:
             raise ValueError(f"Unsupported parameter type: {self.type}")
 
+        if (
+            self.log_scale_tuning
+            and self.type != ParameterType.CATEGORICAL
+            and self.lower <= 0
+        ):
+            raise ValueError("log_scale_tuning requires a positive lower bound")
+
 
 @dataclass
 class ParameterSpace:
