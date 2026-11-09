@@ -1,5 +1,8 @@
 """Unit tests for the pieces of the elitist I/F-race tuner (``tuning/ifrace.py``)."""
 
+import json
+import time
+
 import numpy as np
 import pytest
 
@@ -9,6 +12,7 @@ from edaptive.tuning.ifrace import (
     IFRace,
     IFRaceSamplingModel,
     _ceil_to_multiple,
+    _TuningLogger,
 )
 
 CONTINUOUS = Parameter("x", ParameterType.CONTINUOUS, lower=0.0, upper=1.0)
@@ -196,6 +200,84 @@ def test_evaluate_serial_returns_job_order(monkeypatch):
     )
     jobs = [({"x": float(i)}, ProblemA, 10) for i in range(5)]
     assert [result for result, _ in tuner._evaluate(jobs)] == [0, 10, 20, 30, 40]
+
+
+# --- tuning time ----------------------------------------------------------------
+
+
+class _FakeSolver:
+    pass
+
+
+class _FakeConfig:
+    identifier = "fake"
+
+    def with_values(self, values):
+        return self
+
+    def to_dict(self):
+        return {}
+
+
+RUN_TIMINGS = {"optimizer": {"iterate": {"wall": 1.0, "cpu": 0.5}}, "adapter": {}}
+
+
+def test_tuning_times_sum_solver_runs_and_tuner_work(monkeypatch, tmp_path):
+    tuner = make_tuner(B=120, results_directory=tmp_path)
+    executed = []
+
+    def fake_run(c, instance, seed):
+        executed.append((c[CONFIG_ID], instance, seed))
+        return c["x"] + (seed % 7) / 100.0, RUN_TIMINGS
+
+    monkeypatch.setattr(tuner, "_run_solver", fake_run)
+    tuner.tune(
+        _FakeSolver, _FakeSolver, None, _FakeConfig(), ParameterSpace([CONTINUOUS])
+    )
+
+    times = tuner.tuning_times
+    races = times["races"]
+    assert [race["race"] for race in races] == list(range(1, len(races) + 1))
+    assert len(races) >= 2
+    for race in races:
+        assert race["tuner"]["wall"] >= 0.0
+        for clock in ("wall", "cpu"):
+            assert race["total"][clock] == pytest.approx(
+                race["solver"][clock] + race["tuner"][clock]
+            )
+
+    # Only executed runs count; cached elite results add nothing.
+    solver_wall = sum(race["solver"]["wall"] for race in races)
+    assert solver_wall == pytest.approx(len(executed) * 1.0)
+    assert times["total"]["solver"]["cpu"] == pytest.approx(len(executed) * 0.5)
+    for part in ("solver", "tuner", "total"):
+        assert times["total"][part]["wall"] == pytest.approx(
+            sum(race[part]["wall"] for race in races)
+        )
+
+    saved = json.loads((tmp_path / "fake" / "tuning_times.json").read_text())
+    assert saved == times
+    log = (tmp_path / "fake" / "logs" / "tuning.log").read_text()
+    assert "Race 1 time: solver wall=" in log
+    assert "Tuning time: solver wall=" in log
+
+
+def test_tuner_time_excludes_logging(monkeypatch, tmp_path):
+    tuner = make_tuner(B=60, results_directory=tmp_path)
+    monkeypatch.setattr(
+        tuner, "_run_solver", lambda c, instance, seed: (c["x"], RUN_TIMINGS)
+    )
+
+    def slow_write(self, name, *messages):
+        time.sleep(0.001)
+
+    monkeypatch.setattr(_TuningLogger, "_write", slow_write)
+    tuner.tune(
+        _FakeSolver, _FakeSolver, None, _FakeConfig(), ParameterSpace([CONTINUOUS])
+    )
+    # Every race logs far more than 50 lines (> 50 ms) but does little else.
+    for race in tuner.tuning_times["races"]:
+        assert race["tuner"]["wall"] < 0.05
 
 
 # --- sampling model -------------------------------------------------------------

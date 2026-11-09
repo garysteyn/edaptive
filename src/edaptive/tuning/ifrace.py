@@ -16,10 +16,14 @@ Rank 0 runs the algorithm; with MPI, the other ranks only run solver jobs handed
 ``IFRace._evaluate``, which is the only place that communicates.
 """
 
+import copy
+import json
 import logging
 import pickle
 import uuid
+from contextlib import contextmanager
 from pathlib import Path
+from time import perf_counter, process_time
 
 import numpy as np
 from matplotlib.figure import Figure
@@ -29,6 +33,7 @@ from scikit_posthocs import posthoc_conover_friedman
 from scipy.stats import friedmanchisquare, qmc, rankdata, truncnorm
 
 from edaptive.core.parameters import ParameterType
+from edaptive.utils.timing import CLOCKS, core_time
 
 CONFIG_ID = "_config_id"
 NUMERICAL_TYPES = (ParameterType.CONTINUOUS, ParameterType.INTEGER)
@@ -46,6 +51,58 @@ def _numerical_range(param):
     if param.log_scale_tuning:
         return np.log(param.upper) - np.log(param.lower)
     return param.upper - param.lower
+
+
+def _clock_readings():
+    return {"wall": perf_counter(), "cpu": process_time()}
+
+
+def _add_times(*times):
+    return {clock: sum(t[clock] for t in times) for clock in CLOCKS}
+
+
+def _subtract_times(a, b):
+    return {clock: a[clock] - b[clock] for clock in CLOCKS}
+
+
+class _Stopwatch:
+    """Accumulated wall-clock and CPU time (seconds) of this process."""
+
+    def __init__(self):
+        self.totals = {clock: 0.0 for clock in CLOCKS}
+
+    def add(self, times):
+        self.totals = _add_times(self.totals, times)
+
+    @contextmanager
+    def measure(self):
+        start = _clock_readings()
+        try:
+            yield
+        finally:
+            self.add(_subtract_times(_clock_readings(), start))
+
+    def snapshot(self):
+        return dict(self.totals)
+
+
+class _TimedCalls:
+    """Forwards method calls to ``target`` and adds their time to ``stopwatch``."""
+
+    def __init__(self, target, stopwatch):
+        self._target = target
+        self._stopwatch = stopwatch
+
+    def __getattr__(self, name):
+        attribute = getattr(self._target, name)
+        if not callable(attribute):
+            return attribute
+
+        def timed_call(*args, **kwargs):
+            with self._stopwatch.measure():
+                return attribute(*args, **kwargs)
+
+        return timed_call
 
 
 def _mean_ranks(data):
@@ -439,6 +496,12 @@ class IFRace:
         self._best_configuration = None
         self._race_history = []
         self._log = _TuningLogger(None)
+        # Rank-0 time spent running solver jobs (summed over all ranks), inside
+        # _evaluate (solver runs and MPI) and inside logging.
+        self._solver_time = _Stopwatch()
+        self._evaluate_time = _Stopwatch()
+        self._logging_time = _Stopwatch()
+        self._tuning_times = {"races": [], "total": None}
 
     # ------------------------------------------------------------------ state
 
@@ -475,6 +538,12 @@ class IFRace:
     def sampling_model(self):
         return self._model
 
+    @property
+    def tuning_times(self):
+        """Wall and CPU time per race and in total, each split into ``solver``,
+        ``tuner`` and ``total`` (see ``_record_race_time``)."""
+        return copy.deepcopy(self._tuning_times)
+
     # -------------------------------------------------------------- algorithm
 
     def tune(
@@ -503,12 +572,15 @@ class IFRace:
         if self._rank == 0:
             self._rng = np.random.default_rng(rnd_seed)
             output_directory = self.results_directory / config_template.identifier
-            self._log = _TuningLogger(output_directory / "logs")
+            self._log = _TimedCalls(
+                _TuningLogger(output_directory / "logs"), self._logging_time
+            )
             try:
                 self._log.tuning_started(self, rnd_seed)
                 self._iterated_racing()
-                # Save the result before plotting, so a plotting failure can't lose it.
+                # Save results before plotting, so a plotting failure can't lose them.
                 self._save_best_configuration(output_directory)
+                self._save_tuning_times(output_directory)
                 plot_race_history(
                     self._race_history,
                     self._n_min,
@@ -520,10 +592,18 @@ class IFRace:
         else:
             self._worker_loop()
 
-        final_state = (self._best_configuration, self._L, self._race_history)
-        self._best_configuration, self._L, self._race_history = self._comm.bcast(
-            final_state if self._rank == 0 else None, root=0
+        final_state = (
+            self._best_configuration,
+            self._L,
+            self._race_history,
+            self._tuning_times,
         )
+        (
+            self._best_configuration,
+            self._L,
+            self._race_history,
+            self._tuning_times,
+        ) = self._comm.bcast(final_state if self._rank == 0 else None, root=0)
         return self._best_configuration
 
     def _iterated_racing(self):
@@ -537,6 +617,7 @@ class IFRace:
         l = 0
         while B_used < self.B:
             l += 1
+            race_start = self._race_time_snapshot()
             B_l = (self.B - B_used) / (self._L - l + 1)
             N_new = self._n_new_configurations(l, B_l)
             if N_new <= 0:
@@ -556,6 +637,7 @@ class IFRace:
                 if not done:
                     self._select_elites(C, results, instances)
 
+            self._record_race_time(l, race_start)
             self._log.race_finished(n_runs, B_used, len(C), len(instances))
             if done:
                 self._log.budget_exhausted(l)
@@ -566,6 +648,53 @@ class IFRace:
                 self._log.races_extended(self._L)
 
         self._log.tuning_finished(self._best_configuration, B_used)
+        self._record_total_time()
+
+    def _race_time_snapshot(self):
+        return {
+            "clock": _clock_readings(),
+            "solver": self._solver_time.snapshot(),
+            "evaluate": self._evaluate_time.snapshot(),
+            "logging": self._logging_time.snapshot(),
+        }
+
+    def _record_race_time(self, l, start):
+        """Store the time of race ``l`` (since the snapshot ``start``).
+
+        ``solver``: the core time of every solver run executed in the race, summed
+        over all ranks (cached elite results cost nothing). ``tuner``: rank 0's own
+        work (sampling, statistical tests, elimination, elite selection), i.e. its
+        elapsed time minus the time inside ``_evaluate`` and inside logging.
+        ``total``: their sum.
+        """
+        end = self._race_time_snapshot()
+
+        def change(key):
+            return _subtract_times(end[key], start[key])
+
+        solver = change("solver")
+        tuner = _subtract_times(
+            change("clock"), _add_times(change("evaluate"), change("logging"))
+        )
+        times = {
+            "race": l,
+            "solver": solver,
+            "tuner": tuner,
+            "total": _add_times(solver, tuner),
+        }
+        self._tuning_times["races"].append(times)
+        self._log.race_time(times)
+
+    def _record_total_time(self):
+        races = self._tuning_times["races"]
+        total = {
+            part: _add_times(*(race[part] for race in races))
+            if races
+            else {clock: 0.0 for clock in CLOCKS}
+            for part in ("solver", "tuner", "total")
+        }
+        self._tuning_times["total"] = total
+        self._log.tuning_time(total)
 
     def _n_new_configurations(self, l, B_l):
         """``N_new = N_l - N_elite`` with ``N_l`` from eq. 5 (Section 3.4).
@@ -674,8 +803,9 @@ class IFRace:
 
             outputs = self._evaluate([(C[i], instance, seed) for i in to_run])
             new_results = dict(cached)
-            for i, (result, _timings) in zip(to_run, outputs, strict=True):
+            for i, (result, timings) in zip(to_run, outputs, strict=True):
                 new_results[i] = result
+                self._solver_time.add(core_time(timings))
             for i in range(len(C)):
                 results[i].append(new_results[i])
             self._log.instance_results(l, k, C, seed, new_results, cached)
@@ -825,8 +955,9 @@ class IFRace:
         Called on rank 0 only; every other rank serves it from ``_worker_loop``.
         Returns ``(result, timings)`` per job, in job order.
         """
-        self._comm.bcast(jobs, root=0)
-        gathered = self._comm.gather(self._run_share(jobs), root=0)
+        with self._evaluate_time.measure():
+            self._comm.bcast(jobs, root=0)
+            gathered = self._comm.gather(self._run_share(jobs), root=0)
         outputs = [None] * len(jobs)
         for rank_outputs in gathered:
             for index, output in rank_outputs:
@@ -881,6 +1012,12 @@ class IFRace:
             pickle.dump(self.create_config(self._best_configuration).to_dict(), f)
         self._log.best_configuration_saved(path)
 
+    def _save_tuning_times(self, output_directory):
+        path = output_directory / "tuning_times.json"
+        with open(path, "w") as f:
+            json.dump(self._tuning_times, f, indent=2)
+        self._log.tuning_times_saved(path)
+
 
 def plot_race_history(race_history, n_min, path):
     """Plot the number of surviving configurations over every race and instance.
@@ -931,6 +1068,13 @@ def plot_race_history(race_history, n_min, path):
 
     path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(path, dpi=300)
+
+
+def _format_times(times):
+    return "; ".join(
+        f"{part} wall={times[part]['wall']:.3f}s cpu={times[part]['cpu']:.3f}s"
+        for part in ("solver", "tuner", "total")
+    )
 
 
 def _names(instances):
@@ -1057,6 +1201,15 @@ class _TuningLogger:
 
     def best_configuration_saved(self, path):
         self._write("tuning", f"Saved best configuration to {path}")
+
+    def race_time(self, times):
+        self._write("tuning", f"Race {times['race']} time: {_format_times(times)}")
+
+    def tuning_time(self, total):
+        self._write("tuning", f"Tuning time: {_format_times(total)}")
+
+    def tuning_times_saved(self, path):
+        self._write("tuning", f"Saved tuning times to {path}")
 
     # -------------------------------------------------------------- sampling
 

@@ -297,15 +297,23 @@ best configuration on every rank. `L` and `n_min` default to `floor(2 + log2(N_p
     sampled in log space. If two candidates, or a candidate and an elite, are at distance 0 (§3.3), it soft-restarts
     the elites involved and resamples, at most once.
 - Read-only state:
-  - `IFRace`: `L`, `n_min`, `elites`, `elite_weights`, `best_configuration`, `race_history`, `sampling_model`.
+  - `IFRace`: `L`, `n_min`, `elites`, `elite_weights`, `best_configuration`, `race_history`, `sampling_model`,
+    `tuning_times`.
   - Model: `sigmas(id)`, `categorical_probabilities(id)` (copies), `parent_indices`, `soft_restarted_elites`,
     `categorical_update_weight`.
 - **MPI.** Rank 0 runs the whole algorithm and owns `rng`. `_evaluate(jobs)` is the only code that communicates:
   - It broadcasts the `(config, instance, seed)` jobs and runs `jobs[rank::size]` on each rank.
-  - It gathers `(result, history["timings"])` back into job order. The timings are for R5e.
+  - It gathers `(result, history["timings"])` back into job order.
   - The other ranks sit in `_worker_loop` until `_stop_workers` sends `None`. This happens in a `finally` block,
     so an exception on rank 0 doesn't deadlock the workers.
   - Cached elite results never go to the workers.
+- **Tuning time** (`tuning_times`), wall and CPU per race and in total, each as `solver`, `tuner` and `total`:
+  - `solver` = Σ `core_time` over the runs executed in the race, summed over all ranks (cached elite results add 0).
+  - `tuner` = rank 0's elapsed race time minus its time inside `_evaluate` (solver runs and MPI) and inside
+    logging. That leaves sampling, tests, elimination, elite selection and bookkeeping. `self._log` is wrapped in
+    `_TimedCalls`, which times every logger call, message formatting included.
+  - `total` = `solver + tuner`. Lines go to `tuning.log`; everything to `tuning_times.json`. Serial and
+    `mpirun -n 2` give the same `solver` sums (per-process times are summed, not elapsed).
 - **Logging** lives entirely in `_TuningLogger`, with one method per event and nothing on ranks other than 0.
   - Each run gets uniquely named loggers, and their handlers are closed at the end.
   - Per-run solver results go to the module logger at DEBUG level.
@@ -315,7 +323,8 @@ best configuration on every rank. `L` and `n_min` default to `floor(2 + log2(N_p
 - `config_template` is a `SolverConfig`. `create_config(c)` = `config_template.with_values(c without '_config_id')`,
   so tuned parameter names must be unique across `fixed_CPs` and `adapter_params`.
 - Outputs (relative to CWD): `results/tuning_results/<identifier>/logs/{tuning,evaluations,races,elites,sampling}.log`,
-  `candidate_trajectory.png`, and `best_configuration.pkl` (`SolverConfig.to_dict()` of the best configuration).
+  `candidate_trajectory.png`, `best_configuration.pkl` (`SolverConfig.to_dict()` of the best configuration) and
+  `tuning_times.json`.
 
 **Fidelity to the paper.** Checked against §3.2–3.4.
 - These match the paper:
@@ -495,7 +504,7 @@ Suggested order (each step is checked against the R8a reference results):
 5. R3 (done): `SolverConfig`, shared `BaseSolver` construction/run loop. Results unchanged.
 6. R5a–d (done): per-component wall/CPU timings, see "Timing". Results unchanged.
 7. R4 phase 1 (done): pure restructuring and the fidelity audit. Results unchanged.
-8. R5e: tuning time (per-process times summed).
+8. R5e (done): tuning time (per-process times summed). Results unchanged.
 9. R4 phase 2: fidelity fixes from the audit, one behaviour change per commit, each with its difference from the
    reference explained.
 10. R7b (done): the code passes `ruff check`.
@@ -516,12 +525,6 @@ per fix. Each commit regenerates the reference and explains the change against i
 - [ ] Deviation 8: `Parameter` rejects `log_scale_tuning` with `lower <= 0`. This changes no results.
 - [ ] Deviation 5 (rounding reals to `digits`): the author decides whether to keep it as a deliberate deviation.
 - Out of scope: conditional parameters, forbidden configurations, capping, recovery files.
-
-**R5e Tuning time** (exclude logging and performance measures; per-run solver timings are in place, see "Timing").
-- [ ] IFRace tuning time for each race, wall and CPU, summed over the processes that ran in parallel:
-  `solver_time` = Σ `core_time` over the runs actually executed (cached elite results add 0); `tuner_time` =
-  sampling, tests, elimination and elite selection on rank 0 (excluding logging and MPI); `total` = their sum.
-  Write to `tuning.log` and `results/tuning_results/<id>/tuning_times.json`, including the grand total. Depends on R4.
 
 **R8b Unit tests** (pytest, `tests/` mirroring `src/edaptive/`; R8a, the characterisation tests, is done).
 - [ ] (b) Unit tests: `Parameter`/`ParameterSpace` validation; `parse_config`; `BenchmarkProblem` batching and
