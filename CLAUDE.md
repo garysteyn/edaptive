@@ -296,7 +296,7 @@ best configuration on every rank. `L` and `n_min` default to `floor(2 + log2(N_p
     (passed by `IFRace`, so the weight stays below 1 after `L` is extended), and the eq. 6 cap.
   - `sample`: eq. 1 parent choice, then a truncated normal. Integers are sampled on `[lb, ub+1)` centred on the
     elite's value `+0.5`, then floored; log-scale values (integers too) are sampled in log space. If two candidates, or a candidate and an elite, are at distance 0 (§3.3), it soft-restarts
-    the elites involved and resamples, at most once.
+    the parents of those candidates (not an elite a candidate matched) and resamples, at most once.
 - Read-only state:
   - `IFRace`: `L`, `n_min`, `elites`, `elite_weights`, `best_configuration`, `race_history`, `sampling_model`,
     `tuning_times`.
@@ -333,7 +333,8 @@ best configuration on every rank. `L` and `n_min` default to `floor(2 + log2(N_p
   - `N_new = N_j − N_elite`, and stopping when `N_j ≤ N_elite`;
   - eqs. 1–4 and 6, with `N_iter` in eq. 3 being the current `L`;
   - integer `+0.5`/floor sampling, at init too (log-scale integers on `[log lb, log(ub+1))`);
-  - the soft-restart distance, the categorical reset, the sigma reset, and the at-most-once rule;
+  - the soft-restart distance, restarting only the parents, the categorical reset, the sigma reset, and the
+    at-most-once rule;
   - per-elite `e_j + T_new` protection, and counting `T_max` only after `T_new + e`;
   - `mu = T_first`;
   - the test schedule and the race stopping rules;
@@ -347,8 +348,6 @@ best configuration on every rank. `L` and `n_min` default to `floor(2 + log2(N_p
      test cases this already happens in race 2.
   3. **Only the longest-history elite's instances are replayed.** An instance seen only by other elites is never
      used again.
-  4. **The soft restart also resets an elite that a child matched**, not only the children's parents (§3.3 resets
-     only the parents).
   5. **Real values aren't rounded to `digits` decimals** as in irace (Appendix A). The proposal is to keep this as a
      deliberate deviation, because log-scale values near `1e-4` would collapse. This still needs the author's
      decision.
@@ -511,7 +510,6 @@ per fix. Each commit regenerates the reference and explains the change against i
 - [ ] Deviation 2: a cycling stream of `(instance, seed)` pairs (shuffled `I`, fresh seeds), so new instances never
   run out.
 - [ ] Deviation 3: replay the union of the elites' histories, in a defined order, instead of only the longest one.
-- [ ] Deviation 4: soft-restart only the parents of zero-distance candidates.
 - [ ] Deviation 5: round reals (rounding, not truncation, as the paper says). Linear-scale reals to `digits`
   decimal places, as in irace; log-scale reals to `digits` significant figures (part of the log-scale
   deviation: a fixed `1e-4` step would leave `[1e-4, 1e-3]` with 10 values). Decided by the author.

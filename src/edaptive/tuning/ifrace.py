@@ -361,11 +361,11 @@ class IFRaceSamplingModel:
         return max_distance
 
     def _find_converged_elites(self, configurations, parents):
-        """Elites involved in a zero-distance pair (Section 3.3).
+        """Parents of new configurations in a zero-distance pair (Section 3.3).
 
-        A pair is two new configurations, or a new configuration and an elite. Both
-        new configurations' parents count, and so does the elite itself in the second
-        case (deviation: the paper restarts only the parents).
+        A pair is two new configurations, or a new configuration and an elite. Only
+        the elites that generated the new configurations in the pair are
+        soft-restarted, not an elite that a new configuration happens to match.
         """
         converged = set()
         for i, child in enumerate(configurations):
@@ -373,10 +373,8 @@ class IFRaceSamplingModel:
                 if self._distance(child, configurations[j]) == 0:
                     converged.add(parents[i])
                     converged.add(parents[j])
-            for j, elite in enumerate(self._elites):
-                if self._distance(child, elite) == 0:
-                    converged.add(parents[i])
-                    converged.add(j)
+            if any(self._distance(child, elite) == 0 for elite in self._elites):
+                converged.add(parents[i])
         return converged
 
     def _soft_restart(self, elite_indices, N_new):

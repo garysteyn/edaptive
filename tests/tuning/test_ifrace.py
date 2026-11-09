@@ -441,6 +441,15 @@ def test_soft_restart_fires_on_duplicates_and_resets_parents():
     assert model.sigmas(elites[0][CONFIG_ID])["x"] == pytest.approx(expected)
 
 
+def test_child_matching_another_elite_restarts_only_its_parent():
+    model, configurations = make_model(n_configs=2)
+    elites = configurations[:2]
+    model.update(elites, np.array([2 / 3, 1 / 3]), race_index=1, N_new=1, n_races=4)
+    # The only child (parent: elite 0) is an exact copy of elite 1.
+    child = {name: value for name, value in elites[1].items() if name != CONFIG_ID}
+    assert model._find_converged_elites([child], [0]) == {0}
+
+
 def test_no_soft_restart_when_candidates_differ():
     model, configurations = make_model(n_configs=4)
     model.update(
