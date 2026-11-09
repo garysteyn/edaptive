@@ -280,8 +280,8 @@ best configuration on every rank. `L` and `n_min` default to `floor(2 + log2(N_p
     permutation of `I` with a fresh seed per entry, added as needed, so new instances never run out and a repeated
     class gets a new seed. `_mark_seen` advances the first unseen index as entries are raced.
   - `_instance_sequence` (§3.4) returns a generator the race consumes until it stops. Race 1: unseen stream entries
-    in order. Later races: `T_new` unseen entries, then the shuffled history of the longest-history elite, then
-    further unseen entries.
+    in order. Later races: `T_new` unseen entries, then every entry in any elite's history (sorted by stream index,
+    then shuffled), then further unseen entries. `e` is still the longest elite history.
   - `_race`: after the `T_new` new instances, elites reuse their cached results on `(instance, seed)` pairs they
     have already seen; `_split_cached` handles this. The race stops when:
     - the next instance doesn't fit in `B_l`;
@@ -342,14 +342,13 @@ best configuration on every rank. `L` and `n_min` default to `floor(2 + log2(N_p
   - per-elite `e_j + T_new` protection, and counting `T_max` only after `T_new + e`;
   - `mu = T_first`;
   - the test schedule and the race stopping rules;
+  - replaying every instance the elites have seen, shuffled, after the `T_new` new ones;
   - new `(instance, seed)` pairs from an endless stream of shuffled `I` with fresh seeds (Appendix A1);
   - elites chosen by mean rank.
 - Deliberate deviations:
   - Sobol' initialisation instead of uniform sampling.
   - Log-scale parameters: init, sigma, sampling, distance and soft restart all work in log space. This is sound.
 - Deviations found and not yet fixed (R4 phase 2):
-  3. **Only the longest-history elite's instances are replayed.** An instance seen only by other elites is never
-     used again.
   5. **Real values aren't rounded to `digits` decimals** as in irace (Appendix A). The proposal is to keep this as a
      deliberate deviation, because log-scale values near `1e-4` would collapse. This still needs the author's
      decision.
@@ -509,7 +508,6 @@ don't depend on it.
 
 **R4 phase 2: I/F-race fidelity fixes.** Phase 1 (restructure and audit) is done; see "Tuning". Make one commit
 per fix. Each commit regenerates the reference and explains the change against it.
-- [ ] Deviation 3: replay the union of the elites' histories, in a defined order, instead of only the longest one.
 - [ ] Deviation 5: round reals (rounding, not truncation, as the paper says). Linear-scale reals to `digits`
   decimal places, as in irace; log-scale reals to `digits` significant figures (part of the log-scale
   deviation: a fixed `1e-4` step would leave `[1e-4, 1e-3]` with 10 values). Decided by the author.

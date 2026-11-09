@@ -193,6 +193,25 @@ def test_later_race_order_new_then_seen_then_more_new():
     assert order[6] == tuner._problem_stream[6]
 
 
+def test_later_race_replays_every_elite_instance():
+    tuner = with_elites(make_tuner(T_new=1), None, None)
+    stream = take(tuner._unseen_problems(0), 3)
+    for problem in stream:
+        tuner._mark_seen(*problem)
+    # The second elite is the only one that saw stream[2].
+    histories = [
+        {stream[0]: 0.0, stream[1]: 0.0},
+        {stream[0]: 0.0, stream[2]: 0.0},
+    ]
+    with_elites(tuner, [{CONFIG_ID: "x"}, {CONFIG_ID: "y"}], histories)
+
+    problems, e = tuner._instance_sequence(2)
+    assert e == 2
+    order = take(problems, 4)
+    assert order[0] not in stream
+    assert set(order[1:4]) == set(stream)
+
+
 def test_only_the_next_unseen_entry_advances_the_stream():
     tuner = with_elites(make_tuner(T_new=2), None, None)
     stream = take(tuner._unseen_problems(0), 3)

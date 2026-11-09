@@ -734,16 +734,17 @@ class IFRace:
 
         Returns a generator, which the race consumes until it stops. Race 1 takes
         unseen entries of the instance stream in order. Later races (Section 3.4):
-        ``T_new`` unseen stream entries, then the instances of the elite with the
-        longest history in random order (``e`` of them), then further unseen stream
-        entries.
+        ``T_new`` unseen stream entries, then every instance in any elite's history
+        in random order, then further unseen stream entries. ``e`` is the longest
+        elite history.
         """
         if l == 1:
             return self._unseen_problems(self._n_problems_seen), 0
 
-        longest = int(np.argmax([len(history) for history in self._elite_histories]))
-        seen_problems = self._permuted(list(self._elite_histories[longest]))
-        e = len(seen_problems)
+        e = max(len(history) for history in self._elite_histories)
+        stream_index = {problem: i for i, problem in enumerate(self._problem_stream)}
+        seen = {problem for history in self._elite_histories for problem in history}
+        seen_problems = self._permuted(sorted(seen, key=stream_index.__getitem__))
         self._log.instance_order(e, self.T_new, seen_problems)
 
         def sequence():
