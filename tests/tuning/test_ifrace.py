@@ -1,5 +1,6 @@
 """Unit tests for the pieces of the elitist I/F-race tuner (``tuning/ifrace.py``)."""
 
+import itertools
 import json
 import time
 
@@ -150,30 +151,57 @@ def test_select_elites_keeps_at_most_n_min():
 # --- instance order -------------------------------------------------------------
 
 
-def test_first_race_uses_every_instance_once():
+def take(problems, n):
+    return list(itertools.islice(problems, n))
+
+
+def test_first_race_cycles_through_shuffled_instances_with_fresh_seeds():
     tuner = with_elites(make_tuner(), None, None)
     problems, e = tuner._instance_sequence(1)
     assert e == 0
-    assert sorted(p.__name__ for p, _ in problems) == [
-        "ProblemA",
-        "ProblemB",
-        "ProblemC",
-    ]
+    first, second = take(problems, 3), take(problems, 3)
+    for block in (first, second):
+        assert sorted(p.__name__ for p, _ in block) == [
+            "ProblemA",
+            "ProblemB",
+            "ProblemC",
+        ]
+    # A repeated instance gets a new seed.
+    assert len({seed for _, seed in first + second}) == 6
 
 
-def test_later_race_order_new_then_seen_then_rest():
-    seen = {(ProblemA, 11): 0.0, (ProblemB, 22): 0.0}
+def test_later_race_order_new_then_seen_then_more_new():
     tuner = with_elites(
-        make_tuner(I=[ProblemA, ProblemB, ProblemC], T_new=1),
-        elites=[{CONFIG_ID: "x"}],
-        histories=[seen],
+        make_tuner(I=[ProblemA, ProblemB, ProblemC], T_new=1), None, None
     )
+    stream = take(tuner._unseen_problems(0), 6)
+    # Race 1 raced the first two stream entries; they are the elite's history.
+    for instance, seed in stream[:2]:
+        tuner._mark_seen(instance, seed)
+    seen = {problem: 0.0 for problem in stream[:2]}
+    with_elites(tuner, elites=[{CONFIG_ID: "x"}], histories=[seen])
+
     problems, e = tuner._instance_sequence(2)
     assert e == 2
-    # One new (unseen) instance first, then the elite's instances with their seeds.
-    assert problems[0][0] is ProblemC
-    assert set(problems[1:]) == set(seen)
-    assert len(problems) == 3
+    order = take(problems, 7)
+    # One new stream entry first, then the elite's entries, then further new ones.
+    assert order[0] == stream[2]
+    assert set(order[1:3]) == set(stream[:2])
+    assert order[3:6] == stream[3:6]
+    # The stream never runs out: it continues with a fresh block.
+    assert len(tuner._problem_stream) == 9
+    assert order[6] == tuner._problem_stream[6]
+
+
+def test_only_the_next_unseen_entry_advances_the_stream():
+    tuner = with_elites(make_tuner(T_new=2), None, None)
+    stream = take(tuner._unseen_problems(0), 3)
+    tuner._mark_seen(*stream[0])
+    # Only an entry at the first unseen index advances it.
+    tuner._mark_seen(*stream[2])
+    assert tuner._n_problems_seen == 1
+    tuner._mark_seen(*stream[1])
+    assert tuner._n_problems_seen == 2
 
 
 # --- caching and evaluation -------------------------------------------------------

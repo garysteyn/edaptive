@@ -483,6 +483,8 @@ class IFRace:
         self._elites = None
         self._elite_weights = None
         self._elite_histories = None  # per elite: {(instance, seed): result}
+        self._problem_stream = []  # (instance, seed) pairs in the order they are used
+        self._n_problems_seen = 0  # stream entries raced so far
         self._best_configuration = None
         self._race_history = []
         self._log = _TuningLogger(None)
@@ -730,35 +732,47 @@ class IFRace:
     def _instance_sequence(self, l):
         """The ``(instance, seed)`` order for race ``l`` and the elites' ``e``.
 
-        Race 1: all of ``I`` in random order, each with a fresh seed. Later races
-        (Section 3.4): ``T_new`` unseen instances, then the instances of the elite with
-        the longest history in random order (``e`` of them), then the remaining unseen
-        instances.
+        Returns a generator, which the race consumes until it stops. Race 1 takes
+        unseen entries of the instance stream in order. Later races (Section 3.4):
+        ``T_new`` unseen stream entries, then the instances of the elite with the
+        longest history in random order (``e`` of them), then further unseen stream
+        entries.
         """
         if l == 1:
-            order = self._permuted(self.I)
-            problems = [(instance, self._new_seed()) for instance in order]
-            self._log.first_instance_order(problems)
-            return problems, 0
+            return self._unseen_problems(self._n_problems_seen), 0
 
         longest = int(np.argmax([len(history) for history in self._elite_histories]))
         seen_problems = self._permuted(list(self._elite_histories[longest]))
         e = len(seen_problems)
+        self._log.instance_order(e, self.T_new, seen_problems)
 
-        seen = {
-            instance for history in self._elite_histories for instance, _ in history
-        }
-        order = self._permuted(self.I)
-        new_instances = [instance for instance in order if instance not in seen]
-        new_instances = new_instances[: self.T_new]
-        new_problems = [(instance, self._new_seed()) for instance in new_instances]
+        def sequence():
+            first_unseen = self._n_problems_seen
+            new = self._unseen_problems(first_unseen)
+            for _ in range(self.T_new):
+                yield next(new)
+            yield from seen_problems
+            yield from self._unseen_problems(first_unseen + self.T_new)
 
-        used = seen | set(new_instances)
-        remaining = [instance for instance in order if instance not in used]
-        remaining_problems = [(instance, self._new_seed()) for instance in remaining]
+        return sequence(), e
 
-        self._log.instance_order(e, new_instances, seen_problems, remaining)
-        return new_problems + seen_problems + remaining_problems, e
+    def _unseen_problems(self, start):
+        """Entries of the instance stream from index ``start`` on (Appendix A1).
+
+        The stream is a sequence of blocks, each a random permutation of ``I`` with a
+        fresh seed per entry, so an instance seen again gets a new seed. Blocks are
+        added as they are needed.
+        """
+        index = start
+        while True:
+            while index >= len(self._problem_stream):
+                block = [
+                    (instance, self._new_seed()) for instance in self._permuted(self.I)
+                ]
+                self._problem_stream.extend(block)
+                self._log.instance_stream_extended(block)
+            yield self._problem_stream[index]
+            index += 1
 
     def _race(self, l, C, B_l):
         """Race the configurations ``C`` over the instances (Sections 3.2 and 3.4).
@@ -800,6 +814,7 @@ class IFRace:
 
             n_runs += len(to_run)
             instances.append((instance, seed))
+            self._mark_seen(instance, seed)
             self._log.instance_completed(k, n_runs)
 
             if k >= self.T_first and (k - self.T_first) % self.T_each == 0:
@@ -834,6 +849,15 @@ class IFRace:
                 break
 
         return C, results, n_runs, instances
+
+    def _mark_seen(self, instance, seed):
+        """Advance the first unseen stream index past a newly raced entry."""
+        n_seen = self._n_problems_seen
+        if n_seen < len(self._problem_stream) and self._problem_stream[n_seen] == (
+            instance,
+            seed,
+        ):
+            self._n_problems_seen += 1
 
     def _split_cached(self, l, k, C, instance, seed):
         """Cached elite results ``{index: result}`` and the indices that must run.
@@ -1248,20 +1272,21 @@ class _TuningLogger:
 
     # ----------------------------------------------------------------- races
 
-    def first_instance_order(self, problems):
+    def instance_stream_extended(self, block):
         self._write(
             "races",
-            f"Initial instance order: {_names(instance for instance, _ in problems)}",
+            "Instance stream extended: "
+            + ", ".join(
+                f"{instance.__name__} (seed {seed})" for instance, seed in block
+            ),
         )
 
-    def instance_order(self, e, new_instances, seen_problems, remaining):
+    def instance_order(self, e, T_new, seen_problems):
         self._write(
             "races",
             f"Maximum elite history (e): {e}",
-            f"New instances: {_names(new_instances)}",
-            "Previous elite instances: "
-            f"{_names(instance for instance, _ in seen_problems)}",
-            f"Remaining instances: {_names(remaining)}",
+            f"Order: {T_new} new, then previous elite instances "
+            f"{_names(instance for instance, _ in seen_problems)}, then new ones",
         )
 
     def instance_cost(self, k, cost, n_runs, B_l, can_evaluate):

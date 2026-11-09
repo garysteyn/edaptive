@@ -7098,10 +7098,10 @@
  "tuning": {
   "basic": {
    "best_configuration": {
-    "w": 0.019302005599824784,
-    "c_1": 1.8771726066368055,
-    "c_2": 1.9257032188660574,
-    "_config_id": "config_20"
+    "w": 0.1977469476684226,
+    "c_1": 1.3319471713438245,
+    "c_2": 2.197815267049339,
+    "_config_id": "config_34"
    },
    "race_history": [
     {
@@ -7140,120 +7140,200 @@
      "count": 6
     },
     {
-     "race": 2,
-     "instance": 0,
-     "count": 17
-    },
-    {
-     "race": 2,
-     "instance": 1,
-     "count": 17
-    },
-    {
-     "race": 2,
-     "instance": 2,
-     "count": 17
-    },
-    {
-     "race": 2,
-     "instance": 3,
-     "count": 17
-    },
-    {
-     "race": 2,
-     "instance": 4,
-     "count": 17
-    },
-    {
-     "race": 2,
-     "instance": 5,
+     "race": 1,
+     "instance": 7,
      "count": 6
     },
     {
      "race": 2,
+     "instance": 0,
+     "count": 15
+    },
+    {
+     "race": 2,
+     "instance": 1,
+     "count": 15
+    },
+    {
+     "race": 2,
+     "instance": 2,
+     "count": 15
+    },
+    {
+     "race": 2,
+     "instance": 3,
+     "count": 15
+    },
+    {
+     "race": 2,
+     "instance": 4,
+     "count": 15
+    },
+    {
+     "race": 2,
+     "instance": 5,
+     "count": 11
+    },
+    {
+     "race": 2,
+     "instance": 6,
+     "count": 11
+    },
+    {
+     "race": 2,
+     "instance": 7,
+     "count": 11
+    },
+    {
+     "race": 2,
+     "instance": 8,
+     "count": 11
+    },
+    {
+     "race": 2,
+     "instance": 9,
+     "count": 7
+    },
+    {
+     "race": 3,
+     "instance": 0,
+     "count": 13
+    },
+    {
+     "race": 3,
+     "instance": 1,
+     "count": 13
+    },
+    {
+     "race": 3,
+     "instance": 2,
+     "count": 13
+    },
+    {
+     "race": 3,
+     "instance": 3,
+     "count": 13
+    },
+    {
+     "race": 3,
+     "instance": 4,
+     "count": 13
+    },
+    {
+     "race": 3,
+     "instance": 5,
+     "count": 6
+    },
+    {
+     "race": 3,
+     "instance": 6,
+     "count": 6
+    },
+    {
+     "race": 3,
+     "instance": 7,
+     "count": 6
+    },
+    {
+     "race": 3,
+     "instance": 8,
+     "count": 6
+    },
+    {
+     "race": 3,
+     "instance": 9,
+     "count": 6
+    },
+    {
+     "race": 3,
+     "instance": 10,
+     "count": 6
+    },
+    {
+     "race": 3,
+     "instance": 11,
+     "count": 6
+    },
+    {
+     "race": 4,
+     "instance": 0,
+     "count": 5
+    },
+    {
+     "race": 4,
+     "instance": 1,
+     "count": 5
+    },
+    {
+     "race": 4,
+     "instance": 2,
+     "count": 5
+    },
+    {
+     "race": 4,
+     "instance": 3,
+     "count": 5
+    },
+    {
+     "race": 4,
+     "instance": 4,
+     "count": 5
+    },
+    {
+     "race": 4,
+     "instance": 5,
+     "count": 4
+    },
+    {
+     "race": 4,
      "instance": 6,
      "count": 4
     },
     {
-     "race": 3,
-     "instance": 0,
-     "count": 19
-    },
-    {
-     "race": 3,
-     "instance": 1,
-     "count": 19
-    },
-    {
-     "race": 3,
-     "instance": 2,
-     "count": 19
-    },
-    {
-     "race": 3,
-     "instance": 3,
-     "count": 19
-    },
-    {
-     "race": 3,
-     "instance": 4,
-     "count": 19
-    },
-    {
-     "race": 3,
-     "instance": 5,
-     "count": 10
-    },
-    {
-     "race": 3,
-     "instance": 6,
-     "count": 10
+     "race": 4,
+     "instance": 7,
+     "count": 4
     },
     {
      "race": 4,
-     "instance": 0,
-     "count": 7
+     "instance": 8,
+     "count": 4
     },
     {
      "race": 4,
-     "instance": 1,
-     "count": 7
+     "instance": 9,
+     "count": 4
     },
     {
      "race": 4,
-     "instance": 2,
-     "count": 7
+     "instance": 10,
+     "count": 4
     },
     {
      "race": 4,
-     "instance": 3,
-     "count": 7
+     "instance": 11,
+     "count": 4
     },
     {
      "race": 4,
-     "instance": 4,
-     "count": 7
+     "instance": 12,
+     "count": 4
     },
     {
      "race": 4,
-     "instance": 5,
-     "count": 7
-    },
-    {
-     "race": 4,
-     "instance": 6,
-     "count": 7
+     "instance": 13,
+     "count": 4
     }
    ],
    "L": 5
   },
   "eda": {
    "best_configuration": {
-    "eta": 0.12919550370755326,
-    "rho_min": 0.0006840956861466496,
+    "eta": 0.13131396892487615,
+    "rho_min": 0.00014357251197260983,
     "n_elites": 10,
     "elite_weighting": "log-rank",
-    "_config_id": "config_27"
+    "_config_id": "config_31"
    },
    "race_history": [
     {
@@ -7319,155 +7399,135 @@
     {
      "race": 2,
      "instance": 5,
-     "count": 14
+     "count": 10
     },
     {
      "race": 2,
      "instance": 6,
-     "count": 14
+     "count": 10
+    },
+    {
+     "race": 2,
+     "instance": 7,
+     "count": 10
+    },
+    {
+     "race": 2,
+     "instance": 8,
+     "count": 10
     },
     {
      "race": 3,
      "instance": 0,
-     "count": 13
+     "count": 12
     },
     {
      "race": 3,
      "instance": 1,
-     "count": 13
+     "count": 12
     },
     {
      "race": 3,
      "instance": 2,
-     "count": 13
+     "count": 12
     },
     {
      "race": 3,
      "instance": 3,
-     "count": 13
+     "count": 12
     },
     {
      "race": 3,
      "instance": 4,
-     "count": 13
+     "count": 12
     },
     {
      "race": 3,
      "instance": 5,
-     "count": 13
+     "count": 12
     },
     {
      "race": 3,
      "instance": 6,
-     "count": 13
+     "count": 12
+    },
+    {
+     "race": 3,
+     "instance": 7,
+     "count": 12
+    },
+    {
+     "race": 3,
+     "instance": 8,
+     "count": 12
+    },
+    {
+     "race": 3,
+     "instance": 9,
+     "count": 5
     },
     {
      "race": 4,
      "instance": 0,
-     "count": 14
+     "count": 11
     },
     {
      "race": 4,
      "instance": 1,
-     "count": 14
+     "count": 11
     },
     {
      "race": 4,
      "instance": 2,
-     "count": 14
+     "count": 11
     },
     {
      "race": 4,
      "instance": 3,
-     "count": 14
+     "count": 11
     },
     {
      "race": 4,
      "instance": 4,
-     "count": 14
+     "count": 11
     },
     {
      "race": 4,
      "instance": 5,
-     "count": 14
+     "count": 11
     },
     {
      "race": 4,
      "instance": 6,
-     "count": 14
+     "count": 11
     },
     {
-     "race": 5,
-     "instance": 0,
-     "count": 6
+     "race": 4,
+     "instance": 7,
+     "count": 11
     },
     {
-     "race": 5,
-     "instance": 1,
-     "count": 6
+     "race": 4,
+     "instance": 8,
+     "count": 8
     },
     {
-     "race": 5,
-     "instance": 2,
-     "count": 6
+     "race": 4,
+     "instance": 9,
+     "count": 8
     },
     {
-     "race": 5,
-     "instance": 3,
-     "count": 6
+     "race": 4,
+     "instance": 10,
+     "count": 8
     },
     {
-     "race": 5,
-     "instance": 4,
-     "count": 6
-    },
-    {
-     "race": 5,
-     "instance": 5,
-     "count": 6
-    },
-    {
-     "race": 5,
-     "instance": 6,
-     "count": 6
-    },
-    {
-     "race": 6,
-     "instance": 0,
-     "count": 5
-    },
-    {
-     "race": 6,
-     "instance": 1,
-     "count": 5
-    },
-    {
-     "race": 6,
-     "instance": 2,
-     "count": 5
-    },
-    {
-     "race": 6,
-     "instance": 3,
-     "count": 5
-    },
-    {
-     "race": 6,
-     "instance": 4,
-     "count": 5
-    },
-    {
-     "race": 6,
-     "instance": 5,
-     "count": 5
-    },
-    {
-     "race": 6,
-     "instance": 6,
-     "count": 5
+     "race": 4,
+     "instance": 11,
+     "count": 8
     }
    ],
-   "L": 7
+   "L": 4
   }
  }
 }
