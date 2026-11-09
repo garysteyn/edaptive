@@ -119,10 +119,8 @@ class IFRaceSamplingModel:
     this state. New configurations inherit the distributions of their parent elite.
     """
 
-    def __init__(self, parameter_space, n_races, rng, digits=4):
+    def __init__(self, parameter_space, rng, digits=4):
         self._space = parameter_space
-        # N_iter in eqs. 3-4, fixed when the model is created (see CLAUDE.md).
-        self._n_races = n_races
         self._rng = rng
         self._digits = digits
         self._n_configs_created = 0
@@ -197,12 +195,14 @@ class IFRaceSamplingModel:
 
         return configurations
 
-    def update(self, elites, elite_weights, race_index, N_new):
+    def update(self, elites, elite_weights, race_index, N_new, n_races):
         """Update the elites' distributions before sampling race ``race_index + 1``.
 
         Numerical: ``sigma *= (1 / N_new)^(1 / N_param)`` (eq. 2). Categorical: move
         ``(j - 1) / N_iter`` of the probability mass to the elite's value (eqs. 3-4),
         cap every probability at ``0.2^(1 / N_param)`` and renormalise (eq. 6).
+        ``n_races`` is the current ``N_iter``, which grows when races are added, so
+        the weight stays below 1.
         """
         self._elites = elites
         self._elite_weights = elite_weights
@@ -212,7 +212,7 @@ class IFRaceSamplingModel:
             return
 
         N_param = len(self._space)
-        weight = race_index / self._n_races
+        weight = race_index / n_races
         self._categorical_update_weight = weight
         max_probability = 0.2 ** (1.0 / N_param)
 
@@ -726,14 +726,12 @@ class IFRace:
         elites.
         """
         if l == 1:
-            self._model = IFRaceSamplingModel(
-                self._space, self._L, self._rng, self.digits
-            )
+            self._model = IFRaceSamplingModel(self._space, self._rng, self.digits)
             C = self._model.sample_initial(N_new)
             self._log.initial_configurations(l, C)
             return C
 
-        self._model.update(self._elites, self._elite_weights, l - 1, N_new)
+        self._model.update(self._elites, self._elite_weights, l - 1, N_new, self._L)
         self._log.model_updated(l, self._model, self._elites)
         new_configurations = self._model.sample(N_new)
         self._log.configurations_sampled(l, self._model, new_configurations)

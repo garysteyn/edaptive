@@ -288,11 +288,12 @@ best configuration on every rank. `L` and `n_min` default to `floor(2 + log2(N_p
     until `k ≥ e_j + T_new`.
   - `_select_elites`: the `min(N_surv, n_min)` survivors with the best mean rank become elites. Each keeps its
     merged `{(instance, seed): result}` history, and eq. 1 gives the weights.
-- `IFRaceSamplingModel(space, n_races, rng, digits)`, created by `IFRace`. Each configuration carries its own
+- `IFRaceSamplingModel(space, rng, digits)`, created by `IFRace`. Each configuration carries its own
   sigmas and categorical probabilities, and children inherit their parent's.
   - `sample_initial`: an Owen-scrambled Sobol' sequence. Sigma starts at half the range (log range for log-scale
     parameters), and categorical probabilities start uniform.
-  - `update`: eq. 2 sigma shrink, eqs. 3–4 categorical update, and the eq. 6 cap.
+  - `update(..., n_races)`: eq. 2 sigma shrink, eqs. 3–4 categorical update with `N_iter` = the current `L`
+    (passed by `IFRace`, so the weight stays below 1 after `L` is extended), and the eq. 6 cap.
   - `sample`: eq. 1 parent choice, then a truncated normal. Integers use `+0.5` and a floor; log-scale values are
     sampled in log space. If two candidates, or a candidate and an elite, are at distance 0 (§3.3), it soft-restarts
     the elites involved and resamples, at most once.
@@ -330,7 +331,7 @@ best configuration on every rank. `L` and `n_min` default to `floor(2 + log2(N_p
 - These match the paper:
   - `N_iter`, `B_j` and eq. 5, including `nm`;
   - `N_new = N_j − N_elite`, and stopping when `N_j ≤ N_elite`;
-  - eqs. 1–4 and 6;
+  - eqs. 1–4 and 6, with `N_iter` in eq. 3 being the current `L`;
   - integer `+0.5`/floor sampling;
   - the soft-restart distance, the categorical reset, the sigma reset, and the at-most-once rule;
   - per-elite `e_j + T_new` protection, and counting `T_max` only after `T_new + e`;
@@ -342,10 +343,6 @@ best configuration on every rank. `L` and `n_min` default to `floor(2 + log2(N_p
   - Log-scale parameters: init, sigma, sampling, distance and soft restart all work in log space. This is sound,
     apart from deviation 7 below.
 - Deviations found and not yet fixed (R4 phase 2):
-  1. **The model keeps the initial `L` as `N_iter`.** Once `L` is extended past it, the eq. 3 weight `(j−1)/N_iter`
-     reaches 1 and the elite's categorical distribution becomes one-hot. The eq. 6 cap can't undo this, because the
-     other entries are 0. If the weight goes above 1 after a soft restart has put mass back, the probabilities turn
-     negative and `choice` raises `ValueError` (reproduced with `digits=0`, `B=300` on the `eda` tuning case).
   2. **Instances never repeat with new seeds.** Once every class in `I` has been seen, races have no new instances
      and can't go beyond `e`. irace draws fresh `(instance, seed)` pairs from a cycling stream. With the 6-instance
      test cases this already happens in race 2.
@@ -515,8 +512,6 @@ don't depend on it.
 
 **R4 phase 2: I/F-race fidelity fixes.** Phase 1 (restructure and audit) is done; see "Tuning". Make one commit
 per fix. Each commit regenerates the reference and explains the change against it.
-- [ ] Deviation 1: pass the current `L` to `IFRaceSamplingModel.update` for the eq. 3 weight. This fixes the
-  `ValueError` after `L` has been extended.
 - [ ] Deviation 2: a cycling stream of `(instance, seed)` pairs (shuffled `I`, fresh seeds), so new instances never
   run out.
 - [ ] Deviation 3: replay the union of the elites' histories, in a defined order, instead of only the longest one.

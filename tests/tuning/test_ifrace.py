@@ -284,7 +284,7 @@ def test_tuner_time_excludes_logging(monkeypatch, tmp_path):
 
 
 def make_model(n_configs=40, seed=0, digits=4):
-    model = IFRaceSamplingModel(SPACE, n_races=4, rng=np.random.default_rng(seed))
+    model = IFRaceSamplingModel(SPACE, rng=np.random.default_rng(seed))
     model._digits = digits
     return model, model.sample_initial(n_configs)
 
@@ -309,7 +309,7 @@ def test_initial_sigma_is_half_the_range_in_log_space_for_log_parameters():
 def test_update_shrinks_sigma_and_moves_categorical_mass():
     model, configurations = make_model(n_configs=4)
     elites = configurations[:2]
-    model.update(elites, np.array([2 / 3, 1 / 3]), race_index=1, N_new=8)
+    model.update(elites, np.array([2 / 3, 1 / 3]), race_index=1, N_new=8, n_races=4)
 
     elite = elites[0]
     shrink = (1 / 8) ** (1 / 5)
@@ -322,10 +322,45 @@ def test_update_shrinks_sigma_and_moves_categorical_mass():
     assert model.categorical_update_weight == 1 / 4
 
 
+def test_categorical_weight_uses_current_number_of_races(monkeypatch, tmp_path):
+    # L = 2 is extended several times; the eq. 3 weight must stay below 1 and the
+    # categorical distributions must stay valid (no negative probabilities).
+    tuner = make_tuner(B=400, L=2, results_directory=tmp_path)
+    monkeypatch.setattr(
+        tuner,
+        "_run_solver",
+        lambda c, instance, seed: (c["x"] + ("abc".index(c["kind"])), RUN_TIMINGS),
+    )
+    calls = []
+    original_update = IFRaceSamplingModel.update
+
+    def spy(model, elites, elite_weights, race_index, N_new, n_races):
+        original_update(model, elites, elite_weights, race_index, N_new, n_races)
+        calls.append((race_index, n_races, model.categorical_update_weight))
+        for elite in elites:
+            p = model.categorical_probabilities(elite[CONFIG_ID])["kind"]
+            assert np.all(p >= 0) and p.sum() == pytest.approx(1.0)
+
+    monkeypatch.setattr(IFRaceSamplingModel, "update", spy)
+    tuner.tune(
+        _FakeSolver,
+        _FakeSolver,
+        None,
+        _FakeConfig(),
+        ParameterSpace([CONTINUOUS, CATEGORICAL]),
+    )
+
+    assert tuner.L > 3
+    assert max(race_index for race_index, _, _ in calls) >= 2
+    for race_index, n_races, weight in calls:
+        assert n_races >= race_index + 1
+        assert weight == race_index / n_races < 1
+
+
 def test_sampled_children_are_in_bounds_and_inherit_distributions():
     model, configurations = make_model(n_configs=4)
     elites = configurations[:2]
-    model.update(elites, np.array([2 / 3, 1 / 3]), race_index=1, N_new=30)
+    model.update(elites, np.array([2 / 3, 1 / 3]), race_index=1, N_new=30, n_races=4)
     children = model.sample(30)
 
     assert len(children) == len(model.parent_indices) == 30
@@ -362,7 +397,7 @@ def test_soft_restart_fires_on_duplicates_and_resets_parents():
     # with the same categorical value are "converged".
     model, configurations = make_model(n_configs=2, digits=0)
     elites = configurations[:1]
-    model.update(elites, np.array([1.0]), race_index=1, N_new=10)
+    model.update(elites, np.array([1.0]), race_index=1, N_new=10, n_races=4)
     sigma_before = model.sigmas(elites[0][CONFIG_ID])["x"]
 
     model.sample(10)
@@ -375,7 +410,9 @@ def test_soft_restart_fires_on_duplicates_and_resets_parents():
 
 def test_no_soft_restart_when_candidates_differ():
     model, configurations = make_model(n_configs=4)
-    model.update(configurations[:2], np.array([2 / 3, 1 / 3]), race_index=1, N_new=3)
+    model.update(
+        configurations[:2], np.array([2 / 3, 1 / 3]), race_index=1, N_new=3, n_races=4
+    )
     model.sample(3)
     assert model.soft_restarted_elites == ()
 
