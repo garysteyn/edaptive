@@ -10,6 +10,9 @@ class BaseOptimizer(ABC):
     column per name in ``adaptable_CP_names``. Other CPs, such as the swarm size
     ``n_s``, are fixed when the optimizer is built. Which adaptable CPs a solver
     actually adapts is set by its config (``"fixed"`` vs ``"adapted"``).
+
+    After ``step(t)``, the fitness values belong to the current positions, and those
+    positions were produced by the current ``adaptable_CPs``.
     """
 
     adaptable_CP_names: tuple[str, ...] = ()

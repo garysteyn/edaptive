@@ -77,6 +77,7 @@ edaptive/
 ├── tests/                    # pytest (`testpaths` set in pyproject.toml); see "Tests"
 │   ├── conftest.py           # forces the Agg matplotlib backend
 │   ├── core/                 # unit tests: adaptable-CP mapping, SolverConfig/parse_config
+│   ├── optimizers/           # unit tests: PSO evaluation order, histories, feasibility-gated bests
 │   ├── solvers/              # unit tests: subset / reordered "adapted" spaces, construction, timings
 │   ├── utils/                # unit tests: @timed, core_time
 │   ├── tuning/               # unit tests of IFRace pieces; mpirun -n 2 vs serial reference
@@ -115,6 +116,8 @@ Three roles, connected by keyword-argument dictionaries:
 - Columns are addressed **by name**: `column_indices(names)` (raises `ValueError` for unknown names) and
   `set_adaptable_CPs(names, values)`, which writes only the named columns into a fresh copy of the array. Solvers use
   this, so an `"adapted"` space may be any subset of the adaptable CPs, in any order.
+- **Contract:** after `step(t)`, `f_X` is the fitness of `X`, and `X` was produced by the current
+  `adaptable_CPs`.
 - `get_required_data(names)` returns `{name: getattr(self, name)}`. This is how adapters pull state from the optimizer
   generically, so attribute names on optimizers form an implicit interface (`problem_lb`, `problem_ub`, `t`, `X`,
   `f_X`, `adaptable_CPs`, `adaptable_CP_names` for BetaEDA).
@@ -125,11 +128,13 @@ Three roles, connected by keyword-argument dictionaries:
   PSO's own code indexes the columns by position.
 - Notation follows Engelbrecht: `X` positions, `V` velocities, `Y`/`f_Y` personal bests, `Y_hat`/`f_Y_hat`
   global best, `n_s` swarm size, `n_x` dimension, `r_1`, `r_2` uniform coefficients.
-- `iterate()` order: **evaluate X → update pbest/gbest (feasible particles only) → update V → X += V**.
-  So after `step(t)`, `self.f_X` holds the fitness of the *pre-move* positions while `self.X` holds the *post-move* positions.
+- `initialize` evaluates the initial swarm and sets pbest/gbest (`t` is `None` until the first step).
+  `iterate()` order: **update V → X += V → evaluate X → update pbest/gbest (feasible particles only)**
+  (`_update_bests`). The position trajectory and RNG draws are the same as with Engelbrecht's
+  evaluate-first order; only the bookkeeping moves. A run of `T` steps evaluates `(T + 1)·n_s` positions.
 - Boundary handling: none (no clamping). Infeasible particles are evaluated but can't become pbest/gbest.
   Inf/NaN in V and X are replaced with ±`max_float`.
-- History: `f_best` (gbest per iteration), `prop_feasible`, `prop_stable` (Poli stability criterion
+- History: `f_best` (gbest of the initial swarm, then per iteration: `T + 1` entries), `prop_feasible`, `prop_stable` (Poli stability criterion
   `c1 + c2 < 24(1 - w²)/(7 - 5w)`); `velocities` and `diversity` are currently only recorded at init.
   `stable_particle_proportion` raises if any `w ∉ [-1, 1]`.
 - `@timed` on `initialize` and `iterate` (fitness evaluation is part of `iterate`). `update_history` (performance
@@ -186,7 +191,8 @@ Three roles, connected by keyword-argument dictionaries:
   → `initial_adapted_CPs()` (hook; default: `adapter.sample(n_s)` by name, `{}` without an adapter) →
   `_build_optimizer()` (`problem`, `rng`, `**(config.fixed_CPs | initial_adapted_CPs)`). `n_s` is read from
   `config.fixed_CPs["n_s"]`.
-- `run(max_iterations=5000)`: `for t: optimizer.step(t); self.adapt(t)`, then stores `self.timings()` in
+- `run(max_iterations=5000)`: `for t: optimizer.step(t); self.adapt(t)` (so `(max_iterations + 1)·n_s`
+  evaluations including the initial swarm; keep this in mind when matching budgets with calypso), then stores `self.timings()` in
   `history["timings"]` and returns `(min(history["f_best"]), history)`. `adapt(t)` is a no-op hook by default.
 - Solvers exchange data with the optimizer through the timed helpers `_get_required_data()` and
   `_set_adapted_CPs(names, values)`, so this interaction lands in the solver's own timings.
@@ -419,7 +425,7 @@ python experiments/scripts/execute.py --solver StabilityGuidedPSO --identifier s
 
 ### Tests
 `python -m pytest` from the repo root (about 30 s). `tests/characterisation/` pins seeded outputs of the current code
-(not their correctness). `tests/core/`, `tests/solvers/`, `tests/utils/` and `tests/tuning/` hold unit tests (R8b
+(not their correctness). `tests/core/`, `tests/optimizers/`, `tests/solvers/`, `tests/utils/` and `tests/tuning/` hold unit tests (R8b
 grows these). `tests/tuning/test_ifrace_mpi.py` runs both tuning cases under `mpirun -n 2`
 (`tests/tuning/mpi_case.py`) and requires exactly the serial reference. It is skipped without `mpirun`.
 - Every solver (`BasicSolver`, `UniformRandomSolver`, `StabilityGuidedPSO`, `EDASolver`+`BetaEDA` with each
@@ -508,8 +514,6 @@ Suggested order (each step is checked against the R8a reference results):
 10. R7b (done): the code passes `ruff check`.
 
 R8b is not a separate step: add each component's unit tests in the step that touches it.
-Known issue 2 changes EDASolver behaviour, so resolve it before running EDASolver tuning/experiments. Steps 1–6
-don't depend on it.
 
 **R8b Unit tests** (pytest, `tests/` mirroring `src/edaptive/`; R8a, the characterisation tests, is done).
 - [ ] (b) Unit tests: `Parameter`/`ParameterSpace` validation; `parse_config`; `BenchmarkProblem` batching and
@@ -520,10 +524,6 @@ don't depend on it.
 
 ## Known issues / things to verify (found by reading the code, not yet confirmed or fixed)
 
-2. **Possible credit-assignment / timing mismatch in `EDASolver`**: after `PSO.step`, `f_X` is the fitness of the
-   pre-move positions but `X` (used for the feasibility filter) is post-move, and `adaptable_CPs` is the matrix used for the move
-   just made, not the one that produced the positions in `f_X`. With `update_freq=1` and full resampling, the elites
-   selected may not be the CPs responsible for the observed fitness. Confirm the intended semantics with the author.
 3. `BetaEDA.update`: weighted variance is not bias-corrected while the unweighted path uses `ddof=1`, and
    `np.maximum(var, eps)` is applied twice.
 4. `execute.py`: iterates over `tuning_problems` (the `evaluation_problems` list is defined but unused); has a hardcoded

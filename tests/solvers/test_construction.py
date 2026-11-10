@@ -74,7 +74,8 @@ def build(solver_type, optimizer_type, adapter_type, config):
 def test_every_registered_solver_builds_and_runs(solver_type):
     solver = build(solver_type, *CASES[solver_type])
     f_final, history = solver.run(max_iterations=5)
-    assert len(history["f_best"]) == 5
+    # One entry for the initial swarm plus one per iteration.
+    assert len(history["f_best"]) == 5 + 1
     assert f_final == min(history["f_best"])
 
 

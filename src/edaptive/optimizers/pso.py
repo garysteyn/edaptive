@@ -6,6 +6,14 @@ from edaptive.utils.timing import timed
 
 
 class PSO(BaseOptimizer):
+    """Global-best PSO with per-particle CPs.
+
+    The initial positions are evaluated in ``initialize``. Each ``iterate`` then
+    moves the swarm and evaluates the new positions, so after ``step(t)``, ``f_X``
+    is the fitness of ``X`` and ``X`` was produced by the current
+    ``adaptable_CPs``. A run of ``T`` steps evaluates ``(T + 1) * n_s`` positions.
+    """
+
     adaptable_CP_names = ("w", "c_1", "c_2")
 
     @timed
@@ -28,17 +36,23 @@ class PSO(BaseOptimizer):
             self.problem_lb, self.problem_ub, size=[self.n_s, self.n_x]
         )
 
-        self.Y = self.X.copy()
-
-        self.f_X = np.ones(self.n_s) * np.inf
-        self.f_Y = self.f_X.copy()
-
         self.V = np.zeros(shape=[self.n_s, self.n_x])
+
+        self.Y = self.X.copy()
+        self.f_Y = np.full(self.n_s, np.inf)
 
         self.Y_hat = None
         self.f_Y_hat = np.inf
 
+        # No step has been taken yet.
+        self.t = None
+
+        self.f_X = self.problem(self.X)
+        self._update_bests()
+
     def init_history(self):
+        self.history["f_best"].append(self.f_Y_hat)
+
         self.history["velocities"] = []
         self.history["velocities"].append(self.V.copy())
 
@@ -62,13 +76,9 @@ class PSO(BaseOptimizer):
         self.iterate()
         self.update_history()
 
-    @timed
-    def iterate(self):
-
-        # Evaluate all particles
-        self.f_X = self.problem(self.X)
-
-        # Determine which particles are within bounds
+    def _update_bests(self):
+        """Update personal and global bests from ``X``/``f_X``. Only particles
+        inside the problem bounds can become a best."""
         valid = np.all(
             (self.X >= self.problem.lower) & (self.X <= self.problem.upper), axis=1
         )
@@ -88,6 +98,8 @@ class PSO(BaseOptimizer):
                 self.Y_hat = self.X[best_idx].copy()
                 self.f_Y_hat = self.f_X[best_idx]
 
+    @timed
+    def iterate(self):
         # Generate random coefficients
         r_1 = self.rng.uniform(size=(self.n_s, self.n_x))
         r_2 = self.rng.uniform(size=(self.n_s, self.n_x))
@@ -109,6 +121,10 @@ class PSO(BaseOptimizer):
         self.X += self.V
 
         self.X = np.nan_to_num(self.X, posinf=max_float, neginf=-max_float)
+
+        # Evaluate the new positions
+        self.f_X = self.problem(self.X)
+        self._update_bests()
 
     def update_history(self):
         feasible = np.all(
