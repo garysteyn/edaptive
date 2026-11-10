@@ -1,6 +1,7 @@
 import numpy as np
 from scipy.stats import beta, norm
 
+from edaptive.const import max_float
 from edaptive.core.adapter import EDAAdapter
 from edaptive.utils.timing import timed
 
@@ -105,9 +106,9 @@ class BetaEDA(EDAAdapter):
 
         # Lower score is better.
         if self.elite_signal == "improvement":
-            # Fitness may be +-max_float, so the difference may overflow to +-inf.
+            # Fitness may be +-max_float, so keep an overflowing difference finite.
             with np.errstate(over="ignore"):
-                score = f_X - self.f_X_window_start
+                score = np.clip(f_X - self.f_X_window_start, -max_float, max_float)
             self.f_X_window_start = f_X.copy()
         else:
             score = f_X

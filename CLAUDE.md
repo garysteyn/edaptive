@@ -173,7 +173,7 @@ Three roles, connected by keyword-argument dictionaries:
   elites = CPs of the `n_elites` feasible particles with the lowest score. `elite_signal` (invalid values raise
   `ValueError`) sets the score:
   - `"fitness"`: `f_X`;
-  - `"improvement"`: `f_X − f_X_window_start` (absolute difference; overflow to ±inf is allowed). The window
+  - `"improvement"`: `f_X − f_X_window_start` (absolute difference, clipped to ±`max_float`). The window
     is the span in which the current CPs were in use: `start` stores the initial `f_X`, and the baseline is
     reset to the current `f_X` only when elites are returned (the solver resamples only then; a check skipped
     for `< 2` feasible particles extends the window).
