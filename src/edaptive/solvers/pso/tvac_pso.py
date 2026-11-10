@@ -27,9 +27,18 @@ class TVACPSO(BaseSolver):
     Step ``t`` (``t = 0, ..., max_iterations - 1``) uses ``iter = t``, so the first
     step uses the initial values and the last uses ``iter = MAXITR - 1``.
 
-    The paper clamps velocities to ``V_max`` (the dynamic range of each variable);
-    ``PSO`` has no velocity clamping or boundary handling, so neither does this
-    solver. Infeasible particles cannot become personal or global bests.
+    Velocity clamping comes from the config's ``V_max_fraction`` (see ``PSO``).
+    The paper sets ``V_max`` to the upper bound of the search range (Sec. IV-B,
+    Table III), citing Eberhart & Shi (2000). All its benchmark ranges are
+    symmetric, ``[-X_max, X_max]``, so this is half the range width, and
+    ``experiments/configs/tvac_pso.json`` uses ``V_max_fraction = 0.5``. On
+    asymmetric ranges the two differ: the paper keeps the literal upper bound
+    (Table XI), whereas ``V_max_fraction = 0.5`` stays at half the width.
+    Eberhart & Shi describe ``X_max`` as the distance across the search space
+    (the full width) but use the upper bounds of symmetric domains as its values.
+
+    Positions are not bounded; infeasible particles cannot become personal or
+    global bests.
     """
 
     fixed_optimizer_type = PSO

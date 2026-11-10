@@ -1,6 +1,7 @@
-"""PSO: evaluation order, histories and feasibility-gated bests."""
+"""PSO: evaluation order, histories, feasibility-gated bests and velocity clamping."""
 
 import numpy as np
+import pytest
 
 from edaptive.optimizers.pso import PSO
 from edaptive.problems.benchmark_problem import BenchmarkProblem
@@ -20,7 +21,7 @@ class Sum(BenchmarkProblem):
         return np.sum(x, axis=-1)
 
 
-def make_pso(problem=None, n_s=6, w=0.7, c_1=1.5, c_2=1.5, seed=0):
+def make_pso(problem=None, n_s=6, w=0.7, c_1=1.5, c_2=1.5, seed=0, **optional_CPs):
     return PSO(
         problem=problem if problem is not None else Rosenbrock(dimensions=3),
         rng=np.random.default_rng(seed),
@@ -28,6 +29,7 @@ def make_pso(problem=None, n_s=6, w=0.7, c_1=1.5, c_2=1.5, seed=0):
         w=w,
         c_1=c_1,
         c_2=c_2,
+        **optional_CPs,
     )
 
 
@@ -74,3 +76,30 @@ def test_infeasible_particles_never_become_bests():
     np.testing.assert_allclose(pso.Y[1], [0.1, 0.1])
     assert pso.f_Y_hat == min(f_Y_hat_before, pso.f_X[1])
     assert pso.f_Y_hat > pso.f_X[0]
+
+
+def test_velocities_are_clamped_to_V_max():
+    # Large c_1/c_2 make the unclamped velocities exceed V_max.
+    pso = make_pso(w=1.0, c_1=4.0, c_2=4.0, V_max_fraction=0.1)
+    V_max = 0.1 * (pso.problem.upper - pso.problem.lower)
+    clamped = False
+    for t in range(20):
+        pso.step(t)
+        assert np.all(np.abs(pso.V) <= V_max)
+        clamped |= np.any(np.abs(pso.V) == V_max)
+    assert clamped
+
+
+def test_no_V_max_fraction_means_no_clamping():
+    default, explicit = make_pso(), make_pso(V_max_fraction=None)
+    for t in range(10):
+        default.step(t)
+        explicit.step(t)
+    np.testing.assert_array_equal(default.X, explicit.X)
+    np.testing.assert_array_equal(default.V, explicit.V)
+
+
+@pytest.mark.parametrize("V_max_fraction", [0.0, -0.5])
+def test_non_positive_V_max_fraction_raises(V_max_fraction):
+    with pytest.raises(ValueError, match="V_max_fraction"):
+        make_pso(V_max_fraction=V_max_fraction)

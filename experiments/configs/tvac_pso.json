@@ -5,6 +5,11 @@
                 "tuned" : false,
                 "type" : "integer",
                 "value" : 30
+            },
+            "V_max_fraction" : {
+                "tuned" : false,
+                "type" : "continuous",
+                "value" : 0.5
             }
         }
     }

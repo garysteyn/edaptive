@@ -124,16 +124,18 @@ Three roles, connected by keyword-argument dictionaries:
   `f_X`, `adaptable_CPs`, `adaptable_CP_names` for BetaEDA).
 
 ### PSO (`optimizers/pso.py`)
-- `adaptable_CP_names = ("w", "c_1", "c_2")`. `initialize(problem, rng, n_s, w, c_1, c_2)`: each of `w`, `c_1`,
-  `c_2` may be a scalar or a length-`n_s` array; each is broadcast to `n_s` and stacked into `_adaptable_CPs`.
-  PSO's own code indexes the columns by position.
+- `adaptable_CP_names = ("w", "c_1", "c_2")`. `initialize(problem, rng, n_s, w, c_1, c_2, V_max_fraction=None)`: each of
+  `w`, `c_1`, `c_2` may be a scalar or a length-`n_s` array; each is broadcast to `n_s` and stacked into
+  `_adaptable_CPs`. PSO's own code indexes the columns by position. `V_max_fraction` is a fixed (not adaptable) CP.
 - Notation follows Engelbrecht: `X` positions, `V` velocities, `Y`/`f_Y` personal bests, `Y_hat`/`f_Y_hat`
   global best, `n_s` swarm size, `n_x` dimension, `r_1`, `r_2` uniform coefficients.
 - `initialize` evaluates the initial swarm and sets pbest/gbest (`t` is `None` until the first step).
-  `iterate()` order: **update V → X += V → evaluate X → update pbest/gbest (feasible particles only)**
+  `iterate()` order: **update V → clamp V → X += V → evaluate X → update pbest/gbest (feasible particles only)**
   (`_update_bests`). The position trajectory and RNG draws are the same as with Engelbrecht's
   evaluate-first order; only the bookkeeping moves. A run of `T` steps evaluates `(T + 1)·n_s` positions.
-- Boundary handling: none (no clamping). Infeasible particles are evaluated but can't become pbest/gbest.
+- Velocity clamping: with `V_max_fraction` set (must be > 0), each component of `V` is clipped to `±V_max`,
+  `V_max = V_max_fraction·(upper − lower)` per dimension (computed once in `initialize`); `None` = no clamping.
+  No position boundary handling. Infeasible particles are evaluated but can't become pbest/gbest.
   Inf/NaN in V and X are replaced with ±`max_float`.
 - History: `f_best` (gbest of the initial swarm, then per iteration: `T + 1` entries), `prop_feasible`, `prop_stable` (Poli stability criterion
   `c1 + c2 < 24(1 - w²)/(7 - 5w)`); `velocities` and `diversity` are currently only recorded at init.
@@ -225,7 +227,12 @@ Three roles, connected by keyword-argument dictionaries:
   linearly from `initial_CPs = (0.9, 2.5, 0.5)` to `final_CPs = (0.4, 0.5, 2.5)` (class attributes, the paper's
   values) as `initial + (final - initial)·iter/MAXITR`. Step `t` uses `iter = t` (`MAXITR = max_iterations`, which
   `run` stores before the loop), so step 0 uses the initial values. `scheduled_CPs` is timed. No RNG use beyond the
-  PSO's own. Deviation: the paper clamps velocities to `V_max`; `PSO` has no clamping. Early in a run the CPs lie
+  PSO's own. Clamping comes from the config: `tvac_pso.json` sets
+  `V_max_fraction = 0.5`. The paper sets `V_max` to the upper bound of the search range (§IV-B, Table III; citing
+  Eberhart & Shi 2000). On its symmetric benchmark domains `[−X_max, X_max]` that equals half the width, but on
+  asymmetric ranges it keeps the literal upper bound (Table XI); 0.5 matches only the symmetric case (in the ELA
+  suite, Brown, GeneralizedPaviani, Mishra01 and Ripple25 are asymmetric). Eberhart & Shi describe `X_max` as the
+  distance across the space (full width) but use symmetric-domain upper bounds as its values. Early in a run the CPs lie
   outside Poli's stable region, so `prop_stable` < 1 there.
 
 ### Timing (`utils/timing.py`)
@@ -244,7 +251,8 @@ Three roles, connected by keyword-argument dictionaries:
 
 ### SolverConfig (`core/config.py`)
 Frozen dataclass `SolverConfig(identifier, fixed_CPs, adapted_CP_space, adapter_params)`:
-- `fixed_CPs`: optimizer kwargs fixed for a run (`n_s`; `w`/`c_1`/`c_2` when not adapted). `adapted_CP_space`: a
+- `fixed_CPs`: optimizer kwargs fixed for a run (`n_s`; `w`/`c_1`/`c_2` when not adapted; optional
+  `V_max_fraction`). `adapted_CP_space`: a
   `ParameterSpace` of the CPs the solver adapts (or `None`). `adapter_params`: e.g. `eta`, `rho_min`, `n_elites`,
   `update_freq`, `copula`, `elite_weighting`, `elite_signal`. A CP in both `fixed_CPs` and `adapted_CP_space` raises `ValueError`.
 - Tuned entries hold `None` until `with_values({name: value})` returns a filled copy (names are looked up in
@@ -409,7 +417,7 @@ best configuration on every rank. `L` and `n_min` default to `floor(2 + log2(N_p
 `parse_config` returns `(SolverConfig, tuning_parameter_space)`: tuned entries become `None` placeholders; untuned
 entries take `value`; `optimizer.adapted` becomes `adapted_CP_space` (with or without an `adapter` section).
 `tuning_parameter_space` is `None` when nothing is tuned. Current configs: `basic.json` (static PSO, tunes w/c_1/c_2), `test.json` (BetaEDA-PSO, `elite_signal` `"fitness"`),
-`sg_pso.json`, `tvac_pso.json` (no tuning). `test2.json` is stale (uses `kappa_max` and categorical `n_elites`, which `BetaEDA` doesn't accept).
+`sg_pso.json`, `tvac_pso.json` (no tuning; `tvac_pso.json` sets `V_max_fraction` 0.5). `test2.json` is stale (uses `kappa_max` and categorical `n_elites`, which `BetaEDA` doesn't accept).
 
 ## Running things
 

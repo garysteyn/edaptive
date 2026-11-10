@@ -12,18 +12,29 @@ class PSO(BaseOptimizer):
     moves the swarm and evaluates the new positions, so after ``step(t)``, ``f_X``
     is the fitness of ``X`` and ``X`` was produced by the current
     ``adaptable_CPs``. A run of ``T`` steps evaluates ``(T + 1) * n_s`` positions.
+
+    If ``V_max_fraction`` is given, each velocity component is clamped to
+    ``[-V_max, V_max]`` with ``V_max = V_max_fraction * (upper - lower)`` per
+    dimension; with ``None`` (the default) velocities are not clamped.
     """
 
     adaptable_CP_names = ("w", "c_1", "c_2")
 
     @timed
-    def initialize(self, problem, rng, n_s, w, c_1, c_2):
+    def initialize(self, problem, rng, n_s, w, c_1, c_2, V_max_fraction=None):
         self.rng = rng
 
         self.problem = problem
         self.n_x = problem.dimensions
         self.problem_lb = problem.lower
         self.problem_ub = problem.upper
+
+        if V_max_fraction is None:
+            self.V_max = None
+        else:
+            if V_max_fraction <= 0:
+                raise ValueError(f"V_max_fraction must be > 0, got {V_max_fraction}")
+            self.V_max = V_max_fraction * (self.problem_ub - self.problem_lb)
 
         # Each CP may be a scalar (same for all particles) or a length-n_s array.
         self._adaptable_CPs = np.column_stack(
@@ -116,6 +127,10 @@ class PSO(BaseOptimizer):
         )
 
         self.V = np.nan_to_num(V, posinf=max_float, neginf=-max_float)
+
+        # Velocity clamping
+        if self.V_max is not None:
+            self.V = np.clip(self.V, -self.V_max, self.V_max)
 
         # Update positions
         self.X += self.V
