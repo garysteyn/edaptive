@@ -69,6 +69,15 @@ class EDAAdapter(BaseAdapter):
     fit their model to them in ``update``.
     """
 
+    def start(self, **data):
+        """Record the optimizer's initial state. Does nothing by default.
+
+        ``EDASolver`` calls it once after the optimizer is built, with the optimizer
+        attributes named by ``required_data()`` as keyword arguments, so a model can
+        take the initial population into account.
+        """
+        return None
+
     @abstractmethod
     def sample(self, N):
         """``N`` samples of this adapter's CPs, shape ``(N, n_CPs)``."""

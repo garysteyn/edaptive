@@ -47,6 +47,7 @@ def main():
             "update_freq": 1,
             "copula": None,
             "elite_weighting": "rank",
+            "elite_signal": "fitness",
         },
         fixed_CPs={"n_s": 30},
         adapted_CP_space=ParameterSpace(

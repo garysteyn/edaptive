@@ -49,7 +49,7 @@ def _fixed(name, value, type_):
     return {name: {"tuned": False, "type": type_, "value": value}}
 
 
-def _eda_config(elite_weighting, update_freq=1, copula="None"):
+def _eda_config(elite_weighting, update_freq=1, copula="None", elite_signal="fitness"):
     return {
         "identifier": "char_eda",
         "adapter": (
@@ -59,6 +59,7 @@ def _eda_config(elite_weighting, update_freq=1, copula="None"):
             | _fixed("update_freq", update_freq, "integer")
             | _fixed("copula", copula, "categorical")
             | _fixed("elite_weighting", elite_weighting, "categorical")
+            | _fixed("elite_signal", elite_signal, "categorical")
         ),
         "optimizer": {"fixed": _fixed("n_s", N_S, "integer"), "adapted": _ADAPTED},
     }
@@ -99,6 +100,11 @@ SOLVER_CASES = {
         EDASolver,
         BetaEDA,
         _eda_config("log-rank", copula="gaussian"),
+    ),
+    "eda_log_rank_freq5_improvement": (
+        EDASolver,
+        BetaEDA,
+        _eda_config("log-rank", 5, elite_signal="improvement"),
     ),
 }
 
@@ -195,7 +201,8 @@ _EDA_TUNING_CONFIG = {
         },
     }
     | _fixed("update_freq", 1, "integer")
-    | _fixed("copula", "None", "categorical"),
+    | _fixed("copula", "None", "categorical")
+    | _fixed("elite_signal", "fitness", "categorical"),
     "optimizer": {"fixed": _fixed("n_s", N_S, "integer"), "adapted": _ADAPTED},
 }
 

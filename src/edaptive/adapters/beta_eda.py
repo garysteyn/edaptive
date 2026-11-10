@@ -6,6 +6,20 @@ from edaptive.utils.timing import timed
 
 
 class BetaEDA(EDAAdapter):
+    """Beta marginals (optionally joined by a Gaussian copula) fitted to elite CPs.
+
+    Every ``update_freq`` iterations the CPs of the ``n_elites`` best feasible
+    particles become the elites. ``elite_signal`` sets what "best" means:
+
+    - ``"fitness"``: the lowest current fitness;
+    - ``"improvement"``: the largest fitness decrease since the last update, i.e.
+      over the window in which the current CPs were in use. The window starts
+      at the initial population (``start``) and restarts whenever elites are
+      returned, because the solver resamples the CPs then.
+    """
+
+    elite_signals = ("fitness", "improvement")
+
     def required_data(self):
         return [
             "problem_lb",
@@ -19,8 +33,22 @@ class BetaEDA(EDAAdapter):
 
     @timed
     def initialize(
-        self, eta, rho_min, n_elites, update_freq, copula, elite_weighting, rng
+        self,
+        eta,
+        rho_min,
+        n_elites,
+        update_freq,
+        copula,
+        elite_weighting,
+        elite_signal,
+        rng,
     ):
+        if elite_signal not in self.elite_signals:
+            raise ValueError(
+                f"elite_signal must be one of {self.elite_signals}, "
+                f"got {elite_signal!r}"
+            )
+
         self.rng = rng
 
         self.copula = copula
@@ -38,6 +66,15 @@ class BetaEDA(EDAAdapter):
         self.update_freq = update_freq
 
         self.elite_weighting = elite_weighting
+        self.elite_signal = elite_signal
+
+        # Fitness at the start of the current window ("improvement" only).
+        self.f_X_window_start = None
+
+    @timed
+    def start(self, f_X, **data):
+        if self.elite_signal == "improvement":
+            self.f_X_window_start = f_X.copy()
 
     @timed
     def sample(self, N):
@@ -66,18 +103,23 @@ class BetaEDA(EDAAdapter):
         if np.count_nonzero(feasible) < 2:
             return None
 
-        f_X_feasible = f_X[feasible]
-        X_feasible = X[feasible]
-        adapted_CPs = self.select_own_CPs(adaptable_CPs, adaptable_CP_names)
-        adapted_CPs_feasible = adapted_CPs[feasible]
+        # Lower score is better.
+        if self.elite_signal == "improvement":
+            # Fitness may be +-max_float, so the difference may overflow to +-inf.
+            with np.errstate(over="ignore"):
+                score = f_X - self.f_X_window_start
+            self.f_X_window_start = f_X.copy()
+        else:
+            score = f_X
 
-        elite_CPs = self.get_elite_CPs(f_X_feasible, X_feasible, adapted_CPs_feasible)
+        adapted_CPs = self.select_own_CPs(adaptable_CPs, adaptable_CP_names)
+
+        elite_CPs = self.get_elite_CPs(score[feasible], adapted_CPs[feasible])
         return elite_CPs
 
-    def get_elite_CPs(self, f_X_feasible, X_feasible, adapted_CPs_feasible):
-        return adapted_CPs_feasible[
-            np.argsort(f_X_feasible)[: min(len(X_feasible), self.n_elites)]
-        ]
+    def get_elite_CPs(self, score_feasible, adapted_CPs_feasible):
+        """CPs of the (at most) ``n_elites`` particles with the lowest score."""
+        return adapted_CPs_feasible[np.argsort(score_feasible)[: self.n_elites]]
 
     @timed
     def update(self, elite_CPs):

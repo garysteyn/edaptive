@@ -33,6 +33,7 @@ BETA_EDA_PARAMS = {
     "update_freq": 1,
     "copula": None,
     "elite_weighting": None,
+    "elite_signal": "fitness",
 }
 
 # solver -> (optimizer_type, adapter_type, config) a caller would pass

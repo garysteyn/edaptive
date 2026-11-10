@@ -33,6 +33,7 @@ ADAPTER_PARAMS = {
     "update_freq": 1,
     "copula": None,
     "elite_weighting": "log-rank",
+    "elite_signal": "fitness",
 }
 
 

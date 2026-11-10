@@ -78,6 +78,7 @@ edaptive/
 │   ├── conftest.py           # forces the Agg matplotlib backend
 │   ├── core/                 # unit tests: adaptable-CP mapping, SolverConfig/parse_config
 │   ├── optimizers/           # unit tests: PSO evaluation order, histories, feasibility-gated bests
+│   ├── adapters/             # unit tests: BetaEDA elite selection (fitness/improvement signals)
 │   ├── solvers/              # unit tests: subset / reordered "adapted" spaces, construction, timings
 │   ├── utils/                # unit tests: @timed, core_time
 │   ├── tuning/               # unit tests of IFRace pieces; mpirun -n 2 vs serial reference
@@ -153,7 +154,9 @@ Three roles, connected by keyword-argument dictionaries:
   input for `update` if so, otherwise `None`; `update` (called with that input) changes its state.
   Defaults: `[]`, `check_update(self)` → `None`, `update(self)` no-op; subclasses that update override both with
   the arguments they need.
-- `EDAAdapter` adds abstract `sample(N)`. `EDASolver` after each step:
+- `EDAAdapter` adds abstract `sample(N)` and a `start(**data)` hook (default no-op), which `EDASolver.__init__` calls once
+  after construction with the `required_data()` attributes, so a model can record the initial population.
+  `EDASolver` after each step:
   `data = optimizer.get_required_data(adapter.required_data())` → `elite_CPs = adapter.check_update(**data)` → if
   not `None`: `update(elite_CPs)`, then `sample(n_s)`. `BetaEDA` overrides all of them; `UniformRandomAdapter`
   only `sample`.
@@ -161,13 +164,19 @@ Three roles, connected by keyword-argument dictionaries:
   (e.g. stability-guided PSO) are implemented directly as **solvers** instead.
 
 ### BetaEDA (`adapters/beta_eda.py`)
-`initialize(eta, rho_min, n_elites, update_freq, copula, elite_weighting, rng)`
+`initialize(eta, rho_min, n_elites, update_freq, copula, elite_weighting, elite_signal, rng)`
 - Model: independent **Beta(a_j, b_j) marginals** on CPs scaled to [0,1]; optional **Gaussian copula**
   (`copula == "gaussian"`) with correlation matrix `R`. Any other value (e.g. `None` / `"None"`) means independent marginals.
 - Init: `a = b = 1` (uniform), `R = I`.
 - `check_update`: only every `update_freq` iterations (`(t+1) % update_freq == 0`); filters to particles whose
   `X` is inside problem bounds; needs ≥ 2 feasible; selects its own columns with `select_own_CPs`;
-  elites = CPs of the `n_elites` best `f_X`.
+  elites = CPs of the `n_elites` feasible particles with the lowest score. `elite_signal` (invalid values raise
+  `ValueError`) sets the score:
+  - `"fitness"`: `f_X`;
+  - `"improvement"`: `f_X − f_X_window_start` (absolute difference; overflow to ±inf is allowed). The window
+    is the span in which the current CPs were in use: `start` stores the initial `f_X`, and the baseline is
+    reset to the current `f_X` only when elites are returned (the solver resamples only then; a check skipped
+    for `< 2` feasible particles extends the window).
 - `update`: scale elites to [0,1], clip to [1e-6, 1-1e-6]; weighted mean/variance (weights: `None` = uniform with
   ddof=1 variance, `"rank"` = linear, `"log-rank"` = log(n+1) - log(rank)); method-of-moments concentration
   `kappa = mu(1-mu)/var - 1`, clipped to `[eps, kappa_max]` with `kappa_max = 1/rho_min - 1`
@@ -197,7 +206,8 @@ Three roles, connected by keyword-argument dictionaries:
 - Solvers exchange data with the optimizer through the timed helpers `_get_required_data()` and
   `_set_adapted_CPs(names, values)`, so this interaction lands in the solver's own timings.
 - `BasicSolver`: no overrides; all CPs come from `fixed_CPs` (which must include w, c_1, c_2).
-- `EDASolver.adapt`: `check_update` → if elites: `update`, resample the adapted CPs of **all** `n_s` particles
+- `EDASolver.__init__` then calls `adapter.start(**_get_required_data())` (uses no RNG).
+  `EDASolver.adapt`: `check_update` → if elites: `update`, resample the adapted CPs of **all** `n_s` particles
   (`set_adaptable_CPs`). CPs not in `adapted_CP_space` come from `fixed_CPs` and never change.
 - `UniformRandomSolver.adapt`: resamples the adapted CPs uniformly every iteration.
 - `StabilityGuidedPSO`: class attributes `adapted_CP_names = ("w", "c_1", "c_2")`, `n_adapted_CPs` and
@@ -210,8 +220,8 @@ Three roles, connected by keyword-argument dictionaries:
   process's `process_time`). `BaseOptimizer`, `BaseAdapter` and `BaseSolver` each own a `_timings` dict. Only
   leaf methods are timed, so nothing is counted twice. Each timed call adds about 0.5 µs of clock overhead.
 - `history["timings"]` = `{"optimizer": {...}, "adapter": {...}, "solver": {...}}` (adapter `{}` without one).
-  Timed: optimizer `initialize`/`iterate`; adapter `initialize`/`check_update`/`update`/`sample`
-  (where implemented); solver `_get_required_data`/`_set_adapted_CPs`, plus `sample_adapted_CPs` in
+  Timed: optimizer `initialize`/`iterate`; adapter `initialize`/`check_update`/`update`/`sample`, plus `start`
+  for EDA adapters (where implemented); solver `_get_required_data`/`_set_adapted_CPs`, plus `sample_adapted_CPs` in
   `StabilityGuidedPSO`. Measured cost of the interaction helpers: about 3.5 µs per iteration, roughly 2% of
   core time (`n_s=n_x=30`, BetaEDA).
 - `core_time(timings)` → `{"wall": total, "cpu": total}` over all components.
@@ -223,7 +233,7 @@ Three roles, connected by keyword-argument dictionaries:
 Frozen dataclass `SolverConfig(identifier, fixed_CPs, adapted_CP_space, adapter_params)`:
 - `fixed_CPs`: optimizer kwargs fixed for a run (`n_s`; `w`/`c_1`/`c_2` when not adapted). `adapted_CP_space`: a
   `ParameterSpace` of the CPs the solver adapts (or `None`). `adapter_params`: e.g. `eta`, `rho_min`, `n_elites`,
-  `update_freq`, `copula`, `elite_weighting`. A CP in both `fixed_CPs` and `adapted_CP_space` raises `ValueError`.
+  `update_freq`, `copula`, `elite_weighting`, `elite_signal`. A CP in both `fixed_CPs` and `adapted_CP_space` raises `ValueError`.
 - Tuned entries hold `None` until `with_values({name: value})` returns a filled copy (names are looked up in
   `fixed_CPs` and `adapter_params`; unknown or ambiguous names raise `ValueError`).
 - `to_dict()` / `from_dict()` convert to and from the plain dict stored in `best_configuration.pkl`:
@@ -231,7 +241,7 @@ Frozen dataclass `SolverConfig(identifier, fixed_CPs, adapted_CP_space, adapter_
 {
   "identifier": "name",
   "adapter":   {"eta": 0.01, "rho_min": 0.02, "n_elites": 10, "update_freq": 1,
-                "copula": None, "elite_weighting": "log-rank"},   # omitted when there are no adapter params
+                "copula": None, "elite_weighting": "log-rank", "elite_signal": "fitness"},   # omitted when there are no adapter params
   "optimizer": {
       "fixed":   {"n_s": 30},                 # or w/c_1/c_2 too for BasicSolver
       "adapted": ParameterSpace([...]),       # omitted when nothing is adapted
@@ -373,7 +383,8 @@ best configuration on every rank. `L` and `n_min` default to `floor(2 + log2(N_p
   "adapter": {                                   // omit for adapter-free solvers
     "eta":     {"tuned": true,  "type": "continuous", "lower": 1e-4, "upper": 0.2, "log_scale_tuning": true},
     "n_elites": {"tuned": true, "type": "integer",    "lower": 2,    "upper": 30},
-    "copula":  {"tuned": false, "type": "categorical", "value": "None"}
+    "copula":  {"tuned": false, "type": "categorical", "value": "None"},
+    "elite_signal": {"tuned": false, "type": "categorical", "value": "fitness"}
   },
   "optimizer": {
     "fixed":   {"n_s": {"tuned": false, "type": "integer", "value": 30},
@@ -384,7 +395,7 @@ best configuration on every rank. `L` and `n_min` default to `floor(2 + log2(N_p
 ```
 `parse_config` returns `(SolverConfig, tuning_parameter_space)`: tuned entries become `None` placeholders; untuned
 entries take `value`; `optimizer.adapted` becomes `adapted_CP_space` (with or without an `adapter` section).
-`tuning_parameter_space` is `None` when nothing is tuned. Current configs: `basic.json` (static PSO, tunes w/c_1/c_2), `test.json` (BetaEDA-PSO),
+`tuning_parameter_space` is `None` when nothing is tuned. Current configs: `basic.json` (static PSO, tunes w/c_1/c_2), `test.json` (BetaEDA-PSO, `elite_signal` `"fitness"`),
 `sg_pso.json` (no tuning). `test2.json` is stale (uses `kappa_max` and categorical `n_elites`, which `BetaEDA` doesn't accept).
 
 ## Running things
@@ -425,11 +436,12 @@ python experiments/scripts/execute.py --solver StabilityGuidedPSO --identifier s
 
 ### Tests
 `python -m pytest` from the repo root (about 30 s). `tests/characterisation/` pins seeded outputs of the current code
-(not their correctness). `tests/core/`, `tests/optimizers/`, `tests/solvers/`, `tests/utils/` and `tests/tuning/` hold unit tests (R8b
+(not their correctness). `tests/core/`, `tests/optimizers/`, `tests/adapters/`, `tests/solvers/`, `tests/utils/` and `tests/tuning/` hold unit tests (R8b
 grows these). `tests/tuning/test_ifrace_mpi.py` runs both tuning cases under `mpirun -n 2`
 (`tests/tuning/mpi_case.py`) and requires exactly the serial reference. It is skipped without `mpirun`.
 - Every solver (`BasicSolver`, `UniformRandomSolver`, `StabilityGuidedPSO`, `EDASolver`+`BetaEDA` with each
-  elite weighting, with `update_freq=5`, and with the Gaussian copula) on Rosenbrock and GeneralizedEggCrate
+  elite weighting, with `update_freq=5`, with the Gaussian copula, and with `elite_signal="improvement"`
+  and `update_freq=5`) on Rosenbrock and GeneralizedEggCrate
   (`n_x=5`, `n_s=10`, 100 iterations). Pins the `f_best`/`prop_feasible`/`prop_stable` histories, final `X` and
   `adaptable_CPs`, and BetaEDA's `a`/`b` (and `R`).
 - Same seed reproduces; different seeds differ; no solver touches numpy's global RNG (its state is unchanged,

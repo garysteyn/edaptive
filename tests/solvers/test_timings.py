@@ -18,7 +18,7 @@ EXPECTED_KEYS = {
     },
     EDASolver: {
         "optimizer": {"initialize", "iterate"},
-        "adapter": {"initialize", "check_update", "update", "sample"},
+        "adapter": {"initialize", "start", "check_update", "update", "sample"},
         "solver": {"_get_required_data", "_set_adapted_CPs"},
     },
     UniformRandomSolver: {
