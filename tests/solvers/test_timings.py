@@ -6,6 +6,7 @@ from edaptive.problems.ela_benchmark_suite import Rosenbrock
 from edaptive.solvers.basic_solver import BasicSolver
 from edaptive.solvers.eda_solver import EDASolver
 from edaptive.solvers.pso.sg_pso import StabilityGuidedPSO
+from edaptive.solvers.pso.tvac_pso import TVACPSO
 from edaptive.solvers.uniform_random_solver import UniformRandomSolver
 from edaptive.utils.timing import core_time
 from tests.solvers.test_construction import CASES
@@ -30,6 +31,11 @@ EXPECTED_KEYS = {
         "optimizer": {"initialize", "iterate"},
         "adapter": set(),
         "solver": {"sample_adapted_CPs", "_set_adapted_CPs"},
+    },
+    TVACPSO: {
+        "optimizer": {"initialize", "iterate"},
+        "adapter": set(),
+        "solver": {"scheduled_CPs", "_set_adapted_CPs"},
     },
 }
 

@@ -10,11 +10,18 @@ from edaptive.optimizers.pso import PSO
 from edaptive.solvers.basic_solver import BasicSolver
 from edaptive.solvers.eda_solver import EDASolver
 from edaptive.solvers.pso.sg_pso import StabilityGuidedPSO
+from edaptive.solvers.pso.tvac_pso import TVACPSO
 from edaptive.solvers.uniform_random_solver import UniformRandomSolver
 
 SOLVERS = {
     cls.__name__: cls
-    for cls in (BasicSolver, EDASolver, UniformRandomSolver, StabilityGuidedPSO)
+    for cls in (
+        BasicSolver,
+        EDASolver,
+        UniformRandomSolver,
+        StabilityGuidedPSO,
+        TVACPSO,
+    )
 }
 # Old names still accepted on the command line.
 SOLVERS["stability_guided_PSO"] = StabilityGuidedPSO

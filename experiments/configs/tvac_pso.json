@@ -1,0 +1,11 @@
+{   "identifier": "tvac_pso",
+    "optimizer" : {
+        "fixed" : {
+            "n_s" : {
+                "tuned" : false,
+                "type" : "integer",
+                "value" : 30
+            }
+        }
+    }
+}

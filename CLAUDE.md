@@ -51,7 +51,7 @@ edaptive/
 │   │   ├── uniform_random_solver.py # UniformRandomSolver: optimizer + UniformRandomAdapter
 │   │   └── pso/
 │   │       ├── sg_pso.py     # StabilityGuidedPSO: PSO-specific adaptation implemented as a solver
-│   │       └── tvac_pso.py   # empty placeholder
+│   │       └── tvac_pso.py   # TVACPSO: Ratnaweera et al. (2004) PSO-TVAC (linear w/c_1/c_2 schedules)
 │   ├── problems/
 │   │   ├── benchmark_problem.py   # BenchmarkProblem ABC
 │   │   ├── ela_benchmark_suite.py # ~24 hand-written functions + 4 BBOB wrappers (the tuning/training set)
@@ -201,7 +201,7 @@ Three roles, connected by keyword-argument dictionaries:
 - Type validation via class attributes: `fixed_optimizer_type` / `fixed_adapter_type` (the solver always uses that
   type; callers may pass `None` or the same type) and `uses_adapter`. Mismatches raise `ValueError`:
   `BasicSolver` takes no adapter, `EDASolver` needs one, `UniformRandomSolver` fixes `UniformRandomAdapter`,
-  `StabilityGuidedPSO` fixes `PSO` and takes no adapter.
+  `StabilityGuidedPSO` and `TVACPSO` fix `PSO` and take no adapter.
 - Construction (and RNG consumption) order: **one** `rng = np.random.default_rng(rnd_seed)` shared by adapter,
   solver and optimizer → `_build_adapter()` (`CP_space=config.adapted_CP_space`, `**config.adapter_params`, `rng`)
   → `initial_adapted_CPs()` (hook; default: `adapter.sample(n_s)` by name, `{}` without an adapter) →
@@ -221,6 +221,12 @@ Three roles, connected by keyword-argument dictionaries:
   bounds `adapted_CP_lbs/ubs` = `[0,1]×[0,4]×[0,4]`; overrides `initial_adapted_CPs` and `adapt` to resample them
   uniformly with rejection sampling (`sample_adapted_CPs`, timed) until every particle satisfies Poli's stability
   criterion. `is_stable` unpacks the sampled columns in `adapted_CP_names` order.
+- `TVACPSO` (Ratnaweera, Halgamuge & Watson 2004, PSO-TVAC): all particles share `w`, `c_1`, `c_2`, which move
+  linearly from `initial_CPs = (0.9, 2.5, 0.5)` to `final_CPs = (0.4, 0.5, 2.5)` (class attributes, the paper's
+  values) as `initial + (final - initial)·iter/MAXITR`. Step `t` uses `iter = t` (`MAXITR = max_iterations`, which
+  `run` stores before the loop), so step 0 uses the initial values. `scheduled_CPs` is timed. No RNG use beyond the
+  PSO's own. Deviation: the paper clamps velocities to `V_max`; `PSO` has no clamping. Early in a run the CPs lie
+  outside Poli's stable region, so `prop_stable` < 1 there.
 
 ### Timing (`utils/timing.py`)
 - `@timed` accumulates `self._timings[method] = {"wall": s, "cpu": s}` per call (`perf_counter` and the
@@ -229,7 +235,7 @@ Three roles, connected by keyword-argument dictionaries:
 - `history["timings"]` = `{"optimizer": {...}, "adapter": {...}, "solver": {...}}` (adapter `{}` without one).
   Timed: optimizer `initialize`/`iterate`; adapter `initialize`/`check_update`/`update`/`sample`, plus `start`
   for EDA adapters (where implemented); solver `_get_required_data`/`_set_adapted_CPs`, plus `sample_adapted_CPs` in
-  `StabilityGuidedPSO`. Measured cost of the interaction helpers: about 3.5 µs per iteration, roughly 2% of
+  `StabilityGuidedPSO`, `scheduled_CPs` in `TVACPSO`. Measured cost of the interaction helpers: about 3.5 µs per iteration, roughly 2% of
   core time (`n_s=n_x=30`, BetaEDA).
 - `core_time(timings)` → `{"wall": total, "cpu": total}` over all components.
 - Runs execute in parallel (MPI ranks) and per-run times are summed afterwards, so each process must be
@@ -403,7 +409,7 @@ best configuration on every rank. `L` and `n_min` default to `floor(2 + log2(N_p
 `parse_config` returns `(SolverConfig, tuning_parameter_space)`: tuned entries become `None` placeholders; untuned
 entries take `value`; `optimizer.adapted` becomes `adapted_CP_space` (with or without an `adapter` section).
 `tuning_parameter_space` is `None` when nothing is tuned. Current configs: `basic.json` (static PSO, tunes w/c_1/c_2), `test.json` (BetaEDA-PSO, `elite_signal` `"fitness"`),
-`sg_pso.json` (no tuning). `test2.json` is stale (uses `kappa_max` and categorical `n_elites`, which `BetaEDA` doesn't accept).
+`sg_pso.json`, `tvac_pso.json` (no tuning). `test2.json` is stale (uses `kappa_max` and categorical `n_elites`, which `BetaEDA` doesn't accept).
 
 ## Running things
 
@@ -446,7 +452,7 @@ python experiments/scripts/execute.py --solver StabilityGuidedPSO --identifier s
 (not their correctness). `tests/core/`, `tests/optimizers/`, `tests/adapters/`, `tests/solvers/`, `tests/utils/` and `tests/tuning/` hold unit tests (R8b
 grows these). `tests/tuning/test_ifrace_mpi.py` runs both tuning cases under `mpirun -n 2`
 (`tests/tuning/mpi_case.py`) and requires exactly the serial reference. It is skipped without `mpirun`.
-- Every solver (`BasicSolver`, `UniformRandomSolver`, `StabilityGuidedPSO`, `EDASolver`+`BetaEDA` with each
+- Every solver (`BasicSolver`, `UniformRandomSolver`, `StabilityGuidedPSO`, `TVACPSO`, `EDASolver`+`BetaEDA` with each
   elite weighting, with `update_freq=5`, with the Gaussian copula, and with `elite_signal="improvement"`
   and `update_freq=5`) on Rosenbrock and GeneralizedEggCrate
   (`n_x=5`, `n_s=10`, 100 iterations). Pins the `f_best`/`prop_feasible`/`prop_stable` histories, final `X` and
@@ -550,7 +556,7 @@ R8b is not a separate step: add each component's unit tests in the step that tou
    Verify before using CEC problems with PSO.
 6. `create_adapted_parameter_space` ignores integer/categorical specifics; `UniformRandomAdapter`/`BetaEDA` assume continuous CPs.
 8. PSO history keys `velocities`/`diversity` are only populated at initialisation.
-9. Empty placeholders: `solvers/pso/tvac_pso.py`, `problems/misc_problems.py`.
+9. Empty placeholder: `problems/misc_problems.py`.
 10. Git: branches `main` and `elitist-ifrace` (also on origin).
 13. `BBOB_FID17_IID2` is defined twice, as two separate classes: in `ela_benchmark_suite.py` (tuning set) and in
     `custom_test_set.py` (evaluation set). They compute the same function, but result pickles and calypso paths

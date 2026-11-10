@@ -24,6 +24,7 @@ from edaptive.problems.ela_benchmark_suite import (
 from edaptive.solvers.basic_solver import BasicSolver
 from edaptive.solvers.eda_solver import EDASolver
 from edaptive.solvers.pso.sg_pso import StabilityGuidedPSO
+from edaptive.solvers.pso.tvac_pso import TVACPSO
 from edaptive.solvers.uniform_random_solver import UniformRandomSolver
 from edaptive.tuning.ifrace import IFRace
 from edaptive.utils.experiment_utils import parse_config
@@ -87,11 +88,17 @@ _SG_PSO_CONFIG = {
     "optimizer": {"fixed": _fixed("n_s", N_S, "integer")},
 }
 
+_TVAC_PSO_CONFIG = {
+    "identifier": "char_tvac_pso",
+    "optimizer": {"fixed": _fixed("n_s", N_S, "integer")},
+}
+
 # name -> (solver_type, adapter_type, JSON-style config)
 SOLVER_CASES = {
     "basic": (BasicSolver, None, _BASIC_CONFIG),
     "uniform_random": (UniformRandomSolver, None, _UNIFORM_RANDOM_CONFIG),
     "sg_pso": (StabilityGuidedPSO, None, _SG_PSO_CONFIG),
+    "tvac_pso": (TVACPSO, None, _TVAC_PSO_CONFIG),
     "eda_uniform_weights": (EDASolver, BetaEDA, _eda_config("None")),
     "eda_rank": (EDASolver, BetaEDA, _eda_config("rank")),
     "eda_log_rank": (EDASolver, BetaEDA, _eda_config("log-rank")),
