@@ -167,7 +167,7 @@ Three roles, connected by keyword-argument dictionaries:
 `initialize(eta, rho_min, n_elites, update_freq, copula, elite_weighting, elite_signal, rng)`
 - Model: independent **Beta(a_j, b_j) marginals** on CPs scaled to [0,1]; optional **Gaussian copula**
   (`copula == "gaussian"`) with correlation matrix `R`. Any other value (e.g. `None` / `"None"`) means independent marginals.
-- Init: `a = b = 1` (uniform), `R = I`.
+- Init: `a = b = 1` (uniform), `R = I`. `n_elites < 2` raises `ValueError`.
 - `check_update`: only every `update_freq` iterations (`(t+1) % update_freq == 0`); filters to particles whose
   `X` is inside problem bounds; needs ≥ 2 feasible; selects its own columns with `select_own_CPs`;
   elites = CPs of the `n_elites` feasible particles with the lowest score. `elite_signal` (invalid values raise
@@ -177,9 +177,10 @@ Three roles, connected by keyword-argument dictionaries:
     is the span in which the current CPs were in use: `start` stores the initial `f_X`, and the baseline is
     reset to the current `f_X` only when elites are returned (the solver resamples only then; a check skipped
     for `< 2` feasible particles extends the window).
-- `update`: scale elites to [0,1], clip to [1e-6, 1-1e-6]; weighted mean/variance (weights: `None` = uniform with
-  ddof=1 variance, `"rank"` = linear, `"log-rank"` = log(n+1) - log(rank)); method-of-moments concentration
-  `kappa = mu(1-mu)/var - 1`, clipped to `[eps, kappa_max]` with `kappa_max = 1/rho_min - 1`
+- `update`: scale elites to [0,1], clip to [1e-6, 1-1e-6]; weighted mean/variance as plain weighted moments of the
+  elite set (no Bessel correction, since elites are selected rather than sampled; variance floored at `eps`). Weights
+  sum to 1: `"rank"` = linear, `"log-rank"` = log(n+1) - log(rank), anything else (`None`/`"None"`) = uniform 1/n.
+  Method-of-moments concentration `kappa = mu(1-mu)/var - 1`, clipped to `[eps, kappa_max]` with `kappa_max = 1/rho_min - 1`
   (`rho = 1/(kappa+1) = var/(mu(1-mu))` is the normalised variance, so `rho_min` is a floor on it).
   Then `a, b ← (1-eta)·old + eta·(mu·kappa, (1-mu)·kappa)` (exponential smoothing with learning rate `eta`).
   Copula: transform elites through the *updated* beta CDFs → `norm.ppf` → `corrcoef` → EMA into `R` with the same `eta`.
@@ -536,8 +537,6 @@ R8b is not a separate step: add each component's unit tests in the step that tou
 
 ## Known issues / things to verify (found by reading the code, not yet confirmed or fixed)
 
-3. `BetaEDA.update`: weighted variance is not bias-corrected while the unweighted path uses `ddof=1`, and
-   `np.maximum(var, eps)` is applied twice.
 4. `execute.py`: iterates over `tuning_problems` (the `evaluation_problems` list is defined but unused); has a hardcoded
    debug print `results["CosineMixture_OG"][k] for k in range(0, 50)` (fails if `n_trials < 50`); `config` is undefined
    when there's neither a tuned pkl nor `--config`.

@@ -50,6 +50,9 @@ class BetaEDA(EDAAdapter):
                 f"got {elite_signal!r}"
             )
 
+        if int(n_elites) < 2:
+            raise ValueError(f"n_elites must be at least 2, got {n_elites}")
+
         self.rng = rng
 
         self.copula = copula
@@ -133,15 +136,12 @@ class BetaEDA(EDAAdapter):
 
         weights = self.compute_weights(scaled_CPs)
 
+        # Plain weighted moments of the elite set (no Bessel correction): the elites
+        # are selected by performance, not sampled at random, so the model is fitted
+        # to the elite set itself.
         mu = np.average(scaled_CPs, axis=0, weights=weights)
-
-        if weights is None:
-            var = np.var(scaled_CPs, axis=0, ddof=1)
-        else:
-            diff = scaled_CPs - mu
-            var = np.sum(weights[:, None] * diff**2, axis=0)
-            var = np.maximum(var, eps)
-        var = np.maximum(var, eps)
+        diff = scaled_CPs - mu
+        var = np.maximum(np.sum(weights[:, None] * diff**2, axis=0), eps)
 
         kappa = mu * (1 - mu) / var - 1
         kappa = np.clip(kappa, eps, self.kappa_max)
@@ -165,18 +165,17 @@ class BetaEDA(EDAAdapter):
             self.R = (1 - self.eta) * self.R + self.eta * R_new
 
     def compute_weights(self, scaled_CPs):
-        weights = None
+        """Weights of the elites (best first), summing to 1. Uniform unless
+        ``elite_weighting`` is ``"rank"`` or ``"log-rank"``."""
+        n = len(scaled_CPs)
+        weights = np.full(n, 1 / n)
 
         if self.elite_weighting == "rank":
-            n = len(scaled_CPs)
-
             weights = np.arange(n, 0, -1, dtype=float)
 
             weights /= weights.sum()
 
         elif self.elite_weighting == "log-rank":
-            n = len(scaled_CPs)
-
             # ranks = 1, 2, ..., n
             ranks = np.arange(1, n + 1)
 

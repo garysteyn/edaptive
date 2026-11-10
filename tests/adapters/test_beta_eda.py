@@ -1,4 +1,4 @@
-"""BetaEDA elite selection: fitness vs improvement signals and update windows."""
+"""BetaEDA: elite selection (fitness/improvement signals, windows) and model fit."""
 
 import numpy as np
 import pytest
@@ -10,7 +10,14 @@ CP_NAMES = ("w", "c_1", "c_2")
 N_S = 5
 
 
-def make_adapter(elite_signal="fitness", n_elites=2, update_freq=1):
+def make_adapter(
+    elite_signal="fitness",
+    n_elites=2,
+    update_freq=1,
+    elite_weighting=None,
+    eta=0.1,
+    rho_min=0.02,
+):
     space = ParameterSpace(
         [
             Parameter(name=name, type=ParameterType.CONTINUOUS, lower=0.0, upper=4.0)
@@ -19,12 +26,12 @@ def make_adapter(elite_signal="fitness", n_elites=2, update_freq=1):
     )
     return BetaEDA(
         CP_space=space,
-        eta=0.1,
-        rho_min=0.02,
+        eta=eta,
+        rho_min=rho_min,
         n_elites=n_elites,
         update_freq=update_freq,
         copula=None,
-        elite_weighting=None,
+        elite_weighting=elite_weighting,
         elite_signal=elite_signal,
         rng=np.random.default_rng(0),
     )
@@ -93,3 +100,57 @@ def test_infeasible_particles_are_never_elites():
 def test_invalid_elite_signal_raises():
     with pytest.raises(ValueError, match="elite_signal"):
         make_adapter("pbest")
+
+
+def moment_fit(scaled, weights):
+    """Method-of-moments Beta parameters from plain weighted moments."""
+    mu = np.average(scaled, axis=0, weights=weights)
+    var = np.sum(weights[:, None] * (scaled - mu) ** 2, axis=0)
+    kappa = mu * (1 - mu) / var - 1
+    return mu * kappa, (1 - mu) * kappa
+
+
+# Elite CPs on [0, 4]^3, best first; scaled to [0, 1] they are ELITES / 4.
+ELITES = np.array([[1.0, 2.0, 0.4], [1.4, 2.4, 1.0], [2.0, 1.6, 0.8], [1.2, 2.2, 2.0]])
+
+
+@pytest.mark.parametrize(
+    ("elite_weighting", "weights"),
+    [
+        (None, np.full(4, 1 / 4)),
+        ("None", np.full(4, 1 / 4)),
+        ("rank", np.array([4.0, 3.0, 2.0, 1.0]) / 10),
+    ],
+)
+def test_update_fits_plain_weighted_moments(elite_weighting, weights):
+    # eta=1 replaces the model by the new fit; a tiny rho_min keeps kappa unclipped.
+    adapter = make_adapter(
+        n_elites=4, elite_weighting=elite_weighting, eta=1.0, rho_min=1e-9
+    )
+    adapter.update(ELITES)
+
+    a, b = moment_fit(ELITES / 4, weights)
+    np.testing.assert_allclose(adapter.a, a)
+    np.testing.assert_allclose(adapter.b, b)
+
+
+def test_uniform_weighting_uses_ddof_0_variance():
+    adapter = make_adapter(n_elites=4, eta=1.0, rho_min=1e-9)
+    adapter.update(ELITES)
+
+    scaled = ELITES / 4
+    mu, var = scaled.mean(axis=0), scaled.var(axis=0, ddof=0)
+    np.testing.assert_allclose(adapter.a + adapter.b, mu * (1 - mu) / var - 1)
+
+
+def test_identical_elites_give_the_tightest_finite_fit():
+    adapter = make_adapter(n_elites=3, eta=1.0, rho_min=0.02)
+    adapter.update(np.full((3, 3), 2.0))
+
+    assert np.all(np.isfinite(adapter.a)) and np.all(np.isfinite(adapter.b))
+    np.testing.assert_allclose(adapter.a + adapter.b, adapter.kappa_max)
+
+
+def test_fewer_than_two_elites_raises():
+    with pytest.raises(ValueError, match="n_elites"):
+        make_adapter(n_elites=1)
