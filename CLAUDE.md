@@ -334,7 +334,8 @@ best configuration on every rank. `L` and `n_min` default to `floor(2 + log2(N_p
   `candidate_trajectory.png`, `best_configuration.pkl` (`SolverConfig.to_dict()` of the best configuration) and
   `tuning_times.json`.
 
-**Fidelity to the paper.** Checked against §3.2–3.4 and Appendix A.
+**Fidelity to the paper.** Checked against §3.2–3.4 and Appendix A. The deliberate deviations and unsupported features are also summarised in
+`src/edaptive/tuning/README.md`; keep the two in sync.
 - These match the paper:
   - `N_iter`, `B_j` and eq. 5, including `nm`;
   - `N_new = N_j − N_elite`, and stopping when `N_j ≤ N_elite`;
