@@ -17,6 +17,7 @@ def make_adapter(
     elite_weighting=None,
     eta=0.1,
     rho_min=0.02,
+    copula=None,
 ):
     space = ParameterSpace(
         [
@@ -30,7 +31,7 @@ def make_adapter(
         rho_min=rho_min,
         n_elites=n_elites,
         update_freq=update_freq,
-        copula=None,
+        copula=copula,
         elite_weighting=elite_weighting,
         elite_signal=elite_signal,
         rng=np.random.default_rng(0),
@@ -148,9 +149,29 @@ def test_identical_elites_give_the_tightest_finite_fit():
     adapter.update(np.full((3, 3), 2.0))
 
     assert np.all(np.isfinite(adapter.a)) and np.all(np.isfinite(adapter.b))
-    np.testing.assert_allclose(adapter.a + adapter.b, adapter.kappa_max)
+    np.testing.assert_allclose(adapter.a + adapter.b, 1 / 0.02 - 1)
+
+
+@pytest.mark.parametrize("rho_min", [0.0, -0.1, BetaEDA.RHO_MAX, 1.0])
+def test_rho_min_outside_open_unit_interval_raises(rho_min):
+    with pytest.raises(ValueError, match="rho_min"):
+        make_adapter(rho_min=rho_min)
 
 
 def test_fewer_than_two_elites_raises():
     with pytest.raises(ValueError, match="n_elites"):
         make_adapter(n_elites=1)
+
+
+def test_copula_keeps_R_when_elites_agree_on_a_CP():
+    adapter = make_adapter(n_elites=4, copula="gaussian")
+    a_before, b_before = adapter.a.copy(), adapter.b.copy()
+
+    elites = ELITES.copy()
+    elites[:, 0] = 0.0  # all elites at the lower bound of the first CP
+    adapter.update(elites)
+
+    np.testing.assert_array_equal(adapter.R, np.eye(3))
+    assert not np.array_equal(adapter.a, a_before)
+    assert not np.array_equal(adapter.b, b_before)
+    assert np.all(np.isfinite(adapter.sample(10)))

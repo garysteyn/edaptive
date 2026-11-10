@@ -167,7 +167,10 @@ Three roles, connected by keyword-argument dictionaries:
 `initialize(eta, rho_min, n_elites, update_freq, copula, elite_weighting, elite_signal, rng)`
 - Model: independent **Beta(a_j, b_j) marginals** on CPs scaled to [0,1]; optional **Gaussian copula**
   (`copula == "gaussian"`) with correlation matrix `R`. Any other value (e.g. `None` / `"None"`) means independent marginals.
-- Init: `a = b = 1` (uniform), `R = I`. `n_elites < 2` raises `ValueError`.
+- Init: `a = b = 1` (uniform), `R = I`. `n_elites < 2` and `rho_min ∉ (0, RHO_MAX)` raise `ValueError`.
+- Numerical safeguards are class constants, not hyperparameters: `UNIT_MARGIN = 1e-6` (scaled elites kept in
+  `[m, 1-m]`), `RHO_MAX = 1 - 1e-8` (keeps `kappa > 0`), `CHOLESKY_JITTER = 1e-10`, `COPULA_MARGIN = 1e-12`
+  (copula uniforms kept in `[m, 1-m]` so `norm.ppf` is finite).
 - `check_update`: only every `update_freq` iterations (`(t+1) % update_freq == 0`); filters to particles whose
   `X` is inside problem bounds; needs ≥ 2 feasible; selects its own columns with `select_own_CPs`;
   elites = CPs of the `n_elites` feasible particles with the lowest score. `elite_signal` (invalid values raise
@@ -177,14 +180,17 @@ Three roles, connected by keyword-argument dictionaries:
     is the span in which the current CPs were in use: `start` stores the initial `f_X`, and the baseline is
     reset to the current `f_X` only when elites are returned (the solver resamples only then; a check skipped
     for `< 2` feasible particles extends the window).
-- `update`: scale elites to [0,1], clip to [1e-6, 1-1e-6]; weighted mean/variance as plain weighted moments of the
-  elite set (no Bessel correction, since elites are selected rather than sampled; variance floored at `eps`). Weights
+- `update`: scale elites to [0,1], clip to `[UNIT_MARGIN, 1-UNIT_MARGIN]`; weighted mean/variance as plain weighted
+  moments of the elite set (no Bessel correction, since elites are selected rather than sampled). Weights
   sum to 1: `"rank"` = linear, `"log-rank"` = log(n+1) - log(rank), anything else (`None`/`"None"`) = uniform 1/n.
-  Method-of-moments concentration `kappa = mu(1-mu)/var - 1`, clipped to `[eps, kappa_max]` with `kappa_max = 1/rho_min - 1`
-  (`rho = 1/(kappa+1) = var/(mu(1-mu))` is the normalised variance, so `rho_min` is a floor on it).
+  Method of moments through the normalised variance `rho = var/(mu(1-mu)) = 1/(kappa+1)`, clipped to
+  `[rho_min, RHO_MAX]`, then `kappa = 1/rho - 1` (so `kappa ≤ 1/rho_min - 1`; identical elites, `var = 0`, give
+  `rho = rho_min`).
   Then `a, b ← (1-eta)·old + eta·(mu·kappa, (1-mu)·kappa)` (exponential smoothing with learning rate `eta`).
   Copula: transform elites through the *updated* beta CDFs → `norm.ppf` → `corrcoef` → EMA into `R` with the same `eta`.
-- `sample(N)`: copula path = Cholesky of `R + 1e-10·I`, correlated normals (`self.rng.standard_normal`) →
+  `R` is left unchanged when a column of `Z` is constant (all elites agree on a CP; the correlation is undefined).
+- `sample(N)`: copula path = Cholesky of `R + CHOLESKY_JITTER·I` (the jitter matrix is built once in `initialize`),
+  correlated normals (`self.rng.standard_normal`) →
   `norm.cdf` → `beta.ppf`; otherwise `beta.rvs(..., random_state=self.rng)`. Output is rescaled to `[CP_lbs, CP_ubs]`.
 - Older separate classes (`BetaMarginalsEDA`, rank/log-rank variants, `BetaMarginalsGaussianCopulaEDA`) remain
   commented out at the bottom of the file; `BetaEDA` replaces them.

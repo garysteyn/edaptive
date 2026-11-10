@@ -21,6 +21,19 @@ class BetaEDA(EDAAdapter):
 
     elite_signals = ("fitness", "improvement")
 
+    # Numerical safeguards (not hyperparameters).
+    # Scaled elites are kept in [UNIT_MARGIN, 1 - UNIT_MARGIN], away from the
+    # boundaries of beta.cdf/ppf, so that mu * (1 - mu) > 0.
+    UNIT_MARGIN = 1e-6
+    # Upper clip on the normalised variance rho, so kappa = 1/rho - 1 > 0 and the
+    # Beta parameters stay positive.
+    RHO_MAX = 1 - 1e-8
+    # Diagonal jitter that keeps R + jitter * I positive definite for Cholesky.
+    CHOLESKY_JITTER = 1e-10
+    # Copula uniforms are kept in [COPULA_MARGIN, 1 - COPULA_MARGIN] so that
+    # norm.ppf stays finite.
+    COPULA_MARGIN = 1e-12
+
     def required_data(self):
         return [
             "problem_lb",
@@ -50,6 +63,9 @@ class BetaEDA(EDAAdapter):
                 f"got {elite_signal!r}"
             )
 
+        if not 0 < rho_min < self.RHO_MAX:
+            raise ValueError(f"rho_min must lie in (0, {self.RHO_MAX}), got {rho_min}")
+
         if int(n_elites) < 2:
             raise ValueError(f"n_elites must be at least 2, got {n_elites}")
 
@@ -62,10 +78,10 @@ class BetaEDA(EDAAdapter):
 
         if copula == "gaussian":
             self.R = np.eye(N=self.n_CPs)
+            self.cholesky_jitter = self.CHOLESKY_JITTER * np.eye(self.n_CPs)
 
         self.eta = eta
         self.rho_min = rho_min
-        self.kappa_max = (1 / rho_min) - 1
         self.n_elites = int(n_elites)
         self.update_freq = update_freq
 
@@ -83,10 +99,8 @@ class BetaEDA(EDAAdapter):
     @timed
     def sample(self, N):
         if self.copula == "gaussian":
-            chol_eps = 1e-10  # used to ensure matrix is positive definite
-            d = len(self.a)
-            L = np.linalg.cholesky(self.R + chol_eps * np.eye(d))
-            Z = self.rng.standard_normal(size=(N, d)) @ L.T
+            L = np.linalg.cholesky(self.R + self.cholesky_jitter)
+            Z = self.rng.standard_normal(size=(N, self.n_CPs)) @ L.T
             U = norm.cdf(Z)
             samples = beta.ppf(U, self.a, self.b)
         else:
@@ -128,12 +142,9 @@ class BetaEDA(EDAAdapter):
     @timed
     def update(self, elite_CPs):
         scaled_CPs = (elite_CPs - self.CP_lbs) / (self.CP_ubs - self.CP_lbs)
-        eps = 1e-6
-        scaled_CPs = np.clip(scaled_CPs, eps, 1 - eps)
+        scaled_CPs = np.clip(scaled_CPs, self.UNIT_MARGIN, 1 - self.UNIT_MARGIN)
 
         # Step 1 (Fit marginals):
-        eps = 1e-8  # numerical stability
-
         weights = self.compute_weights(scaled_CPs)
 
         # Plain weighted moments of the elite set (no Bessel correction): the elites
@@ -141,10 +152,13 @@ class BetaEDA(EDAAdapter):
         # to the elite set itself.
         mu = np.average(scaled_CPs, axis=0, weights=weights)
         diff = scaled_CPs - mu
-        var = np.maximum(np.sum(weights[:, None] * diff**2, axis=0), eps)
+        var = np.sum(weights[:, None] * diff**2, axis=0)
 
-        kappa = mu * (1 - mu) / var - 1
-        kappa = np.clip(kappa, eps, self.kappa_max)
+        # Method of moments through the normalised variance rho = var / (mu(1-mu))
+        # = 1 / (kappa + 1). rho_min is a floor on it (so kappa <= 1/rho_min - 1),
+        # which also covers var = 0 for identical elites.
+        rho = np.clip(var / (mu * (1 - mu)), self.rho_min, self.RHO_MAX)
+        kappa = 1 / rho - 1
 
         a_new = mu * kappa
         b_new = (1 - mu) * kappa
@@ -155,14 +169,15 @@ class BetaEDA(EDAAdapter):
         if self.copula == "gaussian":
             U = beta.cdf(scaled_CPs, self.a, self.b)
 
-            # Numerical safety
-            U = np.clip(U, 1e-12, 1 - 1e-12)
+            U = np.clip(U, self.COPULA_MARGIN, 1 - self.COPULA_MARGIN)
 
             Z = norm.ppf(U)  # Z is approximately multivariate normal
 
-            # Estimate Gaussian copula
-            R_new = np.corrcoef(Z.T)
-            self.R = (1 - self.eta) * self.R + self.eta * R_new
+            # Estimate Gaussian copula. A CP on which all elites agree has no
+            # defined correlation, so R is then left unchanged.
+            if np.all(np.ptp(Z, axis=0) > 0):
+                R_new = np.corrcoef(Z.T)
+                self.R = (1 - self.eta) * self.R + self.eta * R_new
 
     def compute_weights(self, scaled_CPs):
         """Weights of the elites (best first), summing to 1. Uniform unless
