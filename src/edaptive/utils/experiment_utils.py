@@ -1,5 +1,5 @@
 from edaptive.core.config import SolverConfig
-from edaptive.core.parameters import Parameter, ParameterSpace, ParameterType
+from edaptive.core.parameters import Parameter, ParameterSpace
 
 
 def create_adapted_parameter_space(config: dict) -> ParameterSpace:
@@ -9,14 +9,7 @@ def create_adapted_parameter_space(config: dict) -> ParameterSpace:
     parameter_configs = config["optimizer"]["adapted"]
 
     for name, parameter_config in parameter_configs.items():
-        parameters.append(
-            Parameter(
-                name=name,
-                lower=parameter_config["lower"],
-                upper=parameter_config["upper"],
-                type=ParameterType(parameter_config["type"]),
-            )
-        )
+        parameters.append(Parameter.from_config(name, parameter_config))
 
     return ParameterSpace(parameters)
 

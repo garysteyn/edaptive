@@ -1,0 +1,51 @@
+{   "identifier" : "r_umda",
+    "adapter" : {
+        "n_values" : {
+            "tuned" : false,
+            "type" : "integer",
+            "value" : 10
+        },
+        "mu" : {
+            "tuned" : true,
+            "type" : "integer",
+            "lower" : 1,
+            "upper" : 30
+        },
+        "update_freq" : {
+            "tuned" : false,
+            "type" : "integer",
+            "value" : 1
+        },
+        "elite_signal" : {
+            "tuned" : false,
+            "type" : "categorical",
+            "value" : "fitness"
+        }
+    },
+    "optimizer" : {
+        "fixed" : {
+            "n_s" : {
+                "tuned" : false,
+                "type" : "integer",
+                "value" : 30
+            }
+        },
+        "adapted" : {
+            "w" : {
+                "type" : "continuous",
+                "lower" : 0,
+                "upper" : 1
+            },
+            "c_1" : {
+                "type" : "continuous",
+                "lower" : 0,
+                "upper" : 4
+            },
+            "c_2" : {
+                "type" : "continuous",
+                "lower" : 0,
+                "upper" : 4
+            }
+        }
+    }
+}

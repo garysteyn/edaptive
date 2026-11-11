@@ -42,6 +42,8 @@ edaptive/
 │   │   └── parameters.py     # ParameterType, Parameter, ParameterSpace
 │   ├── adapters/             # generic (optimizer-agnostic) adapters
 │   │   ├── beta_eda.py       # BetaEDA (beta marginals, optional Gaussian copula) + commented-out legacy variants
+│   │   ├── multi_valued_eda.py # MultiValuedEDA: shared model of the r-valued EDAs (grid, frequencies, borders)
+│   │   ├── r_umda.py         # RUMDA (Ben Jedidia, Doerr & Krejca 2023, Alg. 2)
 │   │   └── uniform_random.py # UniformRandomAdapter (EDAAdapter; uniform resampling baseline)
 │   ├── optimizers/
 │   │   └── pso.py            # PSO (gbest, per-particle CPs), swarm_diversity, stable_particle_proportion
@@ -73,12 +75,13 @@ edaptive/
 │   └── scripts/
 │       ├── tune.py           # run I/F-race for a solver/optimizer/adapter + config
 │       └── execute.py        # run final experiments (uses tuned config if present), MPI-parallel
-├── scratch/                  # ad-hoc driver scripts (kept in git, excluded from ruff, not tests)
+├── scratch/                  # ad-hoc driver scripts (kept in git, excluded from ruff, not tests);
+│                             # r_eda_demo.py runs PSO + a multi-valued EDA and plots its frequencies
 ├── tests/                    # pytest (`testpaths` set in pyproject.toml); see "Tests"
 │   ├── conftest.py           # forces the Agg matplotlib backend
 │   ├── core/                 # unit tests: adaptable-CP mapping, SolverConfig/parse_config
 │   ├── optimizers/           # unit tests: PSO evaluation order, histories, feasibility-gated bests
-│   ├── adapters/             # unit tests: BetaEDA elite selection (fitness/improvement signals)
+│   ├── adapters/             # unit tests: BetaEDA elite selection; multi-valued EDA model and updates
 │   ├── solvers/              # unit tests: subset / reordered "adapted" spaces, construction, timings
 │   ├── utils/                # unit tests: @timed, core_time
 │   ├── tuning/               # unit tests of IFRace pieces; mpirun -n 2 vs serial reference
@@ -196,6 +199,31 @@ Three roles, connected by keyword-argument dictionaries:
   `norm.cdf` → `beta.ppf`; otherwise `beta.rvs(..., random_state=self.rng)`. Output is rescaled to `[CP_lbs, CP_ubs]`.
 - Older separate classes (`BetaMarginalsEDA`, rank/log-rank variants, `BetaMarginalsGaussianCopulaEDA`) remain
   commented out at the bottom of the file; `BetaEDA` replaces them.
+
+### Multi-valued EDAs (`adapters/multi_valued_eda.py`, `r_umda.py`)
+Ben Jedidia, Doerr & Krejca (GECCO '23), "Estimation-of-Distribution Algorithms for Multi-Valued Decision
+Variables" (a local copy may be at `../papers/eda_multivalued_decision_variables.pdf`). Implemented faithfully to
+the paper; the only additions are the selection options shared with `BetaEDA`.
+- `MultiValuedEDA(EDAAdapter)` (abstract): each adapted CP is one r-valued variable (`n = n_CPs`, `r = n_values`,
+  common to all CPs, as in the paper). `values` `(n, r)`, by CP type: continuous = `np.linspace(lower, upper, r)`
+  (bounds included); integer = every integer in `[lower, upper]`; categorical = its `classes`, in order. Integer and
+  categorical CPs must have exactly `n_values` values (else `ValueError`). `values` is a float array, or an object
+  array if a class is non-numeric (PSO's float `adaptable_CPs` accept only numeric classes, e.g. `w ∈ {0.4, 0.7298}`).
+  Frequency matrix `p` `(n, r)` starts at `1/r`. After every update `p` is restricted with eq. (1) (`restrict`) to the
+  paper's borders `lower_border = 1/((r−1)n)`, `upper_border = 1 − 1/n`; there is no border hyperparameter.
+  `initialize_model(n_values, update_freq, elite_signal, rng)` raises for `r < 2`, `n < 2` (borders empty) and
+  `n = r = 2` (borders collapse to 1/2).
+- `sample(N)`: inverse CDF per CP on `rng.random((N, n))`, returns CP values. `encode(CPs)` maps CP values back to
+  value indices (nearest value for continuous/integer CPs; the equal class for categorical ones, `ValueError` if none),
+  so nothing about past samples is stored.
+- `check_update`: as in `BetaEDA` (every `update_freq` iterations; feasible particles only; `elite_signal`
+  `"fitness"`/`"improvement"` with the same window rule), then needs `min_feasible` feasible particles and returns
+  `select(scores, encoded indices)`. `update(selected)` sets `p = restrict(updated_frequencies(selected))`.
+  `best(scores, indices, k)` picks the `k` lowest scores with ties broken uniformly at random
+  (`rng.permutation`, then stable argsort).
+- `RUMDA`: `initialize(n_values, mu, update_freq, elite_signal, rng)`; selects the `mu` best feasible particles
+  (`min_feasible = mu`) and sets `p` to their relative value frequencies (Alg. 2).
+- RNG consumption: one `rng.random((N, n))` per `sample`; one `rng.permutation(n_feasible)` per returned update.
 
 ### Solvers (`core/solver.py: BaseSolver`)
 - Every solver has the same constructor (used by IFRace, execute.py and the tests):
@@ -415,9 +443,11 @@ best configuration on every rank. `L` and `n_min` default to `floor(2 + log2(N_p
 }
 ```
 `parse_config` returns `(SolverConfig, tuning_parameter_space)`: tuned entries become `None` placeholders; untuned
-entries take `value`; `optimizer.adapted` becomes `adapted_CP_space` (with or without an `adapter` section).
+entries take `value`; `optimizer.adapted` becomes `adapted_CP_space` (with or without an `adapter` section; each
+CP via `Parameter.from_config`, so integer and categorical (`classes`) adapted CPs are read).
 `tuning_parameter_space` is `None` when nothing is tuned. Current configs: `basic.json` (static PSO, tunes w/c_1/c_2), `test.json` (BetaEDA-PSO, `elite_signal` `"fitness"`),
-`sg_pso.json`, `tvac_pso.json` (no tuning; `tvac_pso.json` sets `V_max_fraction` 0.5). `test2.json` is stale (uses `kappa_max` and categorical `n_elites`, which `BetaEDA` doesn't accept).
+`sg_pso.json`, `tvac_pso.json` (no tuning; `tvac_pso.json` sets `V_max_fraction` 0.5), `r_umda.json` (RUMDA,
+`n_values` 10, tunes `mu ∈ [1, 30]`). `test2.json` is stale (uses `kappa_max` and categorical `n_elites`, which `BetaEDA` doesn't accept).
 
 ## Running things
 
@@ -462,9 +492,10 @@ grows these). `tests/tuning/test_ifrace_mpi.py` runs both tuning cases under `mp
 (`tests/tuning/mpi_case.py`) and requires exactly the serial reference. It is skipped without `mpirun`.
 - Every solver (`BasicSolver`, `UniformRandomSolver`, `StabilityGuidedPSO`, `TVACPSO`, `EDASolver`+`BetaEDA` with each
   elite weighting, with `update_freq=5`, with the Gaussian copula, and with `elite_signal="improvement"`
-  and `update_freq=5`) on Rosenbrock and GeneralizedEggCrate
+  and `update_freq=5`; `EDASolver`+`RUMDA` (`n_values=5`, `mu=3`): plain, with `update_freq=5` +
+  `elite_signal="improvement"`, and with one CP of each type (`w` categorical, `c_1` continuous, `c_2` integer)) on Rosenbrock and GeneralizedEggCrate
   (`n_x=5`, `n_s=10`, 100 iterations). Pins the `f_best`/`prop_feasible`/`prop_stable` histories, final `X` and
-  `adaptable_CPs`, and BetaEDA's `a`/`b` (and `R`).
+  `adaptable_CPs`, BetaEDA's `a`/`b` (and `R`), and the multi-valued EDAs' `p`.
 - Same seed reproduces; different seeds differ; no solver touches numpy's global RNG (its state is unchanged,
   and reseeding it doesn't change results).
 - Two small seeded `IFRace.tune` runs (BasicSolver tuning w/c_1/c_2; EDASolver+BetaEDA tuning eta/rho_min/n_elites
@@ -562,7 +593,8 @@ R8b is not a separate step: add each component's unit tests in the step that tou
    when there's neither a tuned pkl nor `--config`.
 5. `CECProblem._evaluate` forwards batched `(N, D)` input straight to opfunu's `evaluate`, which is likely 1-D only.
    Verify before using CEC problems with PSO.
-6. `create_adapted_parameter_space` ignores integer/categorical specifics; `UniformRandomAdapter`/`BetaEDA` assume continuous CPs.
+6. `UniformRandomAdapter`/`BetaEDA` assume continuous CPs (the multi-valued EDAs support integer and categorical
+   ones).
 8. PSO history keys `velocities`/`diversity` are only populated at initialisation.
 9. Empty placeholder: `problems/misc_problems.py`.
 10. Git: branches `main` and `elitist-ifrace` (also on origin).

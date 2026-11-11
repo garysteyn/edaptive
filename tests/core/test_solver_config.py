@@ -43,6 +43,20 @@ def test_parse_config_builds_adapted_space_without_adapter_section():
     assert [p.name for p in config.adapted_CP_space] == ["w"]
 
 
+def test_parse_config_builds_integer_and_categorical_adapted_CPs():
+    json_config = {k: v for k, v in JSON_CONFIG.items() if k != "adapter"}
+    json_config["optimizer"] = dict(JSON_CONFIG["optimizer"])
+    json_config["optimizer"]["adapted"] = {
+        "w": {"type": "categorical", "classes": [0.4, 0.7298, 0.9]},
+        "c_2": {"type": "integer", "lower": 0, "upper": 4},
+    }
+    config, _ = parse_config(json_config)
+    w, c_2 = config.adapted_CP_space
+    assert w.type == ParameterType.CATEGORICAL
+    assert w.classes == (0.4, 0.7298, 0.9)
+    assert (c_2.type, c_2.lower, c_2.upper) == (ParameterType.INTEGER, 0, 4)
+
+
 def test_with_values_fills_fixed_CPs_and_adapter_params():
     config, _ = parse_config(JSON_CONFIG)
     filled = config.with_values({"eta": 0.01, "c_1": 1.5})

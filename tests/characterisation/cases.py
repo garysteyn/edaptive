@@ -12,6 +12,8 @@ is meant to change behaviour, and the commit says so.
 import numpy as np
 
 from edaptive.adapters.beta_eda import BetaEDA
+from edaptive.adapters.multi_valued_eda import MultiValuedEDA
+from edaptive.adapters.r_umda import RUMDA
 from edaptive.optimizers.pso import PSO
 from edaptive.problems.ela_benchmark_suite import (
     Brown,
@@ -66,6 +68,38 @@ def _eda_config(elite_weighting, update_freq=1, copula="None", elite_signal="fit
     }
 
 
+def _multi_valued_config(
+    identifier,
+    params,
+    update_freq=1,
+    elite_signal="fitness",
+    n_values=5,
+    adapted=_ADAPTED,
+):
+    adapter = (
+        _fixed("n_values", n_values, "integer")
+        | _fixed("update_freq", update_freq, "integer")
+        | _fixed("elite_signal", elite_signal, "categorical")
+    )
+    for name, (value, type_) in params.items():
+        adapter |= _fixed(name, value, type_)
+    return {
+        "identifier": identifier,
+        "adapter": adapter,
+        "optimizer": {"fixed": _fixed("n_s", N_S, "integer"), "adapted": adapted},
+    }
+
+
+_R_UMDA_PARAMS = {"mu": (3, "integer")}
+
+# One CP of each type, each with 5 values.
+_MIXED_ADAPTED = {
+    "w": {"type": "categorical", "classes": [0.4, 0.55, 0.7298, 0.85, 1.0]},
+    "c_1": {"type": "continuous", "lower": 0, "upper": 4},
+    "c_2": {"type": "integer", "lower": 0, "upper": 4},
+}
+
+
 _BASIC_CONFIG = {
     "identifier": "char_basic",
     "optimizer": {
@@ -113,6 +147,19 @@ SOLVER_CASES = {
         BetaEDA,
         _eda_config("log-rank", 5, elite_signal="improvement"),
     ),
+    "r_umda": (EDASolver, RUMDA, _multi_valued_config("char_r_umda", _R_UMDA_PARAMS)),
+    "r_umda_freq5_improvement": (
+        EDASolver,
+        RUMDA,
+        _multi_valued_config(
+            "char_r_umda", _R_UMDA_PARAMS, update_freq=5, elite_signal="improvement"
+        ),
+    ),
+    "r_umda_mixed": (
+        EDASolver,
+        RUMDA,
+        _multi_valued_config("char_r_umda", _R_UMDA_PARAMS, adapted=_MIXED_ADAPTED),
+    ),
 }
 
 
@@ -149,6 +196,8 @@ def run_solver(solver_type, adapter_type, config, problem_type, seed):
         out["adapter_b"] = _floats(adapter.b)
         if adapter.copula == "gaussian":
             out["adapter_R"] = np.asarray(adapter.R).tolist()
+    if isinstance(adapter, MultiValuedEDA):
+        out["adapter_p"] = adapter.p.tolist()
     return out
 
 
