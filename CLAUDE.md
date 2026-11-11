@@ -223,10 +223,11 @@ the paper; the only additions are the selection options shared with `BetaEDA`.
   `select(scores, encoded indices)`. `update(selected)` sets `p = restrict(updated_frequencies(selected))`.
   `best(scores, indices, k)` picks the `k` lowest scores with ties broken uniformly at random
   (`rng.permutation`, then stable argsort).
-- `RUMDA`: `initialize(n_values, mu, update_freq, elite_signal, rng)`; selects the `mu` best feasible particles
-  (`min_feasible = mu`) and sets `p` to their relative value frequencies (Alg. 2).
+- `RUMDA`: `initialize(n_values, mu, update_freq, elite_signal, rng)`; selects the `mu` best feasible particles and
+  sets `p` to their relative value frequencies (Alg. 2). With fewer than `mu` feasible particles it selects all of
+  them, as `BetaEDA` does, and updates if at least one is feasible (`min_feasible = 1`); see Known issue 14.
 - `RPBIL`: `initialize(n_values, mu, rho, update_freq, elite_signal, rng)` (`rho ∈ [0, 1]`, the scaling factor);
-  same selection as `RUMDA`, then `p ← (1 − rho)·p + rho·(relative frequencies)` (Alg. 3). `rho = 1` is `RUMDA`.
+  same selection as `RUMDA` (including the fewer-than-`mu` rule), then `p ← (1 − rho)·p + rho·(relative frequencies)` (Alg. 3). `rho = 1` is `RUMDA`.
 - `RcGA`: `initialize(n_values, K, update_freq, elite_signal, rng)` (`K > 0`, the hypothetical population size;
   `min_feasible = 2`). The two samples are two distinct feasible particles drawn uniformly at random; the lower
   score wins (a tie is broken at random). `p` moves by `+1/K` at the winner's value and `−1/K` at the loser's, per CP
@@ -615,3 +616,31 @@ R8b is not a separate step: add each component's unit tests in the step that tou
     `custom_test_set.py` (evaluation set). They compute the same function, but result pickles and calypso paths
     identify problems by class name, so the tuning and evaluation versions are indistinguishable there.
     `execute.py` imports the evaluation-set version.
+14. **Revisit: what an adapter does when fewer particles are feasible than it wants elites.** PSO has no position
+    boundary handling, so often only a few particles are inside the bounds (with `n_s = 30`, `n_x = 10`: about 3–5
+    under r-UMDA, 14–26 under r-PBIL). The adapters only rank feasible particles. Three strategies:
+    - **A, skip:** no update unless at least `mu` (`n_elites`) particles are feasible. Keeps the selection size
+      fixed, as the EDA papers assume (it sets the update step and, for r-UMDA, the genetic-drift bound), but large
+      `mu` switches the adapter off: with `mu ≥ 15` r-UMDA updated in about 0% of iterations.
+    - **B, shrink (current: `BetaEDA`, `RUMDA`, `RPBIL`; `RcGA` needs 2 anyway):** select all feasible particles
+      when fewer than `mu` are feasible. `BetaEDA` updates when at least 2 are feasible (its variance and copula
+      fits need 2); `RUMDA`/`RPBIL` when at least 1 is (their update is defined for one elite). Never stalls, but
+      the effective selection size, and so the step size, varies between updates. Whenever `≤ mu` particles are
+      feasible, selection uses feasibility only, not fitness.
+    - **C, feasible first:** rank all particles, feasible ones first (each group by score), and always take `mu`
+      (Deb's feasibility rule). Fixed `mu` and `λ = n_s`, but infeasible particles' CPs become elites.
+
+    A seeded comparison for r-UMDA and r-PBIL (B with at least `min(2, mu)` feasible; 26 ELA problems, `n_x = 10`, `n_s = 30`, 1000 iterations,
+    `n_values = 10`, `rho = 0.1`, `mu ∈ {2, 5, 10, 20}`, 15 seeds, fitness signal, `update_freq = 1`):
+    - C was worst or tied-worst almost everywhere. For r-UMDA it is a feedback loop: up to 92% of elites were
+      infeasible, and feasible particles fell to about 1.6 of 30.
+    - B was best for r-PBIL (the top three of all 24 configurations); A stalls there at `mu = 20`.
+    - A was best for r-UMDA. This is probably confounded: `EDASolver` resamples the CPs only when the model updates,
+      so a skipped update also keeps each particle's CPs longer, and r-UMDA's full refit from a few elites is noisy.
+      r-UMDA with A at `mu = 20` (never updates; CPs sampled once) still beat CPs redrawn uniformly every iteration.
+    - Every strategy at its best `mu` beat uniformly random CPs on 25–26 of the 26 problems.
+
+    To do:
+    - implement A, B and C as an option for both `BetaEDA` and the multi-valued EDAs, and compare them;
+    - separate the strategy from the resampling frequency (e.g. B with `update_freq ∈ {5, 10}` for r-UMDA);
+    - cover more dimensions, budgets and the `"improvement"` signal.

@@ -264,12 +264,38 @@ def test_umda_ignores_infeasible_particles():
     assert sorted(selected[:, 0]) == [0, 3]
 
 
-def test_umda_needs_mu_feasible_particles():
+def test_umda_selects_all_feasible_particles_when_fewer_than_mu():
     adapter = make_umda(mu=3)
     X = np.full((N_S, 2), 2.0)
-    X[:2] = 0.5
+    X[[1, 4]] = 0.5
+    CPs = grid_CPs([[i % 5] * 3 for i in range(N_S)])
+    selected = adapter.check_update(**data([5, 0, 4, 1, 3, 2], CPs, X=X))
+    assert sorted(selected[:, 0]) == [1, 4]
+
+
+def test_umda_needs_a_feasible_particle():
+    adapter = make_umda(mu=3)
+    X = np.full((N_S, 2), 2.0)
     CPs = grid_CPs([[0] * 3] * N_S)
     assert adapter.check_update(**data(np.zeros(N_S), CPs, X=X)) is None
+
+
+def test_umda_updates_from_one_feasible_particle():
+    adapter = make_umda(mu=3)
+    X = np.full((N_S, 2), 2.0)
+    X[3] = 0.5
+    CPs = grid_CPs([[i % 5] * 3 for i in range(N_S)])
+    selected = adapter.check_update(**data(np.zeros(N_S), CPs, X=X))
+    assert selected[:, 0].tolist() == [3]
+
+
+def test_pbil_selects_all_feasible_particles_when_fewer_than_mu():
+    adapter = make_pbil(mu=5)
+    X = np.full((N_S, 2), 2.0)
+    X[[0, 2, 5]] = 0.5
+    CPs = grid_CPs([[i % 5] * 3 for i in range(N_S)])
+    selected = adapter.check_update(**data([5, 0, 4, 1, 3, 2], CPs, X=X))
+    assert sorted(selected[:, 0]) == [0, 0, 2]
 
 
 def test_ties_are_broken_at_random():
