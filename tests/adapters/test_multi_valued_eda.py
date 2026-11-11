@@ -1,9 +1,10 @@
-"""Multi-valued EDAs (Ben Jedidia, Doerr & Krejca 2023): shared model, r-UMDA and
-r-PBIL."""
+"""Multi-valued EDAs (Ben Jedidia, Doerr & Krejca 2023): shared model, r-UMDA,
+r-PBIL and r-cGA."""
 
 import numpy as np
 import pytest
 
+from edaptive.adapters.r_cga import RcGA
 from edaptive.adapters.r_pbil import RPBIL
 from edaptive.adapters.r_umda import RUMDA
 from edaptive.core.parameters import Parameter, ParameterSpace, ParameterType
@@ -38,6 +39,17 @@ def make_pbil(rho=0.5, n_values=5, mu=2, seed=0):
         n_values=n_values,
         mu=mu,
         rho=rho,
+        update_freq=1,
+        elite_signal="fitness",
+        rng=np.random.default_rng(seed),
+    )
+
+
+def make_cga(K=10.0, n_values=5, seed=0):
+    return RcGA(
+        CP_space=space(),
+        n_values=n_values,
+        K=K,
         update_freq=1,
         elite_signal="fitness",
         rng=np.random.default_rng(seed),
@@ -331,3 +343,70 @@ def test_pbil_selects_mu_lowest_fitness():
     CPs = grid_CPs([[i % 5] * 3 for i in range(N_S)])
     selected = adapter.check_update(**data([5, 0, 4, 1, 3, 2], CPs))
     assert sorted(selected[:, 0]) == [1, 3]
+
+
+# --- r-cGA ------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("K", [0.0, -1.0])
+def test_cga_rejects_non_positive_K(K):
+    with pytest.raises(ValueError, match="K"):
+        make_cga(K=K)
+
+
+def test_cga_moves_winner_up_and_loser_down_by_1_over_K():
+    adapter = make_cga(K=20.0)
+    adapter.p = np.tile([0.3, 0.2, 0.2, 0.15, 0.15], (3, 1))
+    winner, loser = np.array([0, 1, 4]), np.array([2, 1, 3])
+    expected = adapter.p.copy()
+    expected[0, 0] += 1 / 20
+    expected[0, 2] -= 1 / 20
+    expected[2, 4] += 1 / 20
+    expected[2, 3] -= 1 / 20
+    adapter.update(np.array([winner, loser]))
+    # All updated frequencies lie inside the borders, so the restriction keeps them.
+    np.testing.assert_allclose(adapter.p, expected)
+    np.testing.assert_allclose(adapter.p[1], [0.3, 0.2, 0.2, 0.15, 0.15])
+
+
+def test_cga_restricts_after_update():
+    adapter = make_cga(K=1.0)
+    adapter.update(np.array([[0, 0, 0], [1, 1, 1]]))
+    np.testing.assert_allclose(adapter.p.sum(axis=1), 1)
+    assert np.all(adapter.p >= adapter.lower_border - 1e-12)
+    assert np.all(adapter.p <= adapter.upper_border + 1e-12)
+
+
+def test_cga_selects_two_feasible_particles_better_first():
+    CPs = grid_CPs([[i % 5] * 3 for i in range(N_S)])
+    f_X = [5, 0, 4, 1, 3, 2]
+    X = np.full((N_S, 2), 0.5)
+    X[[0, 2]] = 2.0  # infeasible
+    pairs = set()
+    for seed in range(50):
+        adapter = make_cga(seed=seed)
+        selected = adapter.check_update(**data(f_X, CPs, X=X))
+        winner, loser = int(selected[0, 0]), int(selected[1, 0])
+        particle = {1: 1, 3: 3, 4: 4, 0: 5}  # value index -> particle (i % 5)
+        assert f_X[particle[winner]] < f_X[particle[loser]]
+        pairs.add(frozenset((winner, loser)))
+    # Every pair of the 4 feasible particles is drawn.
+    assert len(pairs) == 6
+
+
+def test_cga_needs_two_feasible_particles():
+    adapter = make_cga()
+    X = np.full((N_S, 2), 2.0)
+    X[0] = 0.5
+    CPs = grid_CPs([[0] * 3] * N_S)
+    assert adapter.check_update(**data(np.zeros(N_S), CPs, X=X)) is None
+
+
+def test_cga_breaks_ties_at_random():
+    winners = set()
+    for seed in range(20):
+        adapter = make_cga(seed=seed)
+        CPs = grid_CPs([[0] * 3, [1] * 3])
+        selected = adapter.check_update(**data([1.0, 1.0], CPs))
+        winners.add(int(selected[0, 0]))
+    assert winners == {0, 1}

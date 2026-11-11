@@ -5,6 +5,7 @@
 """
 
 from edaptive.adapters.beta_eda import BetaEDA
+from edaptive.adapters.r_cga import RcGA
 from edaptive.adapters.r_pbil import RPBIL
 from edaptive.adapters.r_umda import RUMDA
 from edaptive.adapters.uniform_random import UniformRandomAdapter
@@ -30,7 +31,9 @@ SOLVERS["stability_guided_PSO"] = StabilityGuidedPSO
 
 OPTIMIZERS = {cls.__name__: cls for cls in (PSO,)}
 
-ADAPTERS = {cls.__name__: cls for cls in (BetaEDA, UniformRandomAdapter, RUMDA, RPBIL)}
+ADAPTERS = {
+    cls.__name__: cls for cls in (BetaEDA, UniformRandomAdapter, RUMDA, RPBIL, RcGA)
+}
 
 _REGISTRIES = {"solver": SOLVERS, "optimizer": OPTIMIZERS, "adapter": ADAPTERS}
 

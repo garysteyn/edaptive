@@ -13,6 +13,7 @@ import numpy as np
 
 from edaptive.adapters.beta_eda import BetaEDA
 from edaptive.adapters.multi_valued_eda import MultiValuedEDA
+from edaptive.adapters.r_cga import RcGA
 from edaptive.adapters.r_pbil import RPBIL
 from edaptive.adapters.r_umda import RUMDA
 from edaptive.optimizers.pso import PSO
@@ -93,6 +94,7 @@ def _multi_valued_config(
 
 _R_UMDA_PARAMS = {"mu": (3, "integer")}
 _R_PBIL_PARAMS = {"mu": (3, "integer"), "rho": (0.3, "continuous")}
+_R_CGA_PARAMS = {"K": (10.0, "continuous")}
 
 # One CP of each type, each with 5 values.
 _MIXED_ADAPTED = {
@@ -168,6 +170,14 @@ SOLVER_CASES = {
         RPBIL,
         _multi_valued_config(
             "char_r_pbil", _R_PBIL_PARAMS, update_freq=5, elite_signal="improvement"
+        ),
+    ),
+    "r_cga": (EDASolver, RcGA, _multi_valued_config("char_r_cga", _R_CGA_PARAMS)),
+    "r_cga_freq5_improvement": (
+        EDASolver,
+        RcGA,
+        _multi_valued_config(
+            "char_r_cga", _R_CGA_PARAMS, update_freq=5, elite_signal="improvement"
         ),
     ),
 }
