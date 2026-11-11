@@ -23,6 +23,11 @@
             "type" : "integer",
             "value" : 1
         },
+        "elite_weighting" : {
+            "tuned" : false,
+            "type" : "categorical",
+            "value" : "None"
+        },
         "elite_signal" : {
             "tuned" : false,
             "type" : "categorical",

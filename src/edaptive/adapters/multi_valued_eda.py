@@ -15,6 +15,7 @@ from abc import abstractmethod
 
 import numpy as np
 
+from edaptive.adapters.elite_weighting import WEIGHTED_SCHEMES, elite_weights
 from edaptive.const import max_float
 from edaptive.core.adapter import EDAAdapter
 from edaptive.core.parameters import ParameterType
@@ -157,6 +158,17 @@ class MultiValuedEDA(EDAAdapter):
         """Relative frequency of each value per CP among the rows of ``indices``,
         shape ``(n_CPs, n_values)``."""
         return np.mean(indices[:, :, None] == np.arange(self.n_values), axis=0)
+
+    def elite_frequencies(self, elites):
+        """Weighted frequency of each value per CP among ``elites`` (best first):
+        ``sum_k w_k * 1{x_i^(k) = j}``, with the weights of ``elite_weighting``
+        (as in BetaEDA). Uniform weights give the relative frequencies, the
+        paper's update."""
+        if self.elite_weighting not in WEIGHTED_SCHEMES:
+            return self.relative_frequencies(elites)
+        weights = elite_weights(len(elites), self.elite_weighting)
+        one_hot = elites[:, :, None] == np.arange(self.n_values)
+        return np.sum(weights[:, None, None] * one_hot, axis=0)
 
     def best(self, scores, indices, k):
         """The ``k`` rows of ``indices`` with the lowest scores, ties broken

@@ -1,6 +1,7 @@
 import numpy as np
 from scipy.stats import beta, norm
 
+from edaptive.adapters.elite_weighting import elite_weights
 from edaptive.const import max_float
 from edaptive.core.adapter import EDAAdapter
 from edaptive.utils.timing import timed
@@ -145,7 +146,7 @@ class BetaEDA(EDAAdapter):
         scaled_CPs = np.clip(scaled_CPs, self.UNIT_MARGIN, 1 - self.UNIT_MARGIN)
 
         # Step 1 (Fit marginals):
-        weights = self.compute_weights(scaled_CPs)
+        weights = elite_weights(len(scaled_CPs), self.elite_weighting)
 
         # Plain weighted moments of the elite set (no Bessel correction): the elites
         # are selected by performance, not sampled at random, so the model is fitted
@@ -178,30 +179,6 @@ class BetaEDA(EDAAdapter):
             if np.all(np.ptp(Z, axis=0) > 0):
                 R_new = np.corrcoef(Z.T)
                 self.R = (1 - self.eta) * self.R + self.eta * R_new
-
-    def compute_weights(self, scaled_CPs):
-        """Weights of the elites (best first), summing to 1. Uniform unless
-        ``elite_weighting`` is ``"rank"`` or ``"log-rank"``."""
-        n = len(scaled_CPs)
-        weights = np.full(n, 1 / n)
-
-        if self.elite_weighting == "rank":
-            weights = np.arange(n, 0, -1, dtype=float)
-
-            weights /= weights.sum()
-
-        elif self.elite_weighting == "log-rank":
-            # ranks = 1, 2, ..., n
-            ranks = np.arange(1, n + 1)
-
-            weights = np.log(n + 1) - np.log(ranks)
-
-            # Numerical safety (should already be positive)
-            weights = np.maximum(weights, 0.0)
-
-            weights /= weights.sum()
-
-        return weights
 
 
 # class BetaMarginalsEDA(EDAAdapter):

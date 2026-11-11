@@ -7,22 +7,25 @@ class RUMDA(MultiValuedEDA):
 
     Selects the ``mu`` best feasible particles (ties broken uniformly at random)
     and sets each frequency to the relative frequency of that value among them,
-    then restricts the frequencies to the borders. With fewer than ``mu`` feasible
+    then restricts the frequencies to the borders. ``elite_weighting`` (``"rank"``,
+    ``"log-rank"``, otherwise uniform, as in BetaEDA) weights the elites by rank;
+    uniform weights are the paper's update. With fewer than ``mu`` feasible
     particles, all of them are selected (as in BetaEDA); an update needs at least
     one.
     """
 
     @timed
-    def initialize(self, n_values, mu, update_freq, elite_signal, rng):
+    def initialize(self, n_values, mu, update_freq, elite_weighting, elite_signal, rng):
         if int(mu) < 1:
             raise ValueError(f"mu must be at least 1, got {mu}")
 
         self.initialize_model(n_values, update_freq, elite_signal, rng)
         self.mu = int(mu)
+        self.elite_weighting = elite_weighting
         self.min_feasible = 1
 
     def select(self, scores, indices):
         return self.best(scores, indices, self.mu)
 
     def updated_frequencies(self, selected):
-        return self.relative_frequencies(selected)
+        return self.elite_frequencies(selected)

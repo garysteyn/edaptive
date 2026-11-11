@@ -1,9 +1,10 @@
 """Multi-valued EDAs (Ben Jedidia, Doerr & Krejca 2023): shared model, r-UMDA,
-r-PBIL and r-cGA."""
+r-PBIL, r-cGA and elite weighting."""
 
 import numpy as np
 import pytest
 
+from edaptive.adapters.elite_weighting import elite_weights
 from edaptive.adapters.r_cga import RcGA
 from edaptive.adapters.r_pbil import RPBIL
 from edaptive.adapters.r_umda import RUMDA
@@ -22,24 +23,34 @@ def space(n_CPs=3, upper=4.0):
     )
 
 
-def make_umda(n_values=5, mu=2, update_freq=1, elite_signal="fitness", n_CPs=3, seed=0):
+def make_umda(
+    n_values=5,
+    mu=2,
+    update_freq=1,
+    elite_signal="fitness",
+    n_CPs=3,
+    seed=0,
+    elite_weighting=None,
+):
     return RUMDA(
         CP_space=space(n_CPs),
         n_values=n_values,
         mu=mu,
         update_freq=update_freq,
+        elite_weighting=elite_weighting,
         elite_signal=elite_signal,
         rng=np.random.default_rng(seed),
     )
 
 
-def make_pbil(rho=0.5, n_values=5, mu=2, seed=0):
+def make_pbil(rho=0.5, n_values=5, mu=2, seed=0, elite_weighting=None):
     return RPBIL(
         CP_space=space(),
         n_values=n_values,
         mu=mu,
         rho=rho,
         update_freq=1,
+        elite_weighting=elite_weighting,
         elite_signal="fitness",
         rng=np.random.default_rng(seed),
     )
@@ -175,6 +186,7 @@ def make_mixed_umda(n_values=5, seed=0, **space_kwargs):
         n_values=n_values,
         mu=2,
         update_freq=1,
+        elite_weighting=None,
         elite_signal="fitness",
         rng=np.random.default_rng(seed),
     )
@@ -436,3 +448,61 @@ def test_cga_breaks_ties_at_random():
         selected = adapter.check_update(**data([1.0, 1.0], CPs))
         winners.add(int(selected[0, 0]))
     assert winners == {0, 1}
+
+
+# --- elite weighting (r-UMDA, r-PBIL) ---------------------------------------
+
+# Elites best first: CP 0 takes values 0, 0, 3, 1.
+WEIGHTED_ELITES = np.array([[0, 0, 0], [0, 1, 0], [3, 1, 0], [1, 2, 0]])
+
+
+@pytest.mark.parametrize("elite_weighting", ["rank", "log-rank"])
+def test_umda_weights_elites_by_rank(elite_weighting):
+    adapter = make_umda(mu=4, elite_weighting=elite_weighting)
+    w = elite_weights(4, elite_weighting)
+    expected = np.zeros((3, 5))
+    expected[0, [0, 3, 1]] = [w[0] + w[1], w[2], w[3]]
+    expected[1, [0, 1, 2]] = [w[0], w[1] + w[2], w[3]]
+    expected[2, 0] = 1.0
+    np.testing.assert_allclose(adapter.elite_frequencies(WEIGHTED_ELITES), expected)
+    adapter.update(WEIGHTED_ELITES)
+    np.testing.assert_allclose(adapter.p, adapter.restrict(expected))
+
+
+def test_rank_weighting_favours_the_best_elites():
+    adapter = make_umda(mu=4, elite_weighting="rank")
+    frequencies = adapter.elite_frequencies(WEIGHTED_ELITES)
+    # Value 0 of CP 0 is held by the two best elites: weights 4/10 + 3/10.
+    assert frequencies[0, 0] == pytest.approx(0.7)
+    assert frequencies[0, 1] == pytest.approx(0.1)
+
+
+@pytest.mark.parametrize("elite_weighting", [None, "None"])
+def test_uniform_weighting_is_the_relative_frequency(elite_weighting):
+    adapter = make_umda(mu=4, elite_weighting=elite_weighting)
+    np.testing.assert_array_equal(
+        adapter.elite_frequencies(WEIGHTED_ELITES),
+        adapter.relative_frequencies(WEIGHTED_ELITES),
+    )
+
+
+def test_weights_cover_the_elites_actually_selected():
+    adapter = make_umda(mu=5, elite_weighting="rank")
+    X = np.full((N_S, 2), 2.0)
+    X[[1, 4]] = 0.5
+    CPs = grid_CPs([[i % 5] * 3 for i in range(N_S)])
+    selected = adapter.check_update(**data([5, 0, 4, 1, 3, 2], CPs, X=X))
+    # Particle 1 (fitness 0) ranks before particle 4 (fitness 3): weights 2/3, 1/3.
+    np.testing.assert_allclose(
+        adapter.elite_frequencies(selected)[0, [1, 4]], [2 / 3, 1 / 3]
+    )
+
+
+def test_pbil_uses_weighted_frequencies():
+    adapter = make_pbil(rho=0.3, mu=4, elite_weighting="log-rank")
+    p_old = adapter.p.copy()
+    adapter.update(WEIGHTED_ELITES)
+    expected = adapter.restrict(
+        0.7 * p_old + 0.3 * adapter.elite_frequencies(WEIGHTED_ELITES)
+    )
+    np.testing.assert_allclose(adapter.p, expected)

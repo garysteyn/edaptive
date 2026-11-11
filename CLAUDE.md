@@ -42,6 +42,7 @@ edaptive/
 │   │   └── parameters.py     # ParameterType, Parameter, ParameterSpace
 │   ├── adapters/             # generic (optimizer-agnostic) adapters
 │   │   ├── beta_eda.py       # BetaEDA (beta marginals, optional Gaussian copula) + commented-out legacy variants
+│   │   ├── elite_weighting.py # elite_weights(n, elite_weighting): rank weights shared by BetaEDA, RUMDA, RPBIL
 │   │   ├── multi_valued_eda.py # MultiValuedEDA: shared model of the r-valued EDAs (grid, frequencies, borders)
 │   │   ├── r_cga.py          # RcGA (Ben Jedidia, Doerr & Krejca 2023, Alg. 4)
 │   │   ├── r_pbil.py         # RPBIL (Ben Jedidia, Doerr & Krejca 2023, Alg. 3)
@@ -83,7 +84,7 @@ edaptive/
 │   ├── conftest.py           # forces the Agg matplotlib backend
 │   ├── core/                 # unit tests: adaptable-CP mapping, SolverConfig/parse_config
 │   ├── optimizers/           # unit tests: PSO evaluation order, histories, feasibility-gated bests
-│   ├── adapters/             # unit tests: BetaEDA elite selection; multi-valued EDA model and updates
+│   ├── adapters/             # unit tests: BetaEDA elite selection; multi-valued EDA model and updates; elite weights
 │   ├── solvers/              # unit tests: subset / reordered "adapted" spaces, construction, timings
 │   ├── utils/                # unit tests: @timed, core_time
 │   ├── tuning/               # unit tests of IFRace pieces; mpirun -n 2 vs serial reference
@@ -188,8 +189,9 @@ Three roles, connected by keyword-argument dictionaries:
     reset to the current `f_X` only when elites are returned (the solver resamples only then; a check skipped
     for `< 2` feasible particles extends the window).
 - `update`: scale elites to [0,1], clip to `[UNIT_MARGIN, 1-UNIT_MARGIN]`; weighted mean/variance as plain weighted
-  moments of the elite set (no Bessel correction, since elites are selected rather than sampled). Weights
-  sum to 1: `"rank"` = linear, `"log-rank"` = log(n+1) - log(rank), anything else (`None`/`"None"`) = uniform 1/n.
+  moments of the elite set (no Bessel correction, since elites are selected rather than sampled). Weights come
+  from `adapters/elite_weighting.py: elite_weights(n, elite_weighting)` (best first, sum to 1): `"rank"` = linear,
+  `"log-rank"` = log(n+1) - log(rank), anything else (`None`/`"None"`) = uniform 1/n.
   Method of moments through the normalised variance `rho = var/(mu(1-mu)) = 1/(kappa+1)`, clipped to
   `[rho_min, RHO_MAX]`, then `kappa = 1/rho - 1` (so `kappa ≤ 1/rho_min - 1`; identical elites, `var = 0`, give
   `rho = rho_min`).
@@ -222,12 +224,16 @@ the paper; the only additions are the selection options shared with `BetaEDA`.
   `"fitness"`/`"improvement"` with the same window rule), then needs `min_feasible` feasible particles and returns
   `select(scores, encoded indices)`. `update(selected)` sets `p = restrict(updated_frequencies(selected))`.
   `best(scores, indices, k)` picks the `k` lowest scores with ties broken uniformly at random
-  (`rng.permutation`, then stable argsort).
-- `RUMDA`: `initialize(n_values, mu, update_freq, elite_signal, rng)`; selects the `mu` best feasible particles and
-  sets `p` to their relative value frequencies (Alg. 2). With fewer than `mu` feasible particles it selects all of
+  (`rng.permutation`, then stable argsort), best first.
+- `elite_frequencies(elites)` (`RUMDA`, `RPBIL`): `Σ_k w_k·1{x_i^(k) = j}` with `elite_weights(len(elites),
+  elite_weighting)`, as in `BetaEDA`. Uniform weighting returns `relative_frequencies` (`np.mean`, the paper's update).
+  `RcGA` has no weighting (one winner, one loser).
+- `RUMDA`: `initialize(n_values, mu, update_freq, elite_weighting, elite_signal, rng)`; selects the `mu` best feasible
+  particles and sets `p` to their (weighted) value frequencies (Alg. 2). With fewer than `mu` feasible particles it selects all of
   them, as `BetaEDA` does, and updates if at least one is feasible (`min_feasible = 1`); see Known issue 14.
-- `RPBIL`: `initialize(n_values, mu, rho, update_freq, elite_signal, rng)` (`rho ∈ [0, 1]`, the scaling factor);
-  same selection as `RUMDA` (including the fewer-than-`mu` rule), then `p ← (1 − rho)·p + rho·(relative frequencies)` (Alg. 3). `rho = 1` is `RUMDA`.
+- `RPBIL`: `initialize(n_values, mu, rho, update_freq, elite_weighting, elite_signal, rng)` (`rho ∈ [0, 1]`, the
+  scaling factor); same selection as `RUMDA` (including the fewer-than-`mu` rule), then
+  `p ← (1 − rho)·p + rho·(weighted frequencies)` (Alg. 3). `rho = 1` is `RUMDA`.
 - `RcGA`: `initialize(n_values, K, update_freq, elite_signal, rng)` (`K > 0`, the hypothetical population size;
   `min_feasible = 2`). The two samples are two distinct feasible particles drawn uniformly at random; the lower
   score wins (a tie is broken at random). `p` moves by `+1/K` at the winner's value and `−1/K` at the loser's, per CP
@@ -458,7 +464,7 @@ entries take `value`; `optimizer.adapted` becomes `adapted_CP_space` (with or wi
 CP via `Parameter.from_config`, so integer and categorical (`classes`) adapted CPs are read).
 `tuning_parameter_space` is `None` when nothing is tuned. Current configs: `basic.json` (static PSO, tunes w/c_1/c_2), `test.json` (BetaEDA-PSO, `elite_signal` `"fitness"`),
 `sg_pso.json`, `tvac_pso.json` (no tuning; `tvac_pso.json` sets `V_max_fraction` 0.5), `r_umda.json` (RUMDA,
-`n_values` 10, tunes `mu ∈ [1, 30]`), `r_pbil.json` (RPBIL, same, also tunes `rho ∈ [1e-3, 1]` on a log scale),
+`n_values` 10, `elite_weighting` `"None"`, tunes `mu ∈ [1, 30]`), `r_pbil.json` (RPBIL, same, also tunes `rho ∈ [1e-3, 1]` on a log scale),
 `r_cga.json` (RcGA, tunes `K ∈ [1, 1000]` on a log scale instead of `mu`). `test2.json` is stale (uses `kappa_max` and categorical `n_elites`, which `BetaEDA` doesn't accept).
 
 ## Running things
@@ -507,7 +513,7 @@ grows these). `tests/tuning/test_ifrace_mpi.py` runs both tuning cases under `mp
   and `update_freq=5`; `EDASolver`+`RUMDA` (`n_values=5`, `mu=3`): plain, with `update_freq=5` +
   `elite_signal="improvement"`, and with one CP of each type (`w` categorical, `c_1` continuous, `c_2` integer);
   `EDASolver`+`RPBIL` (`mu=3`, `rho=0.3`) and `EDASolver`+`RcGA` (`K=10`), each plain and with `update_freq=5` +
-  `elite_signal="improvement"`) on Rosenbrock and GeneralizedEggCrate
+  `elite_signal="improvement"`; RUMDA with `"log-rank"` and RPBIL with `"rank"` elite weighting) on Rosenbrock and GeneralizedEggCrate
   (`n_x=5`, `n_s=10`, 100 iterations). Pins the `f_best`/`prop_feasible`/`prop_stable` histories, final `X` and
   `adaptable_CPs`, BetaEDA's `a`/`b` (and `R`), and the multi-valued EDAs' `p`.
 - Same seed reproduces; different seeds differ; no solver touches numpy's global RNG (its state is unchanged,

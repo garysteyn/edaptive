@@ -92,8 +92,12 @@ def _multi_valued_config(
     }
 
 
-_R_UMDA_PARAMS = {"mu": (3, "integer")}
-_R_PBIL_PARAMS = {"mu": (3, "integer"), "rho": (0.3, "continuous")}
+_R_UMDA_PARAMS = {"mu": (3, "integer"), "elite_weighting": ("None", "categorical")}
+_R_PBIL_PARAMS = {
+    "mu": (3, "integer"),
+    "rho": (0.3, "continuous"),
+    "elite_weighting": ("None", "categorical"),
+}
 _R_CGA_PARAMS = {"K": (10.0, "continuous")}
 
 # One CP of each type, each with 5 values.
@@ -164,7 +168,22 @@ SOLVER_CASES = {
         RUMDA,
         _multi_valued_config("char_r_umda", _R_UMDA_PARAMS, adapted=_MIXED_ADAPTED),
     ),
+    "r_umda_log_rank": (
+        EDASolver,
+        RUMDA,
+        _multi_valued_config(
+            "char_r_umda",
+            _R_UMDA_PARAMS | {"elite_weighting": ("log-rank", "categorical")},
+        ),
+    ),
     "r_pbil": (EDASolver, RPBIL, _multi_valued_config("char_r_pbil", _R_PBIL_PARAMS)),
+    "r_pbil_rank": (
+        EDASolver,
+        RPBIL,
+        _multi_valued_config(
+            "char_r_pbil", _R_PBIL_PARAMS | {"elite_weighting": ("rank", "categorical")}
+        ),
+    ),
     "r_pbil_freq5_improvement": (
         EDASolver,
         RPBIL,
