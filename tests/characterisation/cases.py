@@ -13,6 +13,7 @@ import numpy as np
 
 from edaptive.adapters.beta_eda import BetaEDA
 from edaptive.adapters.multi_valued_eda import MultiValuedEDA
+from edaptive.adapters.r_pbil import RPBIL
 from edaptive.adapters.r_umda import RUMDA
 from edaptive.optimizers.pso import PSO
 from edaptive.problems.ela_benchmark_suite import (
@@ -91,6 +92,7 @@ def _multi_valued_config(
 
 
 _R_UMDA_PARAMS = {"mu": (3, "integer")}
+_R_PBIL_PARAMS = {"mu": (3, "integer"), "rho": (0.3, "continuous")}
 
 # One CP of each type, each with 5 values.
 _MIXED_ADAPTED = {
@@ -159,6 +161,14 @@ SOLVER_CASES = {
         EDASolver,
         RUMDA,
         _multi_valued_config("char_r_umda", _R_UMDA_PARAMS, adapted=_MIXED_ADAPTED),
+    ),
+    "r_pbil": (EDASolver, RPBIL, _multi_valued_config("char_r_pbil", _R_PBIL_PARAMS)),
+    "r_pbil_freq5_improvement": (
+        EDASolver,
+        RPBIL,
+        _multi_valued_config(
+            "char_r_pbil", _R_PBIL_PARAMS, update_freq=5, elite_signal="improvement"
+        ),
     ),
 }
 

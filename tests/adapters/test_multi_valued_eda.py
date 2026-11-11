@@ -1,8 +1,10 @@
-"""Multi-valued EDAs (Ben Jedidia, Doerr & Krejca 2023): shared model and r-UMDA."""
+"""Multi-valued EDAs (Ben Jedidia, Doerr & Krejca 2023): shared model, r-UMDA and
+r-PBIL."""
 
 import numpy as np
 import pytest
 
+from edaptive.adapters.r_pbil import RPBIL
 from edaptive.adapters.r_umda import RUMDA
 from edaptive.core.parameters import Parameter, ParameterSpace, ParameterType
 
@@ -26,6 +28,18 @@ def make_umda(n_values=5, mu=2, update_freq=1, elite_signal="fitness", n_CPs=3, 
         mu=mu,
         update_freq=update_freq,
         elite_signal=elite_signal,
+        rng=np.random.default_rng(seed),
+    )
+
+
+def make_pbil(rho=0.5, n_values=5, mu=2, seed=0):
+    return RPBIL(
+        CP_space=space(),
+        n_values=n_values,
+        mu=mu,
+        rho=rho,
+        update_freq=1,
+        elite_signal="fitness",
         rng=np.random.default_rng(seed),
     )
 
@@ -273,3 +287,47 @@ def test_improvement_signal_uses_change_since_last_update():
     # The window restarted at the previous fitness.
     selected = adapter.check_update(**data([2, 9, 9, 9, 0, 9], CPs))
     assert selected[0, 0] == 4
+
+
+# --- r-PBIL -----------------------------------------------------------------
+
+ELITES = np.array([[0, 1, 4], [0, 1, 4], [0, 2, 4], [3, 2, 4]])
+
+
+@pytest.mark.parametrize("rho", [-0.1, 1.1])
+def test_pbil_rejects_rho_outside_unit_interval(rho):
+    with pytest.raises(ValueError, match="rho"):
+        make_pbil(rho=rho)
+
+
+def test_pbil_is_a_convex_combination_then_restricted():
+    adapter = make_pbil(rho=0.3)
+    p_old = np.tile([0.3, 0.2, 0.2, 0.15, 0.15], (3, 1))
+    adapter.p = p_old.copy()
+    adapter.update(ELITES)
+    expected = adapter.restrict(
+        0.7 * p_old + 0.3 * adapter.relative_frequencies(ELITES)
+    )
+    np.testing.assert_allclose(adapter.p, expected)
+    np.testing.assert_allclose(adapter.p.sum(axis=1), 1)
+
+
+def test_pbil_with_rho_1_equals_umda():
+    pbil = make_pbil(rho=1.0)
+    umda = make_umda(mu=4)
+    pbil.update(ELITES)
+    umda.update(ELITES)
+    np.testing.assert_array_equal(pbil.p, umda.p)
+
+
+def test_pbil_with_rho_0_keeps_frequencies():
+    adapter = make_pbil(rho=0.0)
+    adapter.update(ELITES)
+    np.testing.assert_allclose(adapter.p, np.full((3, 5), 0.2))
+
+
+def test_pbil_selects_mu_lowest_fitness():
+    adapter = make_pbil(mu=2)
+    CPs = grid_CPs([[i % 5] * 3 for i in range(N_S)])
+    selected = adapter.check_update(**data([5, 0, 4, 1, 3, 2], CPs))
+    assert sorted(selected[:, 0]) == [1, 3]

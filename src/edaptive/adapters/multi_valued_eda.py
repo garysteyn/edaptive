@@ -172,8 +172,10 @@ class MultiValuedEDA(EDAAdapter):
 
     @timed
     def sample(self, N):
-        # Inverse CDF per CP: the value index is the number of cumulative
-        # frequencies <= u. The minimum guards against a last cumulative
+        # Each CP independently takes value j with probability p[i, j] (Sec. 4.2),
+        # drawn by inverse CDF: the value index is the number of cumulative
+        # frequencies <= u. This is the method of rng.choice, without its
+        # per-call overhead. The minimum guards against a last cumulative
         # frequency slightly below 1.
         U = self.rng.random(size=(N, self.n_CPs))
         cdf = np.cumsum(self.p, axis=1)

@@ -29,6 +29,7 @@ from edaptive.solvers.eda_solver import EDASolver  # noqa: E402
 # Adapter name -> its own parameters (names of command-line arguments).
 ADAPTER_PARAMS = {
     "RUMDA": ("mu",),
+    "RPBIL": ("mu", "rho"),
 }
 
 ADAPTED_CPS = {"w": (0.0, 1.0), "c_1": (0.0, 4.0), "c_2": (0.0, 4.0)}
@@ -48,6 +49,7 @@ def parse_args():
         "--elite_signal", choices=("fitness", "improvement"), default="fitness"
     )
     parser.add_argument("--mu", type=int, default=5)
+    parser.add_argument("--rho", type=float, default=0.1)
     parser.add_argument("--output", default="results/scratch")
     return parser.parse_args()
 

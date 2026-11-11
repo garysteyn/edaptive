@@ -43,6 +43,7 @@ edaptive/
 │   ├── adapters/             # generic (optimizer-agnostic) adapters
 │   │   ├── beta_eda.py       # BetaEDA (beta marginals, optional Gaussian copula) + commented-out legacy variants
 │   │   ├── multi_valued_eda.py # MultiValuedEDA: shared model of the r-valued EDAs (grid, frequencies, borders)
+│   │   ├── r_pbil.py         # RPBIL (Ben Jedidia, Doerr & Krejca 2023, Alg. 3)
 │   │   ├── r_umda.py         # RUMDA (Ben Jedidia, Doerr & Krejca 2023, Alg. 2)
 │   │   └── uniform_random.py # UniformRandomAdapter (EDAAdapter; uniform resampling baseline)
 │   ├── optimizers/
@@ -200,7 +201,7 @@ Three roles, connected by keyword-argument dictionaries:
 - Older separate classes (`BetaMarginalsEDA`, rank/log-rank variants, `BetaMarginalsGaussianCopulaEDA`) remain
   commented out at the bottom of the file; `BetaEDA` replaces them.
 
-### Multi-valued EDAs (`adapters/multi_valued_eda.py`, `r_umda.py`)
+### Multi-valued EDAs (`adapters/multi_valued_eda.py`, `r_umda.py`, `r_pbil.py`)
 Ben Jedidia, Doerr & Krejca (GECCO '23), "Estimation-of-Distribution Algorithms for Multi-Valued Decision
 Variables" (a local copy may be at `../papers/eda_multivalued_decision_variables.pdf`). Implemented faithfully to
 the paper; the only additions are the selection options shared with `BetaEDA`.
@@ -223,7 +224,10 @@ the paper; the only additions are the selection options shared with `BetaEDA`.
   (`rng.permutation`, then stable argsort).
 - `RUMDA`: `initialize(n_values, mu, update_freq, elite_signal, rng)`; selects the `mu` best feasible particles
   (`min_feasible = mu`) and sets `p` to their relative value frequencies (Alg. 2).
-- RNG consumption: one `rng.random((N, n))` per `sample`; one `rng.permutation(n_feasible)` per returned update.
+- `RPBIL`: `initialize(n_values, mu, rho, update_freq, elite_signal, rng)` (`rho ∈ [0, 1]`, the scaling factor);
+  same selection as `RUMDA`, then `p ← (1 − rho)·p + rho·(relative frequencies)` (Alg. 3). `rho = 1` is `RUMDA`.
+- RNG consumption: one `rng.random((N, n))` per `sample`; one `rng.permutation(n_feasible)` per returned update
+  (`RUMDA`, `RPBIL`).
 
 ### Solvers (`core/solver.py: BaseSolver`)
 - Every solver has the same constructor (used by IFRace, execute.py and the tests):
@@ -447,7 +451,7 @@ entries take `value`; `optimizer.adapted` becomes `adapted_CP_space` (with or wi
 CP via `Parameter.from_config`, so integer and categorical (`classes`) adapted CPs are read).
 `tuning_parameter_space` is `None` when nothing is tuned. Current configs: `basic.json` (static PSO, tunes w/c_1/c_2), `test.json` (BetaEDA-PSO, `elite_signal` `"fitness"`),
 `sg_pso.json`, `tvac_pso.json` (no tuning; `tvac_pso.json` sets `V_max_fraction` 0.5), `r_umda.json` (RUMDA,
-`n_values` 10, tunes `mu ∈ [1, 30]`). `test2.json` is stale (uses `kappa_max` and categorical `n_elites`, which `BetaEDA` doesn't accept).
+`n_values` 10, tunes `mu ∈ [1, 30]`), `r_pbil.json` (RPBIL, same, also tunes `rho ∈ [1e-3, 1]` on a log scale). `test2.json` is stale (uses `kappa_max` and categorical `n_elites`, which `BetaEDA` doesn't accept).
 
 ## Running things
 
@@ -493,7 +497,8 @@ grows these). `tests/tuning/test_ifrace_mpi.py` runs both tuning cases under `mp
 - Every solver (`BasicSolver`, `UniformRandomSolver`, `StabilityGuidedPSO`, `TVACPSO`, `EDASolver`+`BetaEDA` with each
   elite weighting, with `update_freq=5`, with the Gaussian copula, and with `elite_signal="improvement"`
   and `update_freq=5`; `EDASolver`+`RUMDA` (`n_values=5`, `mu=3`): plain, with `update_freq=5` +
-  `elite_signal="improvement"`, and with one CP of each type (`w` categorical, `c_1` continuous, `c_2` integer)) on Rosenbrock and GeneralizedEggCrate
+  `elite_signal="improvement"`, and with one CP of each type (`w` categorical, `c_1` continuous, `c_2` integer);
+  `EDASolver`+`RPBIL` (`mu=3`, `rho=0.3`), plain and with `update_freq=5` + `elite_signal="improvement"`) on Rosenbrock and GeneralizedEggCrate
   (`n_x=5`, `n_s=10`, 100 iterations). Pins the `f_best`/`prop_feasible`/`prop_stable` histories, final `X` and
   `adaptable_CPs`, BetaEDA's `a`/`b` (and `R`), and the multi-valued EDAs' `p`.
 - Same seed reproduces; different seeds differ; no solver touches numpy's global RNG (its state is unchanged,
