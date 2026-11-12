@@ -13,30 +13,30 @@ from mpi4py import MPI
 
 from edaptive.core.config import SolverConfig
 
-# BBOB_FID17_IID2 also exists in ela_benchmark_suite; this script uses the evaluation
-# set's version.
+# The evaluation set has one problem per ELA cluster and shares no problems with
+# ela_benchmark_suite.
 from edaptive.problems.custom_test_set import (
+    BBOB_FID1_IID3,
     BBOB_FID1_IID4,
     BBOB_FID1_IID5,
-    BBOB_FID12_IID3,
+    BBOB_FID4_IID1,
+    BBOB_FID12_IID2,
+    BBOB_FID12_IID4,
     BBOB_FID14_IID1,
     BBOB_FID14_IID2,
-    BBOB_FID14_IID5,
-    BBOB_FID16_IID2,
-    BBOB_FID16_IID5,
-    BBOB_FID17_IID2,
     BBOB_FID17_IID5,
-    BBOB_FID18_IID4,
     BBOB_FID18_IID5,
-    BBOB_FID19_IID1,
     BBOB_FID19_IID4,
-    BBOB_FID20_IID5,
     BBOB_FID21_IID1,
+    BBOB_FID22_IID3,
+    BBOB_FID23_IID1,
     BBOB_FID23_IID5,
-    CEC_2013_FID13,
-    CEC_2015_FID3,
+    CEC_2013_FID3,
+    CEC_2013_FID8,
+    CEC_2014_FID19,
+    CEC_2014_FID28,
     CEC_2015_FID4,
-    CEC_2017_FID28,
+    CEC_2017_FID8,
 )
 from edaptive.problems.ela_benchmark_suite import (
     Brown,
@@ -160,26 +160,26 @@ tuning_problems = [
 
 evaluation_problems = [
     BBOB_FID21_IID1,
-    BBOB_FID16_IID5,
+    BBOB_FID23_IID1,
     BBOB_FID23_IID5,
-    BBOB_FID17_IID2,
-    BBOB_FID19_IID1,
+    BBOB_FID22_IID3,
+    BBOB_FID1_IID3,
     BBOB_FID18_IID5,
     BBOB_FID19_IID4,
     BBOB_FID14_IID2,
-    BBOB_FID16_IID2,
+    CEC_2013_FID8,
     BBOB_FID17_IID5,
     BBOB_FID1_IID4,
     BBOB_FID14_IID1,
-    BBOB_FID14_IID5,
-    BBOB_FID20_IID5,
-    CEC_2013_FID13,
-    BBOB_FID18_IID4,
-    CEC_2017_FID28,
-    BBOB_FID12_IID3,
+    BBOB_FID4_IID1,
+    BBOB_FID12_IID2,
+    CEC_2017_FID8,
+    CEC_2014_FID28,
+    CEC_2013_FID3,
+    BBOB_FID12_IID4,
     CEC_2015_FID4,
     BBOB_FID1_IID5,
-    CEC_2015_FID3,
+    CEC_2014_FID19,
 ]
 
 # print(tuned_param_config)

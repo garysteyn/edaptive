@@ -333,7 +333,8 @@ Adapters currently assume all adapted CPs are continuous.
   GeneralizedEggCrate, Rosenbrock, Pinter2(_OG), Qing, DropWave, BonyadiMichalewicz, Discus, Elliptic) plus
   `BBOB_FID{2,6,16,17}_IID*`, with optional `global_optimum` metadata. This set is used for **tuning / SAC training**
   (presumably chosen for ELA-feature coverage). `plot_benchmark_3d` is a plotting helper.
-- `custom_test_set.py`: the **evaluation** set (BBOB FID/IID combos + CEC 2013/2015/2017 functions via opfunu).
+- `custom_test_set.py`: the **evaluation** set (BBOB FID/IID combos + CEC 2013/2014/2015/2017 functions via opfunu):
+  one problem per ELA cluster (closest to the cluster centroid, excluding `ela_benchmark_suite.py` problems).
 - `BBOBProblem` uses `cocoex.Suite("bbob", "", "")` and loops over rows for batched input (slow but correct).
   It works only for dimensions included in the patched suite: **2, 3, 5, 10, 20, 30, 40, 50, 60**.
   Changing that requires `scripts/update_bbob_dimensions.sh` + rerunning `setup_coco.sh`.
@@ -618,10 +619,6 @@ R8b is not a separate step: add each component's unit tests in the step that tou
 8. PSO history keys `velocities`/`diversity` are only populated at initialisation.
 9. Empty placeholder: `problems/misc_problems.py`.
 10. Git: branches `main` and `elitist-ifrace` (also on origin).
-13. `BBOB_FID17_IID2` is defined twice, as two separate classes: in `ela_benchmark_suite.py` (tuning set) and in
-    `custom_test_set.py` (evaluation set). They compute the same function, but result pickles and calypso paths
-    identify problems by class name, so the tuning and evaluation versions are indistinguishable there.
-    `execute.py` imports the evaluation-set version.
 14. **Revisit: what an adapter does when fewer particles are feasible than it wants elites.** PSO has no position
     boundary handling, so often only a few particles are inside the bounds (with `n_s = 30`, `n_x = 10`: about 3–5
     under r-UMDA, 14–26 under r-PBIL). The adapters only rank feasible particles. Three strategies:
