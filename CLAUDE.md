@@ -75,6 +75,9 @@ edaptive/
 │       └── timing.py               # @timed (wall + CPU time per method), core_time(timings)
 ├── experiments/
 │   ├── configs/*.json        # algorithm configs (see "Config schema")
+│   ├── problem_selection/
+│   │   ├── ela_features.csv  # ELA features of the BBOB/CEC instances (10-D), one row per feature run
+│   │   └── select_evaluation_problems.py # ELA clustering that picks the evaluation set
 │   └── scripts/
 │       ├── tune.py           # run I/F-race for a solver/optimizer/adapter + config
 │       └── execute.py        # run final experiments (uses tuned config if present), MPI-parallel
@@ -335,6 +338,12 @@ Adapters currently assume all adapted CPs are continuous.
   (presumably chosen for ELA-feature coverage). `plot_benchmark_3d` is a plotting helper.
 - `custom_test_set.py`: the **evaluation** set (BBOB FID/IID combos + CEC 2013/2014/2015/2017 functions via opfunu):
   one problem per ELA cluster (closest to the cluster centroid, excluding `ela_benchmark_suite.py` problems).
+  `experiments/problem_selection/select_evaluation_problems.py` makes the selection from `ela_features.csv` in the
+  same folder, following
+  Cenikj et al. (2022), SELECTOR (GECCO '22): median features over runs (`ic.eps.s` excluded), agglomerative
+  clustering (cosine, complete linkage) into 12 clusters, the largest split into 10 (21 in total). The authors'
+  code also hardcodes 12 and 10, picked by inspecting the cosine silhouette scores (which peak at 2). The
+  `ela_benchmark_suite.py` problems are listed in the script, so update it if that suite's BBOB problems change.
 - `BBOBProblem` uses `cocoex.Suite("bbob", "", "")` and loops over rows for batched input (slow but correct).
   It works only for dimensions included in the patched suite: **2, 3, 5, 10, 20, 30, 40, 50, 60**.
   Changing that requires `scripts/update_bbob_dimensions.sh` + rerunning `setup_coco.sh`.
@@ -485,12 +494,16 @@ mpirun -n 8 python experiments/scripts/execute.py --solver EDASolver --optimizer
     --identifier testname --n_x 30 --max_iter 5000 --n_trials 50
 python experiments/scripts/execute.py --solver StabilityGuidedPSO --identifier sg_pso \
     --config experiments/configs/sg_pso.json
+
+# Evaluation-set selection: prints silhouette scores, cluster contents and the selected problems, then a t-SNE plot
+python experiments/problem_selection/select_evaluation_problems.py
 ```
 `execute.py` writes `results/experiment_results/<identifier>.pkl` as `{problem_name: {trial: history_dict}}`
 (trial index = seed; `history_dict["timings"]` as in "Timing").
 
 ### Environment setup
 - Python **3.10** (TensorFlow 2.9 for calypso), `numpy<2`. Install with `pip install -e '.[dev]'` (`dev` adds ruff and pytest).
+  `requirements.txt` pins `joblib==1.5.2` for scikit-learn: joblib ≥ 1.6 needs `cloudpickle>=3`, but calypso pins 2.1.0.
 - Two environments share this folder:
   - **Host**: `venv/` in the repo, which is machine-specific (`.vscode/settings.json` hardcodes
     `/home/gary/Desktop/edaptive`). Never recreate or modify `venv/` from inside the dev container.
