@@ -1,10 +1,11 @@
-"""EMNA adapters (Larrañaga 2002, §4.4): shared multivariate normal model and
-EMNA_global."""
+"""EMNA adapters (Larrañaga 2002, §4.4): shared multivariate normal model,
+EMNA_global and EMNA_a."""
 
 import numpy as np
 import pytest
 
 from edaptive.adapters.elite_weighting import elite_weights
+from edaptive.adapters.emna_adaptive import EMNAAdaptive
 from edaptive.adapters.emna_global import EMNAGlobal
 from edaptive.core.parameters import Parameter, ParameterSpace, ParameterType
 
@@ -24,7 +25,8 @@ def space(types=(ParameterType.CONTINUOUS,) * 3):
     )
 
 
-def make_global(
+def make(
+    adapter_type,
     eta=1.0,
     sigma_min=1e-3,
     n_elites=3,
@@ -34,7 +36,7 @@ def make_global(
     seed=0,
     CP_space=None,
 ):
-    return EMNAGlobal(
+    return adapter_type(
         CP_space=space() if CP_space is None else CP_space,
         eta=eta,
         sigma_min=sigma_min,
@@ -44,6 +46,14 @@ def make_global(
         elite_signal=elite_signal,
         rng=np.random.default_rng(seed),
     )
+
+
+def make_global(**kwargs):
+    return make(EMNAGlobal, **kwargs)
+
+
+def make_adaptive(**kwargs):
+    return make(EMNAAdaptive, **kwargs)
 
 
 def data(f_X, adaptable_CPs, t=0, X=None):
@@ -91,9 +101,10 @@ def random_CPs(n, seed=1):
         },
     ],
 )
-def test_invalid_parameters_raise(kwargs):
+@pytest.mark.parametrize("adapter_type", [EMNAGlobal, EMNAAdaptive])
+def test_invalid_parameters_raise(adapter_type, kwargs):
     with pytest.raises(ValueError):
-        make_global(**kwargs)
+        make(adapter_type, **kwargs)
 
 
 # --- sampling -----------------------------------------------------------------
@@ -257,3 +268,124 @@ def test_global_does_not_touch_the_global_numpy_rng():
     adapter.update(adapter.check_update(**data([2, 1, 3, 0], random_CPs(4))))
     adapter.sample(10)
     np.testing.assert_array_equal(np.random.get_state()[1], state)
+
+
+# --- EMNA_a ---------------------------------------------------------------------
+
+
+def update_with(adapter, f_X, CPs):
+    adapter.update(adapter.check_update(**data(f_X, CPs)))
+
+
+def test_adaptive_first_update_fills_the_archive():
+    adapter = make_adaptive(n_elites=3)
+    CPs = random_CPs(5)
+    update_with(adapter, [4, 2, 0, 3, 1], CPs)
+    np.testing.assert_array_equal(adapter.archive_scores, [0, 1, 2])
+    np.testing.assert_allclose(adapter.archive_CPs, to_unit(CPs[[2, 4, 1]]))
+    np.testing.assert_allclose(adapter.mu, to_unit(CPs[[2, 4, 1]]).mean(axis=0))
+
+
+def test_adaptive_archive_keeps_the_best_of_archive_and_particles():
+    adapter = make_adaptive(n_elites=3)
+    old = random_CPs(3, seed=1)
+    new = random_CPs(3, seed=2)
+    update_with(adapter, [1, 3, 5], old)
+    update_with(adapter, [4, 2, 6], new)
+    np.testing.assert_array_equal(adapter.archive_scores, [1, 2, 3])
+    np.testing.assert_allclose(
+        adapter.archive_CPs, to_unit(np.stack([old[0], new[1], old[1]]))
+    )
+
+
+def test_adaptive_tie_keeps_the_existing_entry():
+    adapter = make_adaptive(n_elites=2)
+    old = random_CPs(2, seed=1)
+    new = random_CPs(2, seed=2)
+    update_with(adapter, [1, 2], old)
+    update_with(adapter, [2, 9], new)
+    np.testing.assert_allclose(adapter.archive_CPs, to_unit(old))
+
+
+def test_adaptive_worse_particles_leave_the_archive_unchanged():
+    adapter = make_adaptive(n_elites=2, eta=1.0)
+    old = random_CPs(2, seed=1)
+    update_with(adapter, [1, 2], old)
+    mu, Sigma = adapter.mu.copy(), adapter.Sigma.copy()
+    update_with(adapter, [5, 6, 7], random_CPs(3, seed=2))
+    np.testing.assert_allclose(adapter.archive_CPs, to_unit(old))
+    np.testing.assert_allclose(adapter.mu, mu)
+    np.testing.assert_allclose(adapter.Sigma, Sigma)
+
+
+def test_adaptive_grows_the_archive_until_it_has_n_elites():
+    adapter = make_adaptive(n_elites=5)
+    update_with(adapter, [1, 2], random_CPs(2, seed=1))
+    assert len(adapter.archive_scores) == 2
+    update_with(adapter, [3, 4, 5, 6], random_CPs(4, seed=2))
+    assert len(adapter.archive_scores) == 5
+
+
+def paper_replacement(population, mu, Sigma, x_ge, worst):
+    """One replacement with eqs. (3.34)-(3.35) as printed: ``x_ge`` replaces
+    ``population[worst]``."""
+    N = len(population)
+    x_N = population[worst]
+    mu_next = mu + (x_ge - x_N) / N
+    sums = (population - mu).sum(axis=0)  # sum_r (x^{l,r} - mu^l)
+    d = x_ge - x_N
+    Sigma_next = (
+        Sigma
+        - np.outer(d, sums) / N**2
+        - np.outer(sums, d) / N**2
+        + np.outer(d, d) / N**2
+        - np.outer(x_N - mu_next, x_N - mu_next) / N
+        + np.outer(x_ge - mu_next, x_ge - mu_next) / N
+    )
+    population = population.copy()
+    population[worst] = x_ge
+    return population, mu_next, Sigma_next
+
+
+def test_adaptive_matches_the_paper_incremental_formulas():
+    adapter = make_adaptive(n_elites=4, eta=1.0, sigma_min=1e-4)
+    first = random_CPs(4, seed=1)
+    first_scores = np.array([3.0, 1.0, 4.0, 2.0])
+    update_with(adapter, first_scores, first)
+
+    population = to_unit(first)
+    scores = first_scores.copy()
+    mu, Sigma = EMNAAdaptive.weighted_moments(population, np.full(4, 0.25))
+
+    new = random_CPs(3, seed=2)
+    new_scores = np.array([0.5, 5.0, 2.5])
+    for x, score in zip(to_unit(new), new_scores, strict=True):
+        worst = np.argmax(scores)
+        if score < scores[worst]:
+            population, mu, Sigma = paper_replacement(population, mu, Sigma, x, worst)
+            scores[worst] = score
+
+    update_with(adapter, new_scores, new)
+    np.testing.assert_allclose(adapter.mu, mu)
+    np.testing.assert_allclose(adapter.Sigma, Sigma)
+
+
+@pytest.mark.parametrize("elite_weighting", ["rank", "log-rank"])
+def test_adaptive_weights_the_archive_by_rank(elite_weighting):
+    adapter = make_adaptive(n_elites=3, elite_weighting=elite_weighting)
+    old = random_CPs(3, seed=1)
+    new = random_CPs(2, seed=2)
+    update_with(adapter, [1, 3, 5], old)
+    update_with(adapter, [2, 9], new)
+    archive = to_unit(np.stack([old[0], new[0], old[1]]))
+    w = elite_weights(3, elite_weighting)
+    expected_mu, _ = EMNAAdaptive.weighted_moments(archive, w)
+    np.testing.assert_allclose(adapter.mu, expected_mu)
+
+
+def test_adaptive_eta_blends_toward_the_archive_moments():
+    adapter = make_adaptive(n_elites=3, eta=0.4, sigma_min=1e-4)
+    CPs = random_CPs(3)
+    update_with(adapter, [1, 2, 3], CPs)
+    mu_hat = to_unit(CPs).mean(axis=0)
+    np.testing.assert_allclose(adapter.mu, 0.6 * 0.5 + 0.4 * mu_hat)

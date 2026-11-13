@@ -13,6 +13,7 @@ import numpy as np
 
 from edaptive.adapters.beta_eda import BetaEDA
 from edaptive.adapters.emna import MultivariateNormalEDA
+from edaptive.adapters.emna_adaptive import EMNAAdaptive
 from edaptive.adapters.emna_global import EMNAGlobal
 from edaptive.adapters.multi_valued_eda import MultiValuedEDA
 from edaptive.adapters.r_cga import RcGA
@@ -223,6 +224,13 @@ SOLVER_CASES = {
         EMNAGlobal,
         _emna_config(update_freq=5, elite_signal="improvement"),
     ),
+    "emna_adaptive": (EDASolver, EMNAAdaptive, _emna_config()),
+    "emna_adaptive_rank": (EDASolver, EMNAAdaptive, _emna_config("rank")),
+    "emna_adaptive_freq5_improvement": (
+        EDASolver,
+        EMNAAdaptive,
+        _emna_config(update_freq=5, elite_signal="improvement"),
+    ),
 }
 
 
@@ -264,6 +272,8 @@ def run_solver(solver_type, adapter_type, config, problem_type, seed):
     if isinstance(adapter, MultivariateNormalEDA):
         out["adapter_mu"] = _floats(adapter.mu)
         out["adapter_Sigma"] = adapter.Sigma.tolist()
+    if isinstance(adapter, EMNAAdaptive):
+        out["adapter_archive_size"] = len(adapter.archive_scores)
     return out
 
 

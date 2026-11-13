@@ -5,6 +5,7 @@
 """
 
 from edaptive.adapters.beta_eda import BetaEDA
+from edaptive.adapters.emna_adaptive import EMNAAdaptive
 from edaptive.adapters.emna_global import EMNAGlobal
 from edaptive.adapters.r_cga import RcGA
 from edaptive.adapters.r_pbil import RPBIL
@@ -34,7 +35,15 @@ OPTIMIZERS = {cls.__name__: cls for cls in (PSO,)}
 
 ADAPTERS = {
     cls.__name__: cls
-    for cls in (BetaEDA, UniformRandomAdapter, RUMDA, RPBIL, RcGA, EMNAGlobal)
+    for cls in (
+        BetaEDA,
+        UniformRandomAdapter,
+        RUMDA,
+        RPBIL,
+        RcGA,
+        EMNAGlobal,
+        EMNAAdaptive,
+    )
 }
 
 _REGISTRIES = {"solver": SOLVERS, "optimizer": OPTIMIZERS, "adapter": ADAPTERS}
