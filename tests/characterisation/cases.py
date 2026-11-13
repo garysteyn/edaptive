@@ -12,6 +12,8 @@ is meant to change behaviour, and the commit says so.
 import numpy as np
 
 from edaptive.adapters.beta_eda import BetaEDA
+from edaptive.adapters.emna import MultivariateNormalEDA
+from edaptive.adapters.emna_global import EMNAGlobal
 from edaptive.adapters.multi_valued_eda import MultiValuedEDA
 from edaptive.adapters.r_cga import RcGA
 from edaptive.adapters.r_pbil import RPBIL
@@ -108,6 +110,21 @@ _MIXED_ADAPTED = {
 }
 
 
+def _emna_config(elite_weighting="None", update_freq=1, elite_signal="fitness"):
+    return {
+        "identifier": "char_emna",
+        "adapter": (
+            _fixed("eta", 0.3, "continuous")
+            | _fixed("sigma_min", 0.01, "continuous")
+            | _fixed("n_elites", 5, "integer")
+            | _fixed("update_freq", update_freq, "integer")
+            | _fixed("elite_weighting", elite_weighting, "categorical")
+            | _fixed("elite_signal", elite_signal, "categorical")
+        ),
+        "optimizer": {"fixed": _fixed("n_s", N_S, "integer"), "adapted": _ADAPTED},
+    }
+
+
 _BASIC_CONFIG = {
     "identifier": "char_basic",
     "optimizer": {
@@ -199,6 +216,13 @@ SOLVER_CASES = {
             "char_r_cga", _R_CGA_PARAMS, update_freq=5, elite_signal="improvement"
         ),
     ),
+    "emna_global": (EDASolver, EMNAGlobal, _emna_config()),
+    "emna_global_log_rank": (EDASolver, EMNAGlobal, _emna_config("log-rank")),
+    "emna_global_freq5_improvement": (
+        EDASolver,
+        EMNAGlobal,
+        _emna_config(update_freq=5, elite_signal="improvement"),
+    ),
 }
 
 
@@ -237,6 +261,9 @@ def run_solver(solver_type, adapter_type, config, problem_type, seed):
             out["adapter_R"] = np.asarray(adapter.R).tolist()
     if isinstance(adapter, MultiValuedEDA):
         out["adapter_p"] = adapter.p.tolist()
+    if isinstance(adapter, MultivariateNormalEDA):
+        out["adapter_mu"] = _floats(adapter.mu)
+        out["adapter_Sigma"] = adapter.Sigma.tolist()
     return out
 
 

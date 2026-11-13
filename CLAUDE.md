@@ -42,7 +42,9 @@ edaptive/
 │   │   └── parameters.py     # ParameterType, Parameter, ParameterSpace
 │   ├── adapters/             # generic (optimizer-agnostic) adapters
 │   │   ├── beta_eda.py       # BetaEDA (beta marginals, optional Gaussian copula) + commented-out legacy variants
-│   │   ├── elite_weighting.py # elite_weights(n, elite_weighting): rank weights shared by BetaEDA, RUMDA, RPBIL
+│   │   ├── elite_weighting.py # elite_weights(n, elite_weighting): rank weights shared by BetaEDA, RUMDA, RPBIL, EMNA
+│   │   ├── emna.py           # MultivariateNormalEDA: shared truncated multivariate normal model of the EMNA adapters
+│   │   ├── emna_global.py    # EMNAGlobal (Larrañaga 2002, §4.4.1)
 │   │   ├── multi_valued_eda.py # MultiValuedEDA: shared model of the r-valued EDAs (grid, frequencies, borders)
 │   │   ├── r_cga.py          # RcGA (Ben Jedidia, Doerr & Krejca 2023, Alg. 4)
 │   │   ├── r_pbil.py         # RPBIL (Ben Jedidia, Doerr & Krejca 2023, Alg. 3)
@@ -244,6 +246,41 @@ the paper; the only additions are the selection options shared with `BetaEDA`.
 - RNG consumption: one `rng.random((N, n))` per `sample`; one `rng.permutation(n_feasible)` per returned update
   (`RUMDA`, `RPBIL`); for `RcGA` one `rng.choice(n_feasible, 2, replace=False)` per returned update, plus one
   `rng.random()` only when the pair's scores tie.
+
+### EMNA adapters (`adapters/emna.py`, `emna_global.py`)
+Larrañaga (2002), "A Review on Estimation of Distribution Algorithms", §4.4 (a local copy may be at
+`../papers/Larranaga_EDA_Review_3.pdf`). The paper's EMNA variants with these additions: bounded sampling,
+learning rate `eta`, minimum standard deviation `sigma_min`, and rank-based elite weighting.
+- `MultivariateNormalEDA(EDAAdapter)` (abstract): model N(`mu`, `Sigma`) over the adapted CPs rescaled to [0,1]
+  by their bounds ("unit space"), so `sigma_min` is a fraction of each CP's range. Only continuous CPs are accepted.
+  `initialize_model(eta, sigma_min, n_elites, update_freq, elite_weighting, elite_signal, rng)` raises
+  `ValueError` for:
+  - a non-continuous CP;
+  - `eta ∉ (0, 1]`;
+  - `sigma_min ∉ (0, 0.5]`;
+  - `n_elites < 2`;
+  - an unknown `elite_signal`.
+- Init: `mu = 0.5`, `Sigma = I/12` (the moments of the uniform distribution), `fitted = False`. Until the first
+  update, `sample` draws uniformly in the bounds (one `rng.random((N, n))`). After that it draws from N(mu, Sigma)
+  truncated to the unit box by vectorised rejection sampling:
+  - each round makes one `rng.standard_normal((remaining, n))` call, mapped through `A` (with `A Aᵀ = Sigma`);
+  - `MAX_REJECTION_ROUNDS = 1000`, after which it raises `RuntimeError`. `mu` stays inside the box, so
+    acceptance is high.
+- `check_update`: works as in `BetaEDA`:
+  - it runs every `update_freq` iterations and uses feasible particles only, needing at least 2;
+  - `elite_signal` and the window rule are the same; `start` stores the window baseline and does not fit the
+    model;
+  - it returns `(scores, unit_CPs)` of the feasible particles, best first (stable argsort, no RNG).
+- `update`: the subclass's `estimate(scores, unit_CPs)` → `(μ̂, Σ̂)` → `set_model`:
+  - `mu, Sigma ← (1−eta)·old + eta·(μ̂, Σ̂)`;
+  - the eigenvalues of `Sigma` are clipped to `≥ sigma_min²`, giving a standard deviation of at least
+    `sigma_min` in every direction.
+  - `weighted_moments` gives plain weighted moments (no Bessel correction, as in BetaEDA). With uniform weights
+    they are the paper's ML estimates (eqs. 3.31–3.33).
+- `EMNAGlobal`: `initialize(eta, sigma_min, n_elites, update_freq, elite_weighting, elite_signal, rng)`.
+  `estimate` = weighted moments of the `n_elites` best feasible particles. With fewer feasible particles it uses
+  all of them (≥ 2), as BetaEDA does. Weights come from `elite_weights`. With `eta = 1` and uniform weights the
+  estimate is Fig. 3.16's; only `sigma_min` and the truncation differ.
 
 ### Solvers (`core/solver.py: BaseSolver`)
 - Every solver has the same constructor (used by IFRace, execute.py and the tests):
@@ -475,7 +512,8 @@ CP via `Parameter.from_config`, so integer and categorical (`classes`) adapted C
 `tuning_parameter_space` is `None` when nothing is tuned. Current configs: `basic.json` (static PSO, tunes w/c_1/c_2), `test.json` (BetaEDA-PSO, `elite_signal` `"fitness"`),
 `sg_pso.json`, `tvac_pso.json` (no tuning; `tvac_pso.json` sets `V_max_fraction` 0.5), `r_umda.json` (RUMDA,
 `n_values` 10, `elite_weighting` `"None"`, tunes `mu ∈ [1, 30]`), `r_pbil.json` (RPBIL, same, also tunes `rho ∈ [1e-3, 1]` on a log scale),
-`r_cga.json` (RcGA, tunes `K ∈ [1, 1000]` on a log scale instead of `mu`). `test2.json` is stale (uses `kappa_max` and categorical `n_elites`, which `BetaEDA` doesn't accept).
+`r_cga.json` (RcGA, tunes `K ∈ [1, 1000]` on a log scale instead of `mu`), `emna_global.json` (EMNAGlobal, tunes
+`eta ∈ [1e-3, 1]` and `sigma_min ∈ [1e-3, 0.1]` on log scales and `n_elites ∈ [2, 30]`). `test2.json` is stale (uses `kappa_max` and categorical `n_elites`, which `BetaEDA` doesn't accept).
 
 ## Running things
 
@@ -527,9 +565,11 @@ grows these). `tests/tuning/test_ifrace_mpi.py` runs both tuning cases under `mp
   and `update_freq=5`; `EDASolver`+`RUMDA` (`n_values=5`, `mu=3`): plain, with `update_freq=5` +
   `elite_signal="improvement"`, and with one CP of each type (`w` categorical, `c_1` continuous, `c_2` integer);
   `EDASolver`+`RPBIL` (`mu=3`, `rho=0.3`) and `EDASolver`+`RcGA` (`K=10`), each plain and with `update_freq=5` +
-  `elite_signal="improvement"`; RUMDA with `"log-rank"` and RPBIL with `"rank"` elite weighting) on Rosenbrock and GeneralizedEggCrate
+  `elite_signal="improvement"`; RUMDA with `"log-rank"` and RPBIL with `"rank"` elite weighting; `EDASolver`+`EMNAGlobal` (`eta=0.3`,
+  `sigma_min=0.01`, `n_elites=5`): plain, with `"log-rank"` weighting, and with `update_freq=5` +
+  `elite_signal="improvement"`) on Rosenbrock and GeneralizedEggCrate
   (`n_x=5`, `n_s=10`, 100 iterations). Pins the `f_best`/`prop_feasible`/`prop_stable` histories, final `X` and
-  `adaptable_CPs`, BetaEDA's `a`/`b` (and `R`), and the multi-valued EDAs' `p`.
+  `adaptable_CPs`, BetaEDA's `a`/`b` (and `R`), the multi-valued EDAs' `p`, and the EMNA adapters' `mu`/`Sigma`.
 - Same seed reproduces; different seeds differ; no solver touches numpy's global RNG (its state is unchanged,
   and reseeding it doesn't change results).
 - Two small seeded `IFRace.tune` runs (BasicSolver tuning w/c_1/c_2; EDASolver+BetaEDA tuning eta/rho_min/n_elites
