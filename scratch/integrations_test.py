@@ -1,55 +1,33 @@
-import numpy as np
-from edaptive.problems.ela_benchmark_suite import *
+# Smoke test of the calypso integrations: a tiny SAC training run (3 functions,
+# one BBOB; 5-D, 200 iterations, budget 18 runs). The real training is
+# experiments/scripts/train_sac.py. Deletes calypso/data and calypso/log.
+from edaptive.integrations.calypso.bs_pso import BS_PSO  # noqa: F401
 from edaptive.integrations.calypso.sac_pso import CalypsoWrapper
-from edaptive.integrations.calypso.bs_pso import BS_PSO
+from edaptive.problems.ela_benchmark_suite import BBOB_FID2_IID1, Ripple25, Rosenbrock
 
-problems = [
-    Schwefel1,
-    Ripple25,
-    Exponential,
-    NeedleEye,
-    Step3,
-    GeneralizedGiunta,
-    GeneralizedPaviani,
-    Brown,
-    CosineMixture,
-    Mishra07,
-    Mishra01,
-    GeneralizedPrice2,
-    GeneralizedEggCrate,
-    Rosenbrock,
-    Pinter2,
-    Qing,
-    # BBOB_FID2_IID1,
-    # BBOB_FID6_IID1,
-    # BBOB_FID16_IID1,
-    # BBOB_FID17_IID2,
-    DropWave,
-    BonyadiMichalewicz,
-    Discus,
-    Elliptic,
-]
+problems = [Rosenbrock, Ripple25, BBOB_FID2_IID1]
 
 wrapper = CalypsoWrapper(
-    dimensions=30,
-    N=30,
-    max_iter_cal=5000,
+    dimensions=5,
+    N=10,
+    max_iter_cal=200,
     train_problems=problems,
     validation_problems=problems,
     j=50,
-    i=200000,
-    n=256,
+    i=1000,
+    n=32,
     gamma=0.99,
     rsf=1,
     ilr=0.0001,
     dcr=1,
     dcs=100,
-    ics=5,
-    psi=10,
-    ei=10,
+    ics=1,
+    psi=1,
+    ei=1,
     nef=1,
     vc=True,
     seed=123,
+    budget_runs=18,
 )
 
 wrapper.train()

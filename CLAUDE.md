@@ -84,9 +84,11 @@ edaptive/
 │   │   └── select_evaluation_problems.py # ELA clustering that picks the evaluation set
 │   └── scripts/
 │       ├── tune.py           # run I/F-race for a solver/optimizer/adapter + config
-│       └── execute.py        # run final experiments (uses tuned config if present), MPI-parallel
+│       ├── execute.py        # run final experiments (uses tuned config if present), MPI-parallel
+│       └── train_sac.py      # SAC-SAPSO training in calypso (authors' settings, TRAINING_SET, B = 2000, seed 123)
 ├── scratch/                  # ad-hoc driver scripts (kept in git, excluded from ruff, not tests);
 │                             # r_eda_demo.py runs PSO + a multi-valued EDA and plots its frequencies;
+│                             # integrations_test.py: tiny SAC training smoke test via CalypsoWrapper;
 │                             # sac_sapso_equivalence.py: calypso policy vs SACSAPSO (see "SACSAPSO")
 ├── tests/                    # pytest (`testpaths` set in pyproject.toml); see "Tests"
 │   ├── conftest.py           # forces the Agg matplotlib backend
@@ -423,7 +425,7 @@ Adapters currently assume all adapted CPs are continuous.
   GeneralizedEggCrate, Rosenbrock, Pinter2(_OG), Qing, DropWave, BonyadiMichalewicz, Discus, Elliptic) plus
   `BBOB_FID{2,6,16,17}_IID*`, with optional `global_optimum` metadata. `plot_benchmark_3d` is a plotting helper.
   `TRAINING_SET` (tuple of 24 classes, the Lang & Engelbrecht set, non-`_OG` variants) is the one configuration set:
-  `tune.py`'s I/F-race instances and SAC-SAPSO's training and validation functions.
+  `tune.py`'s I/F-race instances and SAC-SAPSO's training and validation functions (`experiments/scripts/train_sac.py`).
   `execute.py` still has its own lists (Known issue 4).
 - `custom_test_set.py`: the **evaluation** set (BBOB FID/IID combos + CEC 2013/2014/2015/2017 functions via opfunu):
   one problem per ELA cluster (closest to the cluster centroid, excluding `ela_benchmark_suite.py` problems).
@@ -587,6 +589,12 @@ mpirun -n 8 python experiments/scripts/execute.py --solver EDASolver --optimizer
 python experiments/scripts/execute.py --solver StabilityGuidedPSO --identifier sg_pso \
     --config experiments/configs/sg_pso.json
 
+# SAC-SAPSO: train in calypso (deletes calypso/data and calypso/log first), export, run
+python experiments/scripts/train_sac.py
+(cd calypso && python -m scripts.rl.exportPolicy --exp vc_sac_j50)   # → results/sac_training/vc_sac_j50/
+mpirun -n 8 python experiments/scripts/execute.py --solver SACSAPSO --identifier sac_sapso \
+    --config experiments/configs/sac_sapso.json --n_x 30 --max_iter 5000 --n_trials 50
+
 # Evaluation-set selection: prints silhouette scores, cluster contents and the selected problems, then a t-SNE plot
 python experiments/problem_selection/select_evaluation_problems.py
 ```
@@ -679,6 +687,11 @@ belief-space-guided SA-PSO (`scripts/pso/calypso.py`, run via `scripts.pso.execu
   n_validations`, plus `completed_collect_episodes`, `stopped_by`; asserts `total_runs ≤ B`), `training_times.json`
   (wall `perf_counter` / CPU `process_time` of the whole script after argument parsing: the configuration cost).
 - `CalypsoWrapper(..., budget_runs=None, eval_seed_offset=None)` passes both through.
+  `experiments/scripts/train_sac.py` holds the agreed settings (`TRAINING_SET`, `B = 2000`, seed 123; experiment
+  name `vc_sac_j50`). It passes no `--dsoff`, so training uses tf-agents' distribution strategy.
+- Measured on the dev container (3 full-size functions incl. BBOB, `--dsoff`): ≈ 0.9 s per initial-collect episode,
+  ≈ 4.2 s per collect episode (incl. 100 learner steps at `n = 256`), ≈ 1.3 s per validation episode, so ≈ 2 h for
+  the 1968 runs.
 - **Export** (`scripts/rl/exportPolicy.py --exp <exp> [--out <dir>] [--step <step>]`, default step from
   `selected_policy.json`, default `<dir>` = `../results/sac_training/<exp>/` in edaptive's gitignored `results/`):
   writes `policy.npz` (format in "SACSAPSO", `policy_type "stochastic"`), copies `selected_policy.json`,
