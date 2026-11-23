@@ -48,7 +48,7 @@ index 1e40cdb..38b4981 100644
  from scipy.linalg import qr
  
 diff --git a/scripts/pso/calypso.py b/scripts/pso/calypso.py
-index 83c2657..ff31b3b 100644
+index 83c2657..7b43400 100644
 --- a/scripts/pso/calypso.py
 +++ b/scripts/pso/calypso.py
 @@ -8,6 +8,7 @@ import matplotlib.animation as animation
@@ -59,7 +59,18 @@ index 83c2657..ff31b3b 100644
  
  class CALYPSO:
      '''
-@@ -79,7 +80,7 @@ class CALYPSO:
+@@ -70,8 +71,8 @@ class CALYPSO:
+     seterr : str, default 'raise'
+              'raise', 'warn', 'ignore'
+              How to handle numpy errors.
+-    dtype : np.type, default np.float32
+-            Which numpy type to use.
++    dtype : np.type, default np.float64
++            Which numpy type to use for positions, velocities and losses.
+     '''
+ 
+ 
+@@ -79,10 +80,10 @@ class CALYPSO:
          self,
          exp, run, seed,
          loss, lim, name,
@@ -67,7 +78,11 @@ index 83c2657..ff31b3b 100644
 +        N=N, D=D, maxIterCal=MAXITER_CAL,
          baseline=None, imitate=False, beliefSpace=None, velocityClamping=False, bsStabilityGuided=False,
          bsTriggerCriteria=None, bsPatience=None, bsSelectionCriteria=None, Ne=None,
-         savePath=False, rl=False, seterr='raise', dtype=np.float32
+-        savePath=False, rl=False, seterr='raise', dtype=np.float32
++        savePath=False, rl=False, seterr='raise', dtype=np.float64
+     ):
+ 
+         self.exp                 = exp
 @@ -91,6 +92,7 @@ class CALYPSO:
          
          self.N                   = N
@@ -370,7 +385,7 @@ index 2c0e466..c1ef381 100644
  
  
 diff --git a/scripts/rl/calypsoEnv.py b/scripts/rl/calypsoEnv.py
-index 84ef508..7d528ad 100644
+index 84ef508..b7b4c1a 100644
 --- a/scripts/rl/calypsoEnv.py
 +++ b/scripts/rl/calypsoEnv.py
 @@ -6,8 +6,8 @@ from tf_agents.environments import py_environment
@@ -393,6 +408,15 @@ index 84ef508..7d528ad 100644
      ):
          '''
          Instantiate a Calypso RL environment.
+@@ -90,7 +91,7 @@ class calypsoEnv(py_environment.PyEnvironment):
+ 
+         # Define Environment parameters
+         self.envName         = envName
+-        self.dtype           = np.float32
++        self.dtype           = np.float64
+         self.evalEnv         = evalEnv
+         self.funcs           = funcs
+         self.run             = run
 @@ -108,6 +109,8 @@ class calypsoEnv(py_environment.PyEnvironment):
          self.D                = params['D']
          self.j                = params['j']
@@ -402,7 +426,7 @@ index 84ef508..7d528ad 100644
          self.funcRanges       = lpkl(f'{pklDIR}/funcRanges.pkl')
          self.varsPath         = varsPath
          self.pklPath          = None
-@@ -122,6 +125,12 @@ class calypsoEnv(py_environment.PyEnvironment):
+@@ -122,10 +125,16 @@ class calypsoEnv(py_environment.PyEnvironment):
          self.discount = params['gamma']
  
  
@@ -415,6 +439,11 @@ index 84ef508..7d528ad 100644
          # Define the observation specification
          self._observation_spec = array_spec.BoundedArraySpec(
              shape   = (1 + 1 + 1 + self.N,),  # i, infeasibleParticles, stableParticles, v
+-            dtype   = self.dtype,             # should be float64, float32 might really be too low precision
++            dtype   = self.dtype,
+             minimum = 0,
+             maximum = 1,
+             name    = 'observation'           # figure out what the rl 'loss' is
 @@ -159,7 +168,7 @@ class calypsoEnv(py_environment.PyEnvironment):
          # know the limits in anyway.
          arr = np.array(
@@ -489,6 +518,15 @@ index 84ef508..7d528ad 100644
          self.lsbInit = self.lsbPrev.copy()
          vNormed      = np.zeros((self.N,), dtype=self.dtype)
          self.setState(self.i, 0.0, 0.5, vNormed)
+@@ -231,7 +252,7 @@ class calypsoEnv(py_environment.PyEnvironment):
+ 
+ 
+         # Return
+-        return time_step.restart(self._state)
++        return self.timeStep(time_step.StepType.FIRST, reward=0, discount=1)
+ 
+ 
+ 
 @@ -247,6 +268,9 @@ class calypsoEnv(py_environment.PyEnvironment):
          if self._episode_ended:
              return self.reset()
@@ -532,11 +570,76 @@ index 84ef508..7d528ad 100644
              if self.lsbCurr < self.L_min:
                  self.funcRanges.loc[self.func, 'low'] = self.lsbCurr
                  pl(f'Updated L_min for {self.func}')
+@@ -314,20 +344,27 @@ class calypsoEnv(py_environment.PyEnvironment):
+             else:
+                 wpkl(f'{self.varsPath}/run--collect.pkl', self.run)
+             
+-            return time_step.termination(  # this should happen when loss stagnates
+-                observation = self.dtype(self._state),
+-                reward      = self.dtype(reward),
+-            )
++            return self.timeStep(time_step.StepType.LAST, reward=reward, discount=0)  # this should happen when loss stagnates
+ 
+         # Return transition timestep
+         else:
+             # if reward:
+             #     pl(f'{self.i} -- Reward: {reward}')
+-            return time_step.transition(
+-                observation = self.dtype(self._state),
+-                reward      = self.dtype(reward),
+-                discount    = self.dtype(self.discount)
+-            )
++            return self.timeStep(time_step.StepType.MID, reward=reward, discount=self.discount)
++
++
++
++    def timeStep(self, stepType, reward, discount):
++        '''
++        The current state as a time step in self.dtype. tf-agents' restart,
++        transition and termination always make the reward and discount float32.
++        '''
++        return time_step.TimeStep(
++            step_type   = np.asarray(stepType, dtype=np.int32),
++            reward      = self.dtype(reward),
++            discount    = self.dtype(discount),
++            observation = self.dtype(self._state),
++        )
+ 
+ 
+ 
+@@ -335,6 +372,27 @@ class calypsoEnv(py_environment.PyEnvironment):
+         return self._action_spec
+ 
+ 
++
++    def reward_spec(self):
++        return array_spec.ArraySpec(shape=(), dtype=self.dtype, name='reward')
++
++
++
++    def discount_spec(self):
++        return array_spec.BoundedArraySpec(shape=(), dtype=self.dtype, minimum=0., maximum=1., name='discount')
++
++
++
++    def time_step_spec(self):
++        # tf-agents' time_step_spec always makes the discount spec float32
++        return time_step.TimeStep(
++            step_type   = array_spec.ArraySpec(shape=(), dtype=np.int32, name='step_type'),
++            reward      = self.reward_spec(),
++            discount    = self.discount_spec(),
++            observation = self.observation_spec(),
++        )
++
++
+   
+     def observation_spec(self):
+         return self._observation_spec
 diff --git a/scripts/rl/calypsoTrainSAC.py b/scripts/rl/calypsoTrainSAC.py
-index b6fb403..7fdef33 100644
+index b6fb403..a201708 100644
 --- a/scripts/rl/calypsoTrainSAC.py
 +++ b/scripts/rl/calypsoTrainSAC.py
-@@ -7,26 +7,40 @@ which tunes the Calypso control parameters.
+@@ -7,26 +7,41 @@ which tunes the Calypso control parameters.
  
  ## Imports
  import os
@@ -559,6 +662,7 @@ index b6fb403..7fdef33 100644
 +# TensorFlow's own thread pools ignore OMP_NUM_THREADS.
 +tf.config.threading.set_intra_op_parallelism_threads(1)
 +tf.config.threading.set_inter_op_parallelism_threads(1)
++tf.keras.backend.set_floatx('float64')  # networks, specs and losses in float64, like the PSO
 +
  from scripts.const import *
  from scripts.tools.utils import *
@@ -580,7 +684,7 @@ index b6fb403..7fdef33 100644
  # parser.add_argument('--k',     type=int,            help='max_iter_funcsets -- i.t.o whole function sets')
  
  parser.add_argument('--n',     type=int,            help='batch_size & layer_params')
-@@ -48,8 +62,101 @@ parser.add_argument('--text',  type=str,            help='Some text')
+@@ -48,8 +63,101 @@ parser.add_argument('--text',  type=str,            help='Some text')
  parser.add_argument('--vc',    action='store_true', help='Velocity clamping')
  parser.add_argument('--dsoff', action='store_true', help='Turn off distributed strategy parallel processing')
  parser.add_argument('--temp',  action='store_true', help='Perform a temporary run which can be discarded')
@@ -683,7 +787,7 @@ index b6fb403..7fdef33 100644
  argsDict = vars(args)
  
  
-@@ -60,6 +167,33 @@ NUMFUNCS_EVAL = len(FUNCTIONS_EVAL)
+@@ -60,6 +168,33 @@ NUMFUNCS_EVAL = len(FUNCTIONS_EVAL)
  
  
  
@@ -717,7 +821,7 @@ index b6fb403..7fdef33 100644
  ## File management
  if args.resume:
      exp = args.resume
-@@ -137,11 +271,13 @@ if args.resume:
+@@ -137,11 +272,13 @@ if args.resume:
      envParams = ljson(glob.glob(f'{varsPath}/envParams*')[0])
  else:
      envParams = {
@@ -733,7 +837,7 @@ index b6fb403..7fdef33 100644
      }
      wjson(f'{varsPath}/envParams--{int(time.time())}.json', envParams)
  
-@@ -151,7 +287,7 @@ else:
+@@ -151,7 +288,7 @@ else:
  if args.j.isnumeric():
      j = int(args.j)
      pl(f'j: {j}')
@@ -742,7 +846,7 @@ index b6fb403..7fdef33 100644
      pl(f'SAC steps per Function: {stepsPerFunc}')
      pl(f'Functions per Training Set: {NUMFUNCS_TRAIN}')
      pl(f'Training Sets per Training: {args.i / NUMFUNCS_TRAIN / stepsPerFunc}')
-@@ -161,7 +297,7 @@ elif args.j=='auto':
+@@ -161,7 +298,7 @@ elif args.j=='auto':
      pl('CHECK "j" in calypsoTrainSac.py and "MAXITER / x" in calypsoEnv.py!!!')
      j = 250  # might have to adjust this, it affects the size of buffers & iters, also because it learns to use more steps
      pl(f'Estimated j: {j}')
@@ -751,7 +855,7 @@ index b6fb403..7fdef33 100644
      pl(f'Estimated SAC steps per Function: {stepsPerFunc}')
      pl(f'Functions per Training Function Set: {NUMFUNCS_TRAIN}')
      pl(f'Estimated Training Sets per Training: {args.i / NUMFUNCS_TRAIN / stepsPerFunc}')
-@@ -189,14 +325,17 @@ sacParams = {
+@@ -189,14 +326,17 @@ sacParams = {
      
      # 'initial_collect_funcsets'       :   (1                * args.ics * 1           ),
      # 'initial_collect_funcs'          : fi(NUMFUNCS_TRAIN   * args.ics * 1           ),
@@ -771,7 +875,7 @@ index b6fb403..7fdef33 100644
      # 'eval_interval_steps'            : fi(NUMFUNCS_TRAIN   * args.ei  * stepsPerFunc),
  
      # 'num_eval_funcsets'              :   (1                * args.nef * 1           ),
-@@ -233,10 +372,16 @@ sacParams = {
+@@ -233,10 +373,16 @@ sacParams = {
      'funcs_train'                    : FUNCTIONS_TRAIN,
      'numfuncs_train'                 : NUMFUNCS_TRAIN,
      'funcs_eval'                     : FUNCTIONS_EVAL,
@@ -790,7 +894,7 @@ index b6fb403..7fdef33 100644
  
  
  ## Environment
-@@ -257,7 +402,8 @@ envEval = calypsoEnv(
+@@ -257,7 +403,8 @@ envEval = calypsoEnv(
      pklPath         = pklPath,
      numEvalEpisodes = sacParams['num_eval_funcs'],
      funcs           = FUNCTIONS_EVAL,
@@ -800,7 +904,7 @@ index b6fb403..7fdef33 100644
  )
  
  
-@@ -273,6 +419,7 @@ sacAgent = softActorCritic(
+@@ -273,6 +420,7 @@ sacAgent = softActorCritic(
      params      = sacParams,
      modelPath   = modelPath,
      plotPath    = plotPath,
@@ -808,7 +912,7 @@ index b6fb403..7fdef33 100644
      distributed = distributed  # check that the GPU is actually being used
  )
  
-@@ -281,6 +428,11 @@ sacAgent = softActorCritic(
+@@ -281,6 +429,11 @@ sacAgent = softActorCritic(
  ## Train
  sacAgent.fit(resume=args.resume)
  
@@ -822,10 +926,10 @@ index b6fb403..7fdef33 100644
  ## Cleanup
 diff --git a/scripts/rl/exportPolicy.py b/scripts/rl/exportPolicy.py
 new file mode 100644
-index 0000000..ec24e47
+index 0000000..c19fa52
 --- /dev/null
 +++ b/scripts/rl/exportPolicy.py
-@@ -0,0 +1,223 @@
+@@ -0,0 +1,227 @@
 +'''
 +Exports a validated SAC policy to a numpy file for edaptive's SACSAPSO solver.
 +
@@ -856,6 +960,7 @@ index 0000000..ec24e47
 +
 +import numpy as np
 +import tensorflow as tf
++tf.keras.backend.set_floatx('float64')  # the rebuilt network's layers, as in training
 +from scipy.stats import ks_2samp
 +from tf_agents.agents.sac import tanh_normal_projection_network
 +from tf_agents.networks import actor_distribution_network
@@ -870,8 +975,8 @@ index 0000000..ec24e47
 +)
 +from scripts.const import LOC, dataDIR
 +
-+LOW  = np.array([0, 0, 0], dtype=np.float32)
-+HIGH = np.array([1, 4, 4], dtype=np.float32)
++LOW  = np.array([0, 0, 0], dtype=np.float64)
++HIGH = np.array([1, 4, 4], dtype=np.float64)
 +
 +FORWARD_TOLERANCE = 1e-5
 +N_FORWARD_OBSERVATIONS = 1000
@@ -911,13 +1016,14 @@ index 0000000..ec24e47
 +
 +
 +def rebuilt_network(weights, n_obs, n_hidden_units):
-+    observation_spec = tensor_spec.BoundedTensorSpec((n_obs,), tf.float32, 0, 1, name='observation')
-+    action_spec = tensor_spec.BoundedTensorSpec((3,), tf.float32, LOW, HIGH, name='action')
++    observation_spec = tensor_spec.BoundedTensorSpec((n_obs,), tf.float64, 0, 1, name='observation')
++    action_spec = tensor_spec.BoundedTensorSpec((3,), tf.float64, LOW, HIGH, name='action')
 +    network = actor_distribution_network.ActorDistributionNetwork(
 +        input_tensor_spec         = observation_spec,
 +        output_tensor_spec        = action_spec,
 +        fc_layer_params           = (n_hidden_units, n_hidden_units),
 +        continuous_projection_net = tanh_normal_projection_network.TanhNormalProjectionNetwork,
++        dtype                     = tf.float64,
 +    )
 +    network.create_variables()
 +    names = [v.name for v in network.variables]
@@ -930,7 +1036,7 @@ index 0000000..ec24e47
 +
 +
 +def check_forward_pass(policy, network, n_obs, rng):
-+    observations = rng.random((N_FORWARD_OBSERVATIONS, n_obs)).astype(np.float32)
++    observations = rng.random((N_FORWARD_OBSERVATIONS, n_obs))
 +    distribution, _ = network(observations, step_type=None, network_state=(), training=False)
 +    tf_mean = distribution.input_distribution.loc.numpy()
 +    tf_std = distribution.input_distribution.stddev().numpy()
@@ -950,9 +1056,11 @@ index 0000000..ec24e47
 +    threshold = KS_FAMILY_ALPHA / n_tests
 +    statistics, p_values = [], []
 +    for _ in range(N_KS_OBSERVATIONS):
-+        observation = rng.random(n_obs).astype(np.float32)
++        observation = rng.random(n_obs)
 +        batch = tf.constant(np.tile(observation, (N_KS_SAMPLES, 1)))
-+        tf_actions = saved.action(ts.restart(batch, batch_size=N_KS_SAMPLES), ()).action.numpy()
++        time_step = ts.restart(batch, batch_size=N_KS_SAMPLES)._replace(  # restart makes float32 reward/discount
++            reward=tf.zeros(N_KS_SAMPLES, tf.float64), discount=tf.ones(N_KS_SAMPLES, tf.float64))
++        tf_actions = saved.action(time_step, ()).action.numpy()
 +        np_actions = np.array([policy_action(policy, observation, rng) for _ in range(N_KS_SAMPLES)])
 +        for dim in range(3):
 +            result = ks_2samp(tf_actions[:, dim], np_actions[:, dim])
@@ -1416,10 +1524,10 @@ index 79d7fd6..5a070c9 100644
 +                    pl(f'Time: {datetime.datetime.now()}')
 \ No newline at end of file
 diff --git a/scripts/rl/softActorCritic.py b/scripts/rl/softActorCritic_og.py
-similarity index 70%
+similarity index 68%
 copy from scripts/rl/softActorCritic.py
 copy to scripts/rl/softActorCritic_og.py
-index 79d7fd6..3c7fb23 100644
+index 79d7fd6..ec18056 100644
 --- a/scripts/rl/softActorCritic.py
 +++ b/scripts/rl/softActorCritic_og.py
 @@ -6,6 +6,7 @@
@@ -1430,7 +1538,11 @@ index 79d7fd6..3c7fb23 100644
  import reverb
  import pandas as pd
  import tensorflow as tf
-@@ -23,14 +24,14 @@ from tf_agents.utils import common
+@@ -20,17 +21,18 @@ from tf_agents.replay_buffers import reverb_replay_buffer, reverb_utils
+ from tf_agents.train import actor, learner, triggers
+ from tf_agents.train.utils import spec_utils, train_utils, strategy_utils
+ from tf_agents.utils import common
++from tf_agents.specs import tensor_spec
  
  from scripts.const import *
  from scripts.tools.utils import *
@@ -1447,7 +1559,7 @@ index 79d7fd6..3c7fb23 100644
          '''
          Instantiate the Soft Actor-Critic.
          '''
-@@ -43,6 +44,7 @@ class softActorCritic:
+@@ -43,6 +45,7 @@ class softActorCritic:
          self.p          = params
          self.modelPath  = modelPath
          self.plotPath   = plotPath
@@ -1455,7 +1567,29 @@ index 79d7fd6..3c7fb23 100644
          if distributed:
              self.strategy = strategy_utils.get_strategy(tpu=useTPU, use_gpu=useGPU)
          else:
-@@ -169,7 +171,8 @@ class softActorCritic:
+@@ -52,7 +55,9 @@ class softActorCritic:
+ 
+         ## Agent
+         def createAgent():
+-            observation_spec, action_spec, time_step_spec = spec_utils.get_tensor_specs(self.envCollect)
++            observation_spec, action_spec, _ = spec_utils.get_tensor_specs(self.envCollect)
++            # get_tensor_specs always makes the reward and discount specs float32; the env's are float64
++            time_step_spec = tensor_spec.from_spec(self.envCollect.time_step_spec())
+ 
+             critic_net = critic_network.CriticNetwork(
+                 input_tensor_spec       = (observation_spec, action_spec),
+@@ -65,8 +70,8 @@ class softActorCritic:
+                 input_tensor_spec         = observation_spec,
+                 output_tensor_spec        = action_spec,
+                 fc_layer_params           = self.p['actor_fc_layer_params'],
+-                continuous_projection_net = (tanh_normal_projection_network.TanhNormalProjectionNetwork)
+-                # dtype                   = np.float64,
++                continuous_projection_net = (tanh_normal_projection_network.TanhNormalProjectionNetwork),
++                dtype                     = tf.float64,
+             )
+ 
+             # self.train_step = train_utils.create_train_step()
+@@ -169,7 +174,8 @@ class softActorCritic:
  
          self.random_policy = random_py_policy.RandomPyPolicy(
              time_step_spec = self.envCollect.time_step_spec(),
@@ -1465,7 +1599,7 @@ index 79d7fd6..3c7fb23 100644
          )
  
  
-@@ -189,8 +192,8 @@ class softActorCritic:
+@@ -189,8 +195,8 @@ class softActorCritic:
              policy        = self.random_policy,
              # train_step    = self.train_step,
              train_step    = self.global_step,
@@ -1476,7 +1610,7 @@ index 79d7fd6..3c7fb23 100644
          )
          initial_collect_actor.run()
  
-@@ -276,8 +279,9 @@ class softActorCritic:
+@@ -276,8 +282,9 @@ class softActorCritic:
          )
          agentCheckpointer.initialize_or_restore()
  
@@ -1487,7 +1621,7 @@ index 79d7fd6..3c7fb23 100644
  
          self.global_step = tf.compat.v1.train.get_global_step()
  
-@@ -312,72 +316,117 @@ class softActorCritic:
+@@ -312,72 +319,117 @@ class softActorCritic:
              bestTrainGBN = 1
              bestEvalGBN = 1
  

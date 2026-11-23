@@ -68,7 +68,7 @@ def test_observation_components():
             [np.nan, 1.0],  # NaN mean -> inf -> 1
         ]
     )
-    CPs = np.array([0.7298, 1.49618, 1.49618], dtype=np.float32)  # stable
+    CPs = np.array([0.7298, 1.49618, 1.49618], dtype=np.float64)  # stable
     observation = build_observation(
         t=49,
         max_iterations=5000,
@@ -78,18 +78,18 @@ def test_observation_components():
         problem_lb=lb,
         problem_ub=ub,
     )
-    assert observation.dtype == np.float32
+    assert observation.dtype == np.float64
     expected = [51 / 5000, 0.25, 1.0, 0.0, np.tanh(0.5), 1.0]
-    np.testing.assert_allclose(observation, np.float32(expected))
+    np.testing.assert_allclose(observation, np.float64(expected))
 
-    unstable = np.array([0.9, 4.0, 4.0], dtype=np.float32)
+    unstable = np.array([0.9, 4.0, 4.0], dtype=np.float64)
     observation = build_observation(49, 5000, 0.25, unstable, V, lb, ub)
     assert observation[2] == 0.0
 
 
 def test_reset_observation():
     np.testing.assert_array_equal(
-        reset_observation(3, 5000), np.float32([1 / 5000, 0.0, 0.5, 0, 0, 0])
+        reset_observation(3, 5000), np.float64([1 / 5000, 0.0, 0.5, 0, 0, 0])
     )
 
 
@@ -106,7 +106,7 @@ def test_infeasible_proportion_lags_one_step():
 
     optimizer.X[:] = optimizer.problem_ub - 1e-3  # all feasible again
     solver.adapt(2 * NT - 1)
-    assert observations[-1][1] == np.float32(0.3)
+    assert observations[-1][1] == np.float64(0.3)
     solver.adapt(2 * NT)  # no decision, but records 0.0
     solver.adapt(3 * NT - 1)
     assert observations[-1][1] == 0.0
@@ -160,7 +160,7 @@ def test_observation_time_and_stability_match_calypso():
         solver.optimizer.step(t)
         solver.adapt(t)
     observation = observations[0]
-    assert observation[0] == np.float32((NT - 1 + 2) / MAX_ITERATIONS)
+    assert observation[0] == np.float64((NT - 1 + 2) / MAX_ITERATIONS)
     w, c_1, c_2 = in_force
     stable = c_1 + c_2 < 24 * (1 - w**2) / (7 - 5 * w)
     assert observation[2] == float(stable)
@@ -192,7 +192,7 @@ def tiny_policy(tmp_path, policy_type="stochastic"):
 
 def test_forward_pass_against_hand_computation(tmp_path):
     policy = tiny_policy(tmp_path)
-    x = np.float32([0.2, 0.6])
+    x = np.float64([0.2, 0.6])
     # hidden: relu([0.2*1 + 0.6*0.5 + 0, 0.2*-1 + 0.6*2 + 0.5]) = [0.5, 1.5]
     # projection: [0.5, -1.5, 3.0 | 0.25, -1.0, 1.5]
     mean, std = policy_distribution(policy, x)
@@ -210,18 +210,18 @@ def test_forward_pass_against_hand_computation(tmp_path):
 
     # Stochastic: one standard_normal(3) draw, z = mean + std * eps.
     action = policy_action(policy, x, np.random.default_rng(5))
-    eps = np.random.default_rng(5).standard_normal(3).astype(np.float32)
-    z = np.float32([0.5, -1.5, 3.0]) + np.exp(np.float32([0.25, -1.0, 1.5])) * eps
-    expected = np.float32([0.5, 2, 2]) + np.float32([0.5, 2, 2]) * np.tanh(z)
+    eps = np.random.default_rng(5).standard_normal(3).astype(np.float64)
+    z = np.float64([0.5, -1.5, 3.0]) + np.exp(np.float64([0.25, -1.0, 1.5])) * eps
+    expected = np.float64([0.5, 2, 2]) + np.float64([0.5, 2, 2]) * np.tanh(z)
     np.testing.assert_allclose(action, expected, rtol=1e-6)
-    assert action.dtype == np.float32
+    assert action.dtype == np.float64
 
 
 def test_actions_stay_in_bounds(tmp_path):
     policy = tiny_policy(tmp_path)
     rng = np.random.default_rng(0)
     actions = np.array(
-        [policy_action(policy, np.float32([5.0, 5.0]), rng) for _ in range(200)]
+        [policy_action(policy, np.float64([5.0, 5.0]), rng) for _ in range(200)]
     )
     assert np.all(actions >= 0) and np.all(actions <= [1, 4, 4])
 

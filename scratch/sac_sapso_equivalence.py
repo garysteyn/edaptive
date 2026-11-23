@@ -24,9 +24,9 @@ next to the raw ones. Per action dimension it also reports the decision with the
 largest |difference of mean actions| (means over seeds), the raw gap, and the gap
 divided by the pooled seed-to-seed standard error at that decision.
 
-The two are not expected to agree bit-for-bit (calypso is float32, draws its
-own RNG streams and does not evaluate infeasible particles). Report the result;
-do not tune anything to make them agree.
+The two are not expected to agree bit-for-bit (calypso draws its own RNG
+streams, from numpy's global generator). Report the result; do not tune anything
+to make them agree.
 """
 
 import argparse

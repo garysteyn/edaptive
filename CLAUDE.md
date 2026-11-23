@@ -111,7 +111,8 @@ edaptive/
 │   ├── update_bbob_dimensions.sh           # regenerate bbob_dimensions.patch for a new dim list
 │   ├── setup_calypso.sh                    # clone calypso-clean into ./calypso, apply integration patch, pip install, patch tf_agents
 │   ├── calypso-integration.patch           # makes calypso accept edaptive problem classes / CLI args / seeds
-│   └── patch_tf_agents.py                  # np.bool → np.bool_ in tf_agents/typing/types.py
+│   └── patch_tf_agents.py                  # tf_agents fixes: np.bool → np.bool_; float64 SAC (squash shift/scale
+│                                           # and log_alpha take the action spec's dtype; reg. loss cast to the loss dtype)
 ├── calypso/   (gitignored; external clone, patched)
 ├── .coco/     (gitignored; external clone, patched + built)
 └── venv/      (gitignored; machine-specific)
@@ -348,15 +349,16 @@ PSO velocities and Poli's criterion), not an adapter.
   round-trip these settings.
 - Policy file `policy.npz` (numpy only; `save_policy`/`load_policy`): `hidden_kernel_k`/`hidden_bias_k` (ReLU),
   `projection_kernel`/`projection_bias` (outputs `[means, raw stds]`), `low`/`high`, `metadata` (JSON string:
-  `policy_type`, `j`, `N`, `D`, `max_iter_cal`, training seed, step, budget, ...). Forward pass in float32,
+  `policy_type`, `j`, `N`, `D`, `max_iter_cal`, training seed, step, budget, ...). Arrays are stored and read as
+  float64 (`load_policy` casts, so float32 files still load); the forward pass is float64,
   `std = exp(raw)` (tf-agents `ActorDistributionNetwork` + `TanhNormalProjectionNetwork`).
 - Action (`policy_action`): `"stochastic"` (what calypso validates and saves: `agent.policy` is an `ActorPolicy`
-  that samples) draws one `rng.standard_normal(3)`, `z = mean + std·eps` (float32); `"greedy"` uses `z = mean`
+  that samples) draws one `rng.standard_normal(3)`, `z = mean + std·eps` (float64); `"greedy"` uses `z = mean`
   and no RNG. Then `action = (high+low)/2 + (high−low)/2·tanh(z)` (`SquashToSpecNormal`), clipped to
   `[0,1]×[0,4]×[0,4]` (`ActorPolicy` clips to the spec).
 - Timeline (calypso's `calypsoEnv`/`CALYPSO.iter`): the first action comes from the reset observation
   `[1/max_iterations, 0, 0.5, 0, …, 0]` and is used from step 0. After step `t` with `(t+1) % nt == 0` and
-  `t+1 < max_iterations` (never after the last iteration) the observation (float32, length `n_s + 3`) is
+  `t+1 < max_iterations` (never after the last iteration) the observation (float64, length `n_s + 3`) is
   `[(t+2)/max_iterations, infeasible proportion of the positions before step t's move (remembered from the previous
   adapt call, or the initial swarm), Poli-stable proportion of the action in force (0 or 1),
   tanh(mean_j |V_ij| / (ub_j − lb_j)) per particle with V after step t (NaN mean → 1)]`, and the new action is used
@@ -373,7 +375,7 @@ PSO velocities and Poli's criterion), not an adapter.
   dimension, the run's mean and standard deviation of actions and the actions at decisions 1, 25, 50, 100;
   Holm-adjusted over all tests. Also the largest gap between seed-mean actions per dimension, raw and over the
   pooled standard error. Writes `results/sac_training/<exp>/equivalence.json` (with the TF seed). No exact agreement
-  is expected (Known issue 15).
+  is expected (calypso draws from numpy's global RNG).
 
 ### Timing (`utils/timing.py`)
 - `@timed` accumulates `self._timings[method] = {"wall": s, "cpu": s}` per call (`perf_counter` and the
@@ -673,6 +675,14 @@ belief-space-guided SA-PSO (`scripts/pso/calypso.py`, run via `scripts.pso.execu
 - forwards `--max-iter-cal` to the env (`envParams["max_iter_cal"]`; before, episodes always ran `MAXITER_CAL = 5000`).
 
 **SAC training protocol** (`calypsoTrainSAC` + `softActorCritic_og.fit`), the SAC-SAPSO configuration procedure:
+- Precision: float64 throughout, as in edaptive. `CALYPSO`'s `dtype` defaults to `np.float64` (so also
+  `scripts.pso.execute`/`BS_PSO`); `calypsoEnv.dtype = np.float64` sets its PSO and all its specs (observation,
+  action, reward, discount; it overrides `reward_spec`/`discount_spec`/`time_step_spec` and builds its `TimeStep`s
+  itself, since tf-agents' `restart`/`transition`/`termination` and `time_step_spec` make float32 rewards and
+  discounts). The trainer takes its time-step spec from the env (`spec_utils.get_tensor_specs` would make it
+  float32), builds the actor with `dtype=tf.float64`, and `calypsoTrainSAC` sets
+  `tf.keras.backend.set_floatx('float64')` (critic and projection layers), so networks, losses and the saved
+  policy are float64. This relies on `scripts/patch_tf_agents.py`.
 - `--budget-runs B` (budget in PSO runs = episodes). With `F` functions, `ics` initial-collect passes and validation
   every `ei` passes, it trains `C = max{c : F·ics + F·c + F·ceil(c/ei) ≤ B}` collect passes (B = 2000, F = 24,
   ics = 5, ei = 10 → C = 70, 1968 runs). Initial collect runs `F·ics` episodes (`episodes_per_run`). Training stops
@@ -802,8 +812,7 @@ R8b is not a separate step: add each component's unit tests in the step that tou
 8. PSO history keys `velocities`/`diversity` are only populated at initialisation.
 9. Empty placeholder: `problems/misc_problems.py`.
 10. Git: branches `main` and `elitist-ifrace` (also on origin).
-15. calypso's PSO runs in float32 and does not evaluate infeasible particles; edaptive's PSO is float64 and
-    evaluates them. Test-time comparisons of SAC-SAPSO use edaptive only.
+15. calypso skips evaluating infeasible particles (no effect on trajectories; calypso runs aren't timed).
 14. **Revisit: what an adapter does when fewer particles are feasible than it wants elites.** PSO has no position
     boundary handling, so often only a few particles are inside the bounds (with `n_s = 30`, `n_x = 10`: about 3–5
     under r-UMDA, 14–26 under r-PBIL). The adapters only rank feasible particles. Three strategies:

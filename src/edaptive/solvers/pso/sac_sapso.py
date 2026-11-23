@@ -29,32 +29,36 @@ POLICY_TYPES = ("stochastic", "greedy")
 
 def save_policy(path, hidden_layers, projection, low, high, metadata):
     """Write a policy file. ``hidden_layers`` is a list of ``(kernel, bias)``,
-    ``projection`` one ``(kernel, bias)``; arrays are stored as float32."""
+    ``projection`` one ``(kernel, bias)``; arrays are stored as float64."""
     arrays = {}
     for k, (kernel, bias) in enumerate(hidden_layers):
-        arrays[f"hidden_kernel_{k}"] = np.asarray(kernel, dtype=np.float32)
-        arrays[f"hidden_bias_{k}"] = np.asarray(bias, dtype=np.float32)
-    arrays["projection_kernel"] = np.asarray(projection[0], dtype=np.float32)
-    arrays["projection_bias"] = np.asarray(projection[1], dtype=np.float32)
-    arrays["low"] = np.asarray(low, dtype=np.float32)
-    arrays["high"] = np.asarray(high, dtype=np.float32)
+        arrays[f"hidden_kernel_{k}"] = np.asarray(kernel, dtype=np.float64)
+        arrays[f"hidden_bias_{k}"] = np.asarray(bias, dtype=np.float64)
+    arrays["projection_kernel"] = np.asarray(projection[0], dtype=np.float64)
+    arrays["projection_bias"] = np.asarray(projection[1], dtype=np.float64)
+    arrays["low"] = np.asarray(low, dtype=np.float64)
+    arrays["high"] = np.asarray(high, dtype=np.float64)
     arrays["metadata"] = np.array(json.dumps(metadata))
     np.savez(path, **arrays)
 
 
 def load_policy(path):
     """Read a policy file: ``{"hidden_layers", "projection", "low", "high",
-    "metadata"}`` with float32 arrays."""
+    "metadata"}`` with float64 arrays."""
     with np.load(path, allow_pickle=False) as file:
+
+        def read(key):
+            return file[key].astype(np.float64)
+
         n_hidden = sum(1 for key in file.files if key.startswith("hidden_kernel_"))
         policy = {
             "hidden_layers": [
-                (file[f"hidden_kernel_{k}"], file[f"hidden_bias_{k}"])
+                (read(f"hidden_kernel_{k}"), read(f"hidden_bias_{k}"))
                 for k in range(n_hidden)
             ],
-            "projection": (file["projection_kernel"], file["projection_bias"]),
-            "low": file["low"],
-            "high": file["high"],
+            "projection": (read("projection_kernel"), read("projection_bias")),
+            "low": read("low"),
+            "high": read("high"),
             "metadata": json.loads(str(file["metadata"])),
         }
     if policy["metadata"].get("policy_type") not in POLICY_TYPES:
@@ -66,15 +70,15 @@ def load_policy(path):
 
 
 def policy_distribution(policy, observation):
-    """Mean and std (float32, length 3) of the pre-tanh normal for ``observation``.
+    """Mean and std (float64, length 3) of the pre-tanh normal for ``observation``.
 
     tf-agents ``ActorDistributionNetwork`` + ``TanhNormalProjectionNetwork``:
     hidden Dense layers with ReLU, then a linear projection split into
     ``[means, raw stds]``, and ``std = exp(raw std)`` (no clipping).
     """
-    h = np.asarray(observation, dtype=np.float32)
+    h = np.asarray(observation, dtype=np.float64)
     for kernel, bias in policy["hidden_layers"]:
-        h = np.maximum(h @ kernel + bias, np.float32(0))
+        h = np.maximum(h @ kernel + bias, 0.0)
     kernel, bias = policy["projection"]
     out = h @ kernel + bias
     mean, raw_std = np.split(out, 2, axis=-1)
@@ -82,29 +86,29 @@ def policy_distribution(policy, observation):
 
 
 def policy_action(policy, observation, rng):
-    """The action (float32 ``w, c_1, c_2``) for ``observation``.
+    """The action (float64 ``w, c_1, c_2``) for ``observation``.
 
     Stochastic policy: one ``rng.standard_normal(3)`` call, ``eps``;
-    ``z = mean + std * eps`` in float32. Greedy policy: ``z = mean``, no RNG.
+    ``z = mean + std * eps``. Greedy policy: ``z = mean``, no RNG.
     Then ``action = (high + low)/2 + (high - low)/2 * tanh(z)`` (tf-agents'
     ``SquashToSpecNormal``), clipped to ``[low, high]`` (``ActorPolicy`` clips to
     the action spec).
     """
     mean, std = policy_distribution(policy, observation)
     if policy["metadata"]["policy_type"] == "stochastic":
-        eps = rng.standard_normal(mean.shape[-1]).astype(np.float32)
+        eps = rng.standard_normal(mean.shape[-1])
         z = mean + std * eps
     else:
         z = mean
     low, high = policy["low"], policy["high"]
-    action = (high + low) / np.float32(2) + (high - low) / np.float32(2) * np.tanh(z)
+    action = (high + low) / 2 + (high - low) / 2 * np.tanh(z)
     return np.clip(action, low, high)
 
 
 def build_observation(
     t, max_iterations, infeasible_proportion, CPs, V, problem_lb, problem_ub
 ):
-    """calypso's observation after the block whose last step is ``t`` (float32).
+    """calypso's observation after the block whose last step is ``t`` (float64).
 
     ``[(t + 2)/max_iterations, infeasible_proportion, stable proportion,
     tanh(mean_j |V_ij| / (ub_j - lb_j)) for each particle i]``. The stable
@@ -120,15 +124,15 @@ def build_observation(
             infeasible_proportion,
             stable_particle_proportion(w, c_1, c_2),
         ],
-        dtype=np.float32,
+        dtype=np.float64,
     )
-    return np.concatenate((head, np.tanh(velocity).astype(np.float32)))
+    return np.concatenate((head, np.tanh(velocity)))
 
 
 def reset_observation(n_s, max_iterations):
     """calypso's first observation, before any iteration:
     ``[1/max_iterations, 0, 0.5, 0, ..., 0]``."""
-    observation = np.zeros(n_s + 3, dtype=np.float32)
+    observation = np.zeros(n_s + 3, dtype=np.float64)
     observation[:3] = (1 / max_iterations, 0.0, 0.5)
     return observation
 
