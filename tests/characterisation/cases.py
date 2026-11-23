@@ -9,6 +9,8 @@ renamed keyword arguments). The pinned outputs must not change unless the step
 is meant to change behaviour, and the commit says so.
 """
 
+from pathlib import Path
+
 import numpy as np
 
 from edaptive.adapters.beta_eda import BetaEDA
@@ -30,6 +32,7 @@ from edaptive.problems.ela_benchmark_suite import (
 )
 from edaptive.solvers.basic_solver import BasicSolver
 from edaptive.solvers.eda_solver import EDASolver
+from edaptive.solvers.pso.sac_sapso import SACSAPSO
 from edaptive.solvers.pso.sg_pso import StabilityGuidedPSO
 from edaptive.solvers.pso.tvac_pso import TVACPSO
 from edaptive.solvers.uniform_random_solver import UniformRandomSolver
@@ -153,12 +156,28 @@ _TVAC_PSO_CONFIG = {
     "optimizer": {"fixed": _fixed("n_s", N_S, "integer")},
 }
 
+# A small fixed random policy (tests/fixtures/make_sac_sapso_policy.py): n_s = 10,
+# nt = 10, 100 iterations.
+SAC_SAPSO_POLICY = Path(__file__).parents[1] / "fixtures" / "sac_sapso_policy.npz"
+
+_SAC_SAPSO_CONFIG = {
+    "identifier": "char_sac_sapso",
+    "adapter": _fixed("policy_path", str(SAC_SAPSO_POLICY), "categorical")
+    | _fixed("nt", 10, "integer")
+    | _fixed("max_iterations", MAX_ITER, "integer"),
+    "optimizer": {
+        "fixed": _fixed("n_s", N_S, "integer")
+        | _fixed("V_max_fraction", 1.0, "continuous")
+    },
+}
+
 # name -> (solver_type, adapter_type, JSON-style config)
 SOLVER_CASES = {
     "basic": (BasicSolver, None, _BASIC_CONFIG),
     "uniform_random": (UniformRandomSolver, None, _UNIFORM_RANDOM_CONFIG),
     "sg_pso": (StabilityGuidedPSO, None, _SG_PSO_CONFIG),
     "tvac_pso": (TVACPSO, None, _TVAC_PSO_CONFIG),
+    "sac_sapso": (SACSAPSO, None, _SAC_SAPSO_CONFIG),
     "eda_uniform_weights": (EDASolver, BetaEDA, _eda_config("None")),
     "eda_rank": (EDASolver, BetaEDA, _eda_config("rank")),
     "eda_log_rank": (EDASolver, BetaEDA, _eda_config("log-rank")),
@@ -274,6 +293,8 @@ def run_solver(solver_type, adapter_type, config, problem_type, seed):
         out["adapter_Sigma"] = adapter.Sigma.tolist()
     if isinstance(adapter, EMNAAdaptive):
         out["adapter_archive_size"] = len(adapter.archive_scores)
+    if isinstance(solver, SACSAPSO):
+        out["sac_action"] = _floats(solver.action)
     return out
 
 

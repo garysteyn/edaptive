@@ -59,7 +59,8 @@ edaptive/
 │   │   ├── uniform_random_solver.py # UniformRandomSolver: optimizer + UniformRandomAdapter
 │   │   └── pso/
 │   │       ├── sg_pso.py     # StabilityGuidedPSO: PSO-specific adaptation implemented as a solver
-│   │       └── tvac_pso.py   # TVACPSO: Ratnaweera et al. (2004) PSO-TVAC (linear w/c_1/c_2 schedules)
+│   │       ├── tvac_pso.py   # TVACPSO: Ratnaweera et al. (2004) PSO-TVAC (linear w/c_1/c_2 schedules)
+│   │       └── sac_sapso.py  # SACSAPSO: trained SAC policy sets w/c_1/c_2 (numpy policy file format + forward pass)
 │   ├── problems/
 │   │   ├── benchmark_problem.py   # BenchmarkProblem ABC
 │   │   ├── ela_benchmark_suite.py # ~24 hand-written functions + 4 BBOB wrappers; TRAINING_SET
@@ -85,13 +86,15 @@ edaptive/
 │       ├── tune.py           # run I/F-race for a solver/optimizer/adapter + config
 │       └── execute.py        # run final experiments (uses tuned config if present), MPI-parallel
 ├── scratch/                  # ad-hoc driver scripts (kept in git, excluded from ruff, not tests);
-│                             # r_eda_demo.py runs PSO + a multi-valued EDA and plots its frequencies
+│                             # r_eda_demo.py runs PSO + a multi-valued EDA and plots its frequencies;
+│                             # sac_sapso_equivalence.py: calypso policy vs SACSAPSO (see "SACSAPSO")
 ├── tests/                    # pytest (`testpaths` set in pyproject.toml); see "Tests"
 │   ├── conftest.py           # forces the Agg matplotlib backend
 │   ├── core/                 # unit tests: adaptable-CP mapping, SolverConfig/parse_config
 │   ├── optimizers/           # unit tests: PSO evaluation order, histories, feasibility-gated bests
 │   ├── adapters/             # unit tests: BetaEDA elite selection; multi-valued EDA model and updates; elite weights
-│   ├── solvers/              # unit tests: subset / reordered "adapted" spaces, construction, timings
+│   ├── solvers/              # unit tests: subset / reordered "adapted" spaces, construction, timings, SACSAPSO
+│   ├── fixtures/             # sac_sapso_policy.npz (small fixed random policy) + make_sac_sapso_policy.py
 │   ├── utils/                # unit tests: @timed, core_time
 │   ├── tuning/               # unit tests of IFRace pieces; mpirun -n 2 vs serial reference
 │   └── characterisation/     # R8a: pinned seeded results of the current code
@@ -300,7 +303,7 @@ learning rate `eta`, minimum standard deviation `sigma_min`, and rank-based elit
 - Type validation via class attributes: `fixed_optimizer_type` / `fixed_adapter_type` (the solver always uses that
   type; callers may pass `None` or the same type) and `uses_adapter`. Mismatches raise `ValueError`:
   `BasicSolver` takes no adapter, `EDASolver` needs one, `UniformRandomSolver` fixes `UniformRandomAdapter`,
-  `StabilityGuidedPSO` and `TVACPSO` fix `PSO` and take no adapter.
+  `StabilityGuidedPSO`, `TVACPSO` and `SACSAPSO` fix `PSO` and take no adapter.
 - Construction (and RNG consumption) order: **one** `rng = np.random.default_rng(rnd_seed)` shared by adapter,
   solver and optimizer → `_build_adapter()` (`CP_space=config.adapted_CP_space`, `**config.adapter_params`, `rng`)
   → `initial_adapted_CPs()` (hook; default: `adapter.sample(n_s)` by name, `{}` without an adapter) →
@@ -332,6 +335,40 @@ learning rate `eta`, minimum standard deviation `sigma_min`, and rank-based elit
   distance across the space (full width) but use symmetric-domain upper bounds as its values. Early in a run the CPs lie
   outside Poli's stable region, so `prop_stable` < 1 there.
 
+### SACSAPSO (`solvers/pso/sac_sapso.py`)
+von Eschwege & Engelbrecht (2024), Mathematics 12:3481. A SAC policy trained in calypso (see "calypso integration")
+sets `w`, `c_1`, `c_2`, shared by all particles, every `nt` iterations. A PSO-specific solver (its observation reads
+PSO velocities and Poli's criterion), not an adapter.
+- **Settings come from `config.adapter_params`**, because it builds no adapter: exactly `policy_path`, `nt`,
+  `max_iterations` (else `ValueError` listing missing/unexpected keys). `nt`, `n_s`, `max_iterations` must equal the
+  policy file's `j`, `N`, `max_iter_cal`, and `run(max_iterations)` must match. The problem dimension is not checked
+  (the observation does not depend on it). `SolverConfig` and the config schema are unchanged; `to_dict`/`from_dict`
+  round-trip these settings.
+- Policy file `policy.npz` (numpy only; `save_policy`/`load_policy`): `hidden_kernel_k`/`hidden_bias_k` (ReLU),
+  `projection_kernel`/`projection_bias` (outputs `[means, raw stds]`), `low`/`high`, `metadata` (JSON string:
+  `policy_type`, `j`, `N`, `D`, `max_iter_cal`, training seed, step, budget, ...). Forward pass in float32,
+  `std = exp(raw)` (tf-agents `ActorDistributionNetwork` + `TanhNormalProjectionNetwork`).
+- Action (`policy_action`): `"stochastic"` (what calypso validates and saves: `agent.policy` is an `ActorPolicy`
+  that samples) draws one `rng.standard_normal(3)`, `z = mean + std·eps` (float32); `"greedy"` uses `z = mean`
+  and no RNG. Then `action = (high+low)/2 + (high−low)/2·tanh(z)` (`SquashToSpecNormal`), clipped to
+  `[0,1]×[0,4]×[0,4]` (`ActorPolicy` clips to the spec).
+- Timeline (calypso's `calypsoEnv`/`CALYPSO.iter`): the first action comes from the reset observation
+  `[1/max_iterations, 0, 0.5, 0, …, 0]` and is used from step 0. After step `t` with `(t+1) % nt == 0` and
+  `t+1 < max_iterations` (never after the last iteration) the observation (float32, length `n_s + 3`) is
+  `[(t+2)/max_iterations, infeasible proportion of the positions before step t's move (remembered from the previous
+  adapt call, or the initial swarm), Poli-stable proportion of the action in force (0 or 1),
+  tanh(mean_j |V_ij| / (ub_j − lb_j)) per particle with V after step t (NaN mean → 1)]`, and the new action is used
+  from step `t+1`.
+- RNG order: stochastic first action (in `initial_adapted_CPs`, before the PSO is built) → PSO init → after each
+  decision step's PSO draws, one `standard_normal(3)`.
+- Timed: `_load_policy`, `_swarm_data` (every iteration), `_observation`, `_policy_action`, `_set_adapted_CPs`.
+- Config `experiments/configs/sac_sapso.json` (`nt` 50, `max_iterations` 5000, `n_s` 30, `V_max_fraction` 1.0 =
+  calypso's `--vc`, `policy_path` `results/sac_training/vc_sac_j50/policy.npz`).
+- `scratch/sac_sapso_equivalence.py --exp <exp> [--seeds 30]` runs calypso's env with the saved TF policy and
+  `SACSAPSO` on 5 training functions (one BBOB) × seeds from 5 000 000 and reports Mann–Whitney U on final gbest and
+  the action trajectories (writes `results/sac_training/<exp>/equivalence.json`). No exact agreement is expected
+  (Known issue 15).
+
 ### Timing (`utils/timing.py`)
 - `@timed` accumulates `self._timings[method] = {"wall": s, "cpu": s}` per call (`perf_counter` and the
   process's `process_time`). `BaseOptimizer`, `BaseAdapter` and `BaseSolver` each own a `_timings` dict. Only
@@ -339,7 +376,8 @@ learning rate `eta`, minimum standard deviation `sigma_min`, and rank-based elit
 - `history["timings"]` = `{"optimizer": {...}, "adapter": {...}, "solver": {...}}` (adapter `{}` without one).
   Timed: optimizer `initialize`/`iterate`; adapter `initialize`/`check_update`/`update`/`sample`, plus `start`
   for EDA adapters (where implemented); solver `_get_required_data`/`_set_adapted_CPs`, plus `sample_adapted_CPs` in
-  `StabilityGuidedPSO`, `scheduled_CPs` in `TVACPSO`. Measured cost of the interaction helpers: about 3.5 µs per iteration, roughly 2% of
+  `StabilityGuidedPSO`, `scheduled_CPs` in `TVACPSO`, `_load_policy`/`_swarm_data`/`_observation`/`_policy_action` in
+  `SACSAPSO`. Measured cost of the interaction helpers: about 3.5 µs per iteration, roughly 2% of
   core time (`n_s=n_x=30`, BetaEDA).
 - `core_time(timings)` → `{"wall": total, "cpu": total}` over all components.
 - Runs execute in parallel (MPI ranks) and per-run times are summed afterwards, so each process must be
@@ -524,7 +562,8 @@ best configuration on every rank. `L` and `n_min` default to `floor(2 + log2(N_p
 entries take `value`; `optimizer.adapted` becomes `adapted_CP_space` (with or without an `adapter` section; each
 CP via `Parameter.from_config`, so integer and categorical (`classes`) adapted CPs are read).
 `tuning_parameter_space` is `None` when nothing is tuned. Current configs: `basic.json` (static PSO, tunes w/c_1/c_2), `test.json` (BetaEDA-PSO, `elite_signal` `"fitness"`),
-`sg_pso.json`, `tvac_pso.json` (no tuning; `tvac_pso.json` sets `V_max_fraction` 0.5), `r_umda.json` (RUMDA,
+`sg_pso.json`, `tvac_pso.json` (no tuning; `tvac_pso.json` sets `V_max_fraction` 0.5), `sac_sapso.json` (no tuning; its
+`"adapter"` section holds `SACSAPSO`'s own settings, see "SACSAPSO"), `r_umda.json` (RUMDA,
 `n_values` 10, `elite_weighting` `"None"`, tunes `mu ∈ [1, 30]`), `r_pbil.json` (RPBIL, same, also tunes `rho ∈ [1e-3, 1]` on a log scale),
 `r_cga.json` (RcGA, tunes `K ∈ [1, 1000]` on a log scale instead of `mu`), `emna_global.json` and
 `emna_adaptive.json` (EMNAGlobal / EMNAAdaptive, tune `eta ∈ [1e-3, 1]` and `sigma_min ∈ [1e-3, 0.1]` on log scales and
@@ -575,7 +614,8 @@ python experiments/problem_selection/select_evaluation_problems.py
 (not their correctness). `tests/core/`, `tests/optimizers/`, `tests/adapters/`, `tests/solvers/`, `tests/utils/` and `tests/tuning/` hold unit tests (R8b
 grows these). `tests/tuning/test_ifrace_mpi.py` runs both tuning cases under `mpirun -n 2`
 (`tests/tuning/mpi_case.py`) and requires exactly the serial reference. It is skipped without `mpirun`.
-- Every solver (`BasicSolver`, `UniformRandomSolver`, `StabilityGuidedPSO`, `TVACPSO`, `EDASolver`+`BetaEDA` with each
+- Every solver (`BasicSolver`, `UniformRandomSolver`, `StabilityGuidedPSO`, `TVACPSO`, `SACSAPSO` (`tests/fixtures/`
+  policy, `nt=10`, `V_max_fraction=1.0`), `EDASolver`+`BetaEDA` with each
   elite weighting, with `update_freq=5`, with the Gaussian copula, and with `elite_signal="improvement"`
   and `update_freq=5`; `EDASolver`+`RUMDA` (`n_values=5`, `mu=3`): plain, with `update_freq=5` +
   `elite_signal="improvement"`, and with one CP of each type (`w` categorical, `c_1` continuous, `c_2` integer);
@@ -585,8 +625,8 @@ grows these). `tests/tuning/test_ifrace_mpi.py` runs both tuning cases under `mp
   `elite_signal="improvement"`; `EDASolver`+`EMNAAdaptive` (same parameters): plain, with `"rank"` weighting,
   and with `update_freq=5` + `elite_signal="improvement"`) on Rosenbrock and GeneralizedEggCrate
   (`n_x=5`, `n_s=10`, 100 iterations). Pins the `f_best`/`prop_feasible`/`prop_stable` histories, final `X` and
-  `adaptable_CPs`, BetaEDA's `a`/`b` (and `R`), the multi-valued EDAs' `p`, and the EMNA adapters' `mu`/`Sigma` (and EMNAAdaptive's archive
-  size).
+  `adaptable_CPs`, BetaEDA's `a`/`b` (and `R`), the multi-valued EDAs' `p`, the EMNA adapters' `mu`/`Sigma` (and EMNAAdaptive's archive
+  size), and SACSAPSO's last action.
 - Same seed reproduces; different seeds differ; no solver touches numpy's global RNG (its state is unchanged,
   and reseeding it doesn't change results).
 - Two small seeded `IFRace.tune` runs (BasicSolver tuning w/c_1/c_2; EDASolver+BetaEDA tuning eta/rho_min/n_elites
@@ -639,6 +679,14 @@ belief-space-guided SA-PSO (`scripts/pso/calypso.py`, run via `scripts.pso.execu
   n_validations`, plus `completed_collect_episodes`, `stopped_by`; asserts `total_runs ≤ B`), `training_times.json`
   (wall `perf_counter` / CPU `process_time` of the whole script after argument parsing: the configuration cost).
 - `CalypsoWrapper(..., budget_runs=None, eval_seed_offset=None)` passes both through.
+- **Export** (`scripts/rl/exportPolicy.py --exp <exp> [--out <dir>] [--step <step>]`, default step from
+  `selected_policy.json`, default `<dir>` = `../results/sac_training/<exp>/` in edaptive's gitignored `results/`):
+  writes `policy.npz` (format in "SACSAPSO", `policy_type "stochastic"`), copies `selected_policy.json`,
+  `budget.json`, `training_times.json`, `validation_results.csv`, and writes `export_checks.json`. It fails loudly
+  unless (1) the saved actor variables have the assumed names/shapes (2 hidden Dense + projection), (2) the numpy
+  forward pass matches the rebuilt tf-agents network within 1e-5 on 1000 random observations, and (3) per-dimension
+  two-sample KS tests of 5000 actions from the saved policy's `action` vs the numpy sampler, on 20 observations,
+  all have `p ≥ 1e-3/60`. It imports edaptive's `sac_sapso` functions, so it checks the solver's own code.
 
 The edaptive wrappers (`BS_PSO.run()`, `CalypsoWrapper.train()`) build the CLI, write a **placeholder**
 `misc/pkl/funcRanges.pkl` (low=inf, high=-inf, delta=NaN, so calypso's normalised "GBN" printouts are meaningless),

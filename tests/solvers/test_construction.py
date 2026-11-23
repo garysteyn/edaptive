@@ -11,9 +11,11 @@ from edaptive.problems.ela_benchmark_suite import Rosenbrock
 from edaptive.registry import SOLVERS
 from edaptive.solvers.basic_solver import BasicSolver
 from edaptive.solvers.eda_solver import EDASolver
+from edaptive.solvers.pso.sac_sapso import SACSAPSO
 from edaptive.solvers.pso.sg_pso import StabilityGuidedPSO
 from edaptive.solvers.pso.tvac_pso import TVACPSO
 from edaptive.solvers.uniform_random_solver import UniformRandomSolver
+from tests.fixtures.make_sac_sapso_policy import MAX_ITERATIONS, N_S, NT, POLICY_PATH
 
 
 class OtherOptimizer(PSO):
@@ -60,7 +62,23 @@ CASES = {
     ),
     StabilityGuidedPSO: (None, None, SolverConfig(fixed_CPs={"n_s": 6})),
     TVACPSO: (None, None, SolverConfig(fixed_CPs={"n_s": 6})),
+    SACSAPSO: (
+        None,
+        None,
+        SolverConfig(
+            fixed_CPs={"n_s": N_S},
+            adapter_params={
+                "policy_path": str(POLICY_PATH),
+                "nt": NT,
+                "max_iterations": MAX_ITERATIONS,
+            },
+        ),
+    ),
 }
+
+# Run length per solver (default 5); SACSAPSO must run as long as its policy
+# was trained for.
+RUN_LENGTH = {SACSAPSO: MAX_ITERATIONS}
 
 
 def build(solver_type, optimizer_type, adapter_type, config):
@@ -76,9 +94,10 @@ def build(solver_type, optimizer_type, adapter_type, config):
 @pytest.mark.parametrize("solver_type", sorted(set(SOLVERS.values()), key=str))
 def test_every_registered_solver_builds_and_runs(solver_type):
     solver = build(solver_type, *CASES[solver_type])
-    f_final, history = solver.run(max_iterations=5)
+    max_iterations = RUN_LENGTH.get(solver_type, 5)
+    f_final, history = solver.run(max_iterations=max_iterations)
     # One entry for the initial swarm plus one per iteration.
-    assert len(history["f_best"]) == 5 + 1
+    assert len(history["f_best"]) == max_iterations + 1
     assert f_final == min(history["f_best"])
 
 

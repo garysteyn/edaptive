@@ -1,0 +1,14 @@
+{
+  "identifier": "sac_sapso",
+  "adapter": {
+    "policy_path":    {"tuned": false, "type": "categorical", "value": "results/sac_training/vc_sac_j50/policy.npz"},
+    "nt":             {"tuned": false, "type": "integer", "value": 50},
+    "max_iterations": {"tuned": false, "type": "integer", "value": 5000}
+  },
+  "optimizer": {
+    "fixed": {
+      "n_s":            {"tuned": false, "type": "integer",    "value": 30},
+      "V_max_fraction": {"tuned": false, "type": "continuous", "value": 1.0}
+    }
+  }
+}

@@ -805,6 +805,230 @@ index b6fb403..d159d8c 100644
  
  
  ## Cleanup
+diff --git a/scripts/rl/exportPolicy.py b/scripts/rl/exportPolicy.py
+new file mode 100644
+index 0000000..7c3e686
+--- /dev/null
++++ b/scripts/rl/exportPolicy.py
+@@ -0,0 +1,218 @@
++'''
++Exports a validated SAC policy to a numpy file for edaptive's SACSAPSO solver.
++
++    python -m scripts.rl.exportPolicy --exp <experiment> [--out <dir>] [--step <step>]
++
++Loads data/<experiment>/model/policies/validated/step_<step> (default step: from
++selected_policy.json), writes <dir>/policy.npz (default <dir>:
++../results/sac_training/<experiment>/, inside edaptive's results/) and copies
++selected_policy.json, budget.json, training_times.json and validation_results.csv
++there, since the training wrapper deletes calypso/data on its next run.
++
++Checks, failing loudly:
++1. the saved variables have the assumed names and shapes (2 hidden Dense layers,
++   then the projection layer);
++2. numpy forward pass vs the rebuilt tf-agents actor network (same weights):
++   means and stds within 1e-5 on 1000 random observations in [0, 1]^(N+3);
++3. the saved policy itself: for 20 random observations, 5000 actions each from
++   its `action` and from edaptive's numpy sampler, two-sample KS per action
++   dimension; fails if any p-value is below 1e-3 / (number of tests).
++'''
++
++import os
++import glob
++import json
++import shutil
++import argparse
++
++import numpy as np
++import tensorflow as tf
++from scipy.stats import ks_2samp
++from tf_agents.agents.sac import tanh_normal_projection_network
++from tf_agents.networks import actor_distribution_network
++from tf_agents.specs import tensor_spec
++from tf_agents.trajectories import time_step as ts
++
++from edaptive.solvers.pso.sac_sapso import (
++    load_policy,
++    policy_action,
++    policy_distribution,
++    save_policy,
++)
++from scripts.const import LOC, dataDIR
++
++LOW  = np.array([0, 0, 0], dtype=np.float32)
++HIGH = np.array([1, 4, 4], dtype=np.float32)
++
++FORWARD_TOLERANCE = 1e-5
++N_FORWARD_OBSERVATIONS = 1000
++N_KS_OBSERVATIONS = 20
++N_KS_SAMPLES = 5000
++KS_FAMILY_ALPHA = 1e-3
++
++COPIED_FILES = ('selected_policy.json', 'budget.json', 'training_times.json', 'validation_results.csv')
++
++
++def latest_json(path, prefix):
++    files = sorted(glob.glob(f'{path}/{prefix}--*.json'))
++    if not files:
++        raise FileNotFoundError(f'No {prefix}--*.json in {path}')
++    with open(files[-1]) as file:
++        return json.load(file)
++
++
++def expected_layout(n_obs, n_hidden_units):
++    prefix = 'ActorDistributionNetwork'
++    return [
++        (f'{prefix}/EncodingNetwork/dense/kernel:0',   (n_obs, n_hidden_units)),
++        (f'{prefix}/EncodingNetwork/dense/bias:0',     (n_hidden_units,)),
++        (f'{prefix}/EncodingNetwork/dense_1/kernel:0', (n_hidden_units, n_hidden_units)),
++        (f'{prefix}/EncodingNetwork/dense_1/bias:0',   (n_hidden_units,)),
++        (f'{prefix}/TanhNormalProjectionNetwork/projection_layer/kernel:0', (n_hidden_units, 6)),
++        (f'{prefix}/TanhNormalProjectionNetwork/projection_layer/bias:0',   (6,)),
++    ]
++
++
++def check_layout(saved, n_obs, n_hidden_units):
++    actual = [(v.name, tuple(v.shape)) for v in saved.model_variables]
++    expected = expected_layout(n_obs, n_hidden_units)
++    if actual != expected:
++        raise RuntimeError(f'Saved actor variables {actual} do not match the assumed layout {expected}')
++    return [v.numpy() for v in saved.model_variables]
++
++
++def rebuilt_network(weights, n_obs, n_hidden_units):
++    observation_spec = tensor_spec.BoundedTensorSpec((n_obs,), tf.float32, 0, 1, name='observation')
++    action_spec = tensor_spec.BoundedTensorSpec((3,), tf.float32, LOW, HIGH, name='action')
++    network = actor_distribution_network.ActorDistributionNetwork(
++        input_tensor_spec         = observation_spec,
++        output_tensor_spec        = action_spec,
++        fc_layer_params           = (n_hidden_units, n_hidden_units),
++        continuous_projection_net = tanh_normal_projection_network.TanhNormalProjectionNetwork,
++    )
++    network.create_variables()
++    names = [v.name for v in network.variables]
++    expected = [name for name, _ in expected_layout(n_obs, n_hidden_units)]
++    if names != expected:
++        raise RuntimeError(f'Rebuilt network variables {names} differ from {expected}')
++    for variable, value in zip(network.variables, weights):
++        variable.assign(value)
++    return network
++
++
++def check_forward_pass(policy, network, n_obs, rng):
++    observations = rng.random((N_FORWARD_OBSERVATIONS, n_obs)).astype(np.float32)
++    distribution, _ = network(observations, step_type=None, network_state=(), training=False)
++    tf_mean = distribution.input_distribution.loc.numpy()
++    tf_std = distribution.input_distribution.stddev().numpy()
++    np_mean, np_std = policy_distribution(policy, observations)
++    errors = {
++        'mean': float(np.max(np.abs(tf_mean - np_mean))),
++        'std' : float(np.max(np.abs(tf_std - np_std))),
++    }
++    print(f'Forward pass, max abs difference over {N_FORWARD_OBSERVATIONS} observations: {errors}')
++    if max(errors.values()) > FORWARD_TOLERANCE:
++        raise RuntimeError(f'numpy forward pass differs from the rebuilt network by more than {FORWARD_TOLERANCE}')
++    return errors
++
++
++def check_saved_policy_samples(policy, saved, n_obs, rng):
++    n_tests = N_KS_OBSERVATIONS * 3
++    threshold = KS_FAMILY_ALPHA / n_tests
++    statistics, p_values = [], []
++    for _ in range(N_KS_OBSERVATIONS):
++        observation = rng.random(n_obs).astype(np.float32)
++        batch = tf.constant(np.tile(observation, (N_KS_SAMPLES, 1)))
++        tf_actions = saved.action(ts.restart(batch, batch_size=N_KS_SAMPLES), ()).action.numpy()
++        np_actions = np.array([policy_action(policy, observation, rng) for _ in range(N_KS_SAMPLES)])
++        for dim in range(3):
++            result = ks_2samp(tf_actions[:, dim], np_actions[:, dim])
++            statistics.append(result.statistic)
++            p_values.append(result.pvalue)
++    statistics, p_values = np.array(statistics), np.array(p_values)
++    summary = {
++        'n_tests'      : n_tests,
++        'max_statistic': float(statistics.max()),
++        'mean_statistic': float(statistics.mean()),
++        'min_p_value'  : float(p_values.min()),
++        'threshold'    : threshold,
++    }
++    print(f'Saved policy vs numpy sampler, KS per dimension ({N_KS_OBSERVATIONS} observations x 3, '
++          f'{N_KS_SAMPLES} samples each): {summary}')
++    if summary['min_p_value'] < threshold:
++        raise RuntimeError(f'Saved policy and numpy sampler look incompatible: {summary}')
++    return summary
++
++
++def main():
++    parser = argparse.ArgumentParser(description='Export a validated SAC policy for edaptive')
++    parser.add_argument('--exp',  type=str, required=True, help='Experiment directory name in data/')
++    parser.add_argument('--out',  type=str, default=None,  help='Output directory')
++    parser.add_argument('--step', type=int, default=None,  help='Validated checkpoint (default: selected_policy.json)')
++    parser.add_argument('--check-seed', type=int, default=0, help='Seed of the export checks')
++    args = parser.parse_args()
++
++    expPath = f'{dataDIR}/{args.exp}'
++    outDir = args.out or os.path.join(LOC.parent, 'results', 'sac_training', args.exp)
++    os.makedirs(outDir, exist_ok=True)
++
++    with open(f'{expPath}/selected_policy.json') as file:
++        selected = json.load(file)
++    step = selected['step'] if args.step is None else args.step
++    policyPath = os.path.join(expPath, 'model', 'policies', 'validated', f'step_{step}')
++
++    trainArgs = latest_json(f'{expPath}/vars', 'args')
++    if trainArgs['j'] == 'auto' or not str(trainArgs['j']).isnumeric():
++        raise ValueError(f'Only a numeric j is supported, got {trainArgs["j"]!r}')
++    budget = {}
++    if os.path.isfile(f'{expPath}/budget.json'):
++        with open(f'{expPath}/budget.json') as file:
++            budget = json.load(file)
++
++    n_obs = trainArgs['N'] + 3
++    n_hidden_units = trainArgs['n']
++
++    saved = tf.saved_model.load(policyPath)
++    weights = check_layout(saved, n_obs, n_hidden_units)
++
++    metadata = {
++        'policy_type'      : 'stochastic',  # calypso validates and saves agent.policy, which samples
++        'j'                : int(trainArgs['j']),
++        'N'                : trainArgs['N'],
++        'D'                : trainArgs['dimensions'],
++        'max_iter_cal'     : trainArgs['max_iter_cal'],
++        'velocity_clamping': trainArgs['vc'],
++        'training_seed'    : trainArgs['seed'],
++        'eval_seed_offset' : trainArgs.get('eval_seed_offset'),
++        'experiment'       : args.exp,
++        'step'             : step,
++        'selected_step'    : selected['step'],
++        'train_problems'   : trainArgs['train_problems'],
++        'budget'           : budget,
++    }
++    outPath = os.path.join(outDir, 'policy.npz')
++    save_policy(
++        outPath,
++        hidden_layers = [(weights[0], weights[1]), (weights[2], weights[3])],
++        projection    = (weights[4], weights[5]),
++        low           = LOW,
++        high          = HIGH,
++        metadata      = metadata,
++    )
++    policy = load_policy(outPath)
++
++    rng = np.random.default_rng(args.check_seed)
++    forward = check_forward_pass(policy, rebuilt_network(weights, n_obs, n_hidden_units), n_obs, rng)
++    ks = check_saved_policy_samples(policy, saved, n_obs, rng)
++
++    for name in COPIED_FILES:
++        if os.path.isfile(f'{expPath}/{name}'):
++            shutil.copy(f'{expPath}/{name}', outDir)
++    with open(os.path.join(outDir, 'export_checks.json'), 'w') as file:
++        json.dump({'forward_pass': forward, 'saved_policy_ks': ks, 'policy_path': policyPath}, file, indent=4)
++
++    print(f'Wrote {outPath} (step {step})')
++
++
++if __name__ == '__main__':
++    main()
 diff --git a/scripts/rl/selectPolicy.py b/scripts/rl/selectPolicy.py
 new file mode 100644
 index 0000000..5dedcac

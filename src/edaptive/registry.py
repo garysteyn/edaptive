@@ -14,6 +14,7 @@ from edaptive.adapters.uniform_random import UniformRandomAdapter
 from edaptive.optimizers.pso import PSO
 from edaptive.solvers.basic_solver import BasicSolver
 from edaptive.solvers.eda_solver import EDASolver
+from edaptive.solvers.pso.sac_sapso import SACSAPSO
 from edaptive.solvers.pso.sg_pso import StabilityGuidedPSO
 from edaptive.solvers.pso.tvac_pso import TVACPSO
 from edaptive.solvers.uniform_random_solver import UniformRandomSolver
@@ -26,6 +27,7 @@ SOLVERS = {
         UniformRandomSolver,
         StabilityGuidedPSO,
         TVACPSO,
+        SACSAPSO,
     )
 }
 # Old names still accepted on the command line.

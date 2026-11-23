@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from edaptive.core.config import SolverConfig
@@ -107,3 +109,15 @@ def test_from_dict_reads_best_configuration_pickle_dicts():
 
     basic = {"optimizer": {"fixed": {"n_s": 30, "w": 0.7}}, "identifier": "basic"}
     assert SolverConfig.from_dict(basic).to_dict() == basic
+
+
+def test_sac_sapso_settings_round_trip_without_an_adapted_space():
+    # SACSAPSO keeps its own settings in adapter_params (it builds no adapter).
+    with open("experiments/configs/sac_sapso.json") as file:
+        config, tuning_space = parse_config(json.load(file))
+    assert tuning_space is None
+    assert config.adapted_CP_space is None
+    assert set(config.adapter_params) == {"policy_path", "nt", "max_iterations"}
+    stored = config.to_dict()
+    assert stored["adapter"] == config.adapter_params
+    assert SolverConfig.from_dict(stored) == config
