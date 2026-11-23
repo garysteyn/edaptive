@@ -1,8 +1,12 @@
 import os
 
-# One BLAS/OpenMP thread per process, so each process's recorded times are its own
-# compute effort (set before numpy is imported; a value from the shell wins).
+# One thread per process, so each process's recorded times are its own compute effort
+# (set before numpy is imported; a value from the shell wins).
 os.environ.setdefault("OMP_NUM_THREADS", "1")
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+os.environ.setdefault("MKL_NUM_THREADS", "1")
+# CPU only, so CPU time covers all compute.
+os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
 
 import argparse
 import json

@@ -383,8 +383,14 @@ PSO velocities and Poli's criterion), not an adapter.
   core time (`n_s=n_x=30`, BetaEDA).
 - `core_time(timings)` → `{"wall": total, "cpu": total}` over all components.
 - Runs execute in parallel (MPI ranks) and per-run times are summed afterwards, so each process must be
-  single-threaded: `execute.py` and `tune.py` set `OMP_NUM_THREADS=1` by default (a shell value wins). Use no more
-  ranks than physical cores, or wall times include waiting; CPU time is robust to that.
+  single-threaded: `execute.py`, `tune.py` and `train_sac.py` (and calypso's `calypsoTrainSAC`) set
+  `OMP_NUM_THREADS`, `OPENBLAS_NUM_THREADS` and `MKL_NUM_THREADS` to 1 and `CUDA_VISIBLE_DEVICES=""` (CPU only, so
+  CPU time covers all compute) before numpy is imported; a shell value wins. `calypsoTrainSAC` also sets
+  TensorFlow's intra-/inter-op thread pools to 1. Use no more ranks than physical cores, or wall times include
+  waiting; CPU time is robust to that.
+- SAC training is not strictly serial even so: tf-agents' replay pipeline (reverb server, gRPC, `tf.data`
+  prefetch) runs alongside collection, so its CPU time is about 1.25× its wall time. Compare configuration costs
+  by CPU time.
 
 ### SolverConfig (`core/config.py`)
 Frozen dataclass `SolverConfig(identifier, fixed_CPs, adapted_CP_space, adapter_params)`:
@@ -689,9 +695,9 @@ belief-space-guided SA-PSO (`scripts/pso/calypso.py`, run via `scripts.pso.execu
 - `CalypsoWrapper(..., budget_runs=None, eval_seed_offset=None)` passes both through.
   `experiments/scripts/train_sac.py` holds the agreed settings (`TRAINING_SET`, `B = 2000`, seed 123; experiment
   name `vc_sac_j50`). It passes no `--dsoff`, so training uses tf-agents' distribution strategy.
-- Measured on the dev container (3 full-size functions incl. BBOB, `--dsoff`): ≈ 0.9 s per initial-collect episode,
-  ≈ 4.2 s per collect episode (incl. 100 learner steps at `n = 256`), ≈ 1.3 s per validation episode, so ≈ 2 h for
-  the 1968 runs.
+- Measured on the dev container, single-threaded as in "Timing" (3 full-size functions incl. BBOB, no `--dsoff`):
+  ≈ 0.9 s per initial-collect episode, ≈ 5 s per collect episode (incl. 100 learner steps at `n = 256`), ≈ 1.4 s per
+  validation episode, so ≈ 2.5 h wall for the 1968 runs.
 - **Export** (`scripts/rl/exportPolicy.py --exp <exp> [--out <dir>] [--step <step>]`, default step from
   `selected_policy.json`, default `<dir>` = `../results/sac_training/<exp>/` in edaptive's gitignored `results/`):
   writes `policy.npz` (format in "SACSAPSO", `policy_type "stochastic"`), copies `selected_policy.json`,
@@ -762,6 +768,14 @@ Suggested order (each step is checked against the R8a reference results):
 10. R7b (done): the code passes `ruff check`.
 
 R8b is not a separate step: add each component's unit tests in the step that touches it.
+
+**SAC trainer** (when the author's deterministic rewrite is ready).
+- [ ] Replace `softActorCritic_og.py` with the deterministic `softActorCritic.py` rewrite (in-process
+  `tf_uniform_replay_buffer` instead of reverb). This also removes the reverb/`tf.data` prefetch concurrency that
+  keeps SAC training from being single-threaded (see "Timing").
+- [ ] Port the training protocol to the rewrite: budget (`--budget-runs`, run counting, `budget.json`), fixed
+  validation seeds, per-validation policy saving with `validation_results.csv`, mean-rank selection, and
+  `training_times.json`. Then point `calypsoTrainSAC` at it.
 
 **R8b Unit tests** (pytest, `tests/` mirroring `src/edaptive/`; R8a, the characterisation tests, is done).
 - [ ] (b) Unit tests: `Parameter`/`ParameterSpace` validation; `parse_config`; `BenchmarkProblem` batching and

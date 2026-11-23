@@ -533,18 +533,33 @@ index 84ef508..7d528ad 100644
                  self.funcRanges.loc[self.func, 'low'] = self.lsbCurr
                  pl(f'Updated L_min for {self.func}')
 diff --git a/scripts/rl/calypsoTrainSAC.py b/scripts/rl/calypsoTrainSAC.py
-index b6fb403..d159d8c 100644
+index b6fb403..7fdef33 100644
 --- a/scripts/rl/calypsoTrainSAC.py
 +++ b/scripts/rl/calypsoTrainSAC.py
-@@ -9,6 +9,7 @@ which tunes the Calypso control parameters.
+@@ -7,26 +7,40 @@ which tunes the Calypso control parameters.
+ 
+ ## Imports
  import os
++
++# One thread, CPU only, so the recorded training time is the compute effort of a
++# single thread (set before numpy/TensorFlow are imported; a value from the shell wins).
++os.environ.setdefault('OMP_NUM_THREADS', '1')
++os.environ.setdefault('OPENBLAS_NUM_THREADS', '1')
++os.environ.setdefault('MKL_NUM_THREADS', '1')
++os.environ.setdefault('CUDA_VISIBLE_DEVICES', '')
++
  import glob
  import time
 +import math
  import shutil
  import logging
  import argparse
-@@ -17,16 +18,17 @@ import tensorflow as tf
+ import tensorflow as tf
+ 
++# TensorFlow's own thread pools ignore OMP_NUM_THREADS.
++tf.config.threading.set_intra_op_parallelism_threads(1)
++tf.config.threading.set_inter_op_parallelism_threads(1)
++
  from scripts.const import *
  from scripts.tools.utils import *
  from scripts.rl.calypsoEnv import calypsoEnv
@@ -565,7 +580,7 @@ index b6fb403..d159d8c 100644
  # parser.add_argument('--k',     type=int,            help='max_iter_funcsets -- i.t.o whole function sets')
  
  parser.add_argument('--n',     type=int,            help='batch_size & layer_params')
-@@ -48,8 +50,101 @@ parser.add_argument('--text',  type=str,            help='Some text')
+@@ -48,8 +62,101 @@ parser.add_argument('--text',  type=str,            help='Some text')
  parser.add_argument('--vc',    action='store_true', help='Velocity clamping')
  parser.add_argument('--dsoff', action='store_true', help='Turn off distributed strategy parallel processing')
  parser.add_argument('--temp',  action='store_true', help='Perform a temporary run which can be discarded')
@@ -668,7 +683,7 @@ index b6fb403..d159d8c 100644
  argsDict = vars(args)
  
  
-@@ -60,6 +155,33 @@ NUMFUNCS_EVAL = len(FUNCTIONS_EVAL)
+@@ -60,6 +167,33 @@ NUMFUNCS_EVAL = len(FUNCTIONS_EVAL)
  
  
  
@@ -702,7 +717,7 @@ index b6fb403..d159d8c 100644
  ## File management
  if args.resume:
      exp = args.resume
-@@ -137,11 +259,13 @@ if args.resume:
+@@ -137,11 +271,13 @@ if args.resume:
      envParams = ljson(glob.glob(f'{varsPath}/envParams*')[0])
  else:
      envParams = {
@@ -718,7 +733,7 @@ index b6fb403..d159d8c 100644
      }
      wjson(f'{varsPath}/envParams--{int(time.time())}.json', envParams)
  
-@@ -151,7 +275,7 @@ else:
+@@ -151,7 +287,7 @@ else:
  if args.j.isnumeric():
      j = int(args.j)
      pl(f'j: {j}')
@@ -727,7 +742,7 @@ index b6fb403..d159d8c 100644
      pl(f'SAC steps per Function: {stepsPerFunc}')
      pl(f'Functions per Training Set: {NUMFUNCS_TRAIN}')
      pl(f'Training Sets per Training: {args.i / NUMFUNCS_TRAIN / stepsPerFunc}')
-@@ -161,7 +285,7 @@ elif args.j=='auto':
+@@ -161,7 +297,7 @@ elif args.j=='auto':
      pl('CHECK "j" in calypsoTrainSac.py and "MAXITER / x" in calypsoEnv.py!!!')
      j = 250  # might have to adjust this, it affects the size of buffers & iters, also because it learns to use more steps
      pl(f'Estimated j: {j}')
@@ -736,7 +751,7 @@ index b6fb403..d159d8c 100644
      pl(f'Estimated SAC steps per Function: {stepsPerFunc}')
      pl(f'Functions per Training Function Set: {NUMFUNCS_TRAIN}')
      pl(f'Estimated Training Sets per Training: {args.i / NUMFUNCS_TRAIN / stepsPerFunc}')
-@@ -189,14 +313,17 @@ sacParams = {
+@@ -189,14 +325,17 @@ sacParams = {
      
      # 'initial_collect_funcsets'       :   (1                * args.ics * 1           ),
      # 'initial_collect_funcs'          : fi(NUMFUNCS_TRAIN   * args.ics * 1           ),
@@ -756,7 +771,7 @@ index b6fb403..d159d8c 100644
      # 'eval_interval_steps'            : fi(NUMFUNCS_TRAIN   * args.ei  * stepsPerFunc),
  
      # 'num_eval_funcsets'              :   (1                * args.nef * 1           ),
-@@ -233,10 +360,16 @@ sacParams = {
+@@ -233,10 +372,16 @@ sacParams = {
      'funcs_train'                    : FUNCTIONS_TRAIN,
      'numfuncs_train'                 : NUMFUNCS_TRAIN,
      'funcs_eval'                     : FUNCTIONS_EVAL,
@@ -775,7 +790,7 @@ index b6fb403..d159d8c 100644
  
  
  ## Environment
-@@ -257,7 +390,8 @@ envEval = calypsoEnv(
+@@ -257,7 +402,8 @@ envEval = calypsoEnv(
      pklPath         = pklPath,
      numEvalEpisodes = sacParams['num_eval_funcs'],
      funcs           = FUNCTIONS_EVAL,
@@ -785,7 +800,7 @@ index b6fb403..d159d8c 100644
  )
  
  
-@@ -273,6 +407,7 @@ sacAgent = softActorCritic(
+@@ -273,6 +419,7 @@ sacAgent = softActorCritic(
      params      = sacParams,
      modelPath   = modelPath,
      plotPath    = plotPath,
@@ -793,7 +808,7 @@ index b6fb403..d159d8c 100644
      distributed = distributed  # check that the GPU is actually being used
  )
  
-@@ -281,6 +416,11 @@ sacAgent = softActorCritic(
+@@ -281,6 +428,11 @@ sacAgent = softActorCritic(
  ## Train
  sacAgent.fit(resume=args.resume)
  
