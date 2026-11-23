@@ -366,10 +366,14 @@ PSO velocities and Poli's criterion), not an adapter.
 - Timed: `_load_policy`, `_swarm_data` (every iteration), `_observation`, `_policy_action`, `_set_adapted_CPs`.
 - Config `experiments/configs/sac_sapso.json` (`nt` 50, `max_iterations` 5000, `n_s` 30, `V_max_fraction` 1.0 =
   calypso's `--vc`, `policy_path` `results/sac_training/vc_sac_j50/policy.npz`).
-- `scratch/sac_sapso_equivalence.py --exp <exp> [--seeds 30]` runs calypso's env with the saved TF policy and
-  `SACSAPSO` on 5 training functions (one BBOB) × seeds from 5 000 000 and reports Mann–Whitney U on final gbest and
-  the action trajectories (writes `results/sac_training/<exp>/equivalence.json`). No exact agreement is expected
-  (Known issue 15).
+- `scratch/sac_sapso_equivalence.py --exp <exp> [--seeds 30] [--tf-seed 0]` runs calypso's env with the saved TF
+  policy (the export's `saved_policy/` copy, else `calypso/data`; loaded once, TF seeded once) and `SACSAPSO`
+  (`V_max_fraction` 1.0; raises for a policy trained without `--vc`) on 5 training functions (one BBOB) × seeds from
+  5 000 000. Two-sided Mann–Whitney U across seeds, with both medians, on the final gbest and, per action
+  dimension, the run's mean and standard deviation of actions and the actions at decisions 1, 25, 50, 100;
+  Holm-adjusted over all tests. Also the largest gap between seed-mean actions per dimension, raw and over the
+  pooled standard error. Writes `results/sac_training/<exp>/equivalence.json` (with the TF seed). No exact agreement
+  is expected (Known issue 15).
 
 ### Timing (`utils/timing.py`)
 - `@timed` accumulates `self._timings[method] = {"wall": s, "cpu": s}` per call (`perf_counter` and the
@@ -701,7 +705,8 @@ belief-space-guided SA-PSO (`scripts/pso/calypso.py`, run via `scripts.pso.execu
 - **Export** (`scripts/rl/exportPolicy.py --exp <exp> [--out <dir>] [--step <step>]`, default step from
   `selected_policy.json`, default `<dir>` = `../results/sac_training/<exp>/` in edaptive's gitignored `results/`):
   writes `policy.npz` (format in "SACSAPSO", `policy_type "stochastic"`), copies `selected_policy.json`,
-  `budget.json`, `training_times.json`, `validation_results.csv`, and writes `export_checks.json`. It fails loudly
+  `budget.json`, `training_times.json`, `validation_results.csv` and the exported SavedModel (as `saved_policy/`),
+  and writes `export_checks.json`. It fails loudly
   unless (1) the saved actor variables have the assumed names/shapes (2 hidden Dense + projection), (2) the numpy
   forward pass matches the rebuilt tf-agents network within 1e-5 on 1000 random observations, and (3) per-dimension
   two-sample KS tests of 5000 actions from the saved policy's `action` vs the numpy sampler, on 20 observations,
@@ -711,9 +716,10 @@ The edaptive wrappers (`BS_PSO.run()`, `CalypsoWrapper.train()`) build the CLI, 
 `misc/pkl/funcRanges.pkl` (low=inf, high=-inf, delta=NaN, so calypso's normalised "GBN" printouts are meaningless),
 **delete `calypso/data` and `calypso/log`**, then `subprocess.run(..., cwd=calypso_root)`. Results stay in calypso's
 own output dirs, and runs aren't safe to execute concurrently. To change calypso behaviour, edit the patched clone and
-regenerate `scripts/calypso-integration.patch`. New files must be marked intent-to-add first, and the binary
-`funcRanges.pkl` is left out (the wrappers overwrite it):
-`git -C calypso add -N <new files> && git -C calypso diff -- . ':!misc/pkl/funcRanges.pkl' > scripts/calypso-integration.patch`.
+regenerate `scripts/calypso-integration.patch`. New files must be marked intent-to-add first, the binary
+`funcRanges.pkl` is left out (the wrappers overwrite it), and `-C` stores `softActorCritic_og.py` as a copy of
+`softActorCritic.py` (`git apply` handles it):
+`git -C calypso add -N <new files> && git -C calypso diff -C -- . ':!misc/pkl/funcRanges.pkl' > scripts/calypso-integration.patch`.
 Training also rewrites `misc/pkl/funcRanges.pkl` (and `funcRangesPrev.pkl`) on exit.
 
 ## Conventions
