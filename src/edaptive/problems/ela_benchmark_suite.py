@@ -1163,3 +1163,33 @@ class Elliptic(BenchmarkProblem):
             10.0 ** (6.0 * i / (self.dimensions - 1.0)) * x**2,
             axis=-1,
         )
+
+
+# The 24 Lang & Engelbrecht functions used to configure every algorithm: I/F-race's
+# instances and SAC-SAPSO's training and validation functions.
+TRAINING_SET = (
+    Schwefel1,
+    Ripple25,
+    Exponential,
+    NeedleEye,
+    Step3,
+    GeneralizedGiunta,
+    GeneralizedPaviani,
+    Brown,
+    CosineMixture,
+    Mishra07,
+    Mishra01,
+    GeneralizedPrice2,
+    GeneralizedEggCrate,
+    Rosenbrock,
+    Pinter2,
+    Qing,
+    BBOB_FID2_IID1,
+    BBOB_FID6_IID1,
+    BBOB_FID16_IID1,
+    BBOB_FID17_IID2,
+    DropWave,
+    BonyadiMichalewicz,
+    Discus,
+    Elliptic,
+)

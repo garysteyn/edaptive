@@ -8,25 +8,7 @@ import argparse
 import json
 from pathlib import Path
 
-from edaptive.problems.ela_benchmark_suite import (
-    BBOB_FID2_IID1,
-    BBOB_FID6_IID1,
-    BBOB_FID16_IID1,
-    BBOB_FID17_IID2,
-    Brown,
-    CosineMixture,
-    CosineMixture_OG,
-    Exponential,
-    GeneralizedGiunta,
-    GeneralizedPaviani,
-    GeneralizedPrice2,
-    Mishra01,
-    Mishra07,
-    NeedleEye,
-    Ripple25,
-    Schwefel1,
-    Step3,
-)
+from edaptive.problems.ela_benchmark_suite import TRAINING_SET
 from edaptive.registry import resolve
 from edaptive.tuning.ifrace import IFRace
 from edaptive.utils.experiment_utils import parse_config
@@ -60,25 +42,7 @@ def main():
     config_template, tuning_parameter_space = parse_config(config)
 
     ifrace = IFRace(
-        I=[
-            Schwefel1,
-            Ripple25,
-            Exponential,
-            NeedleEye,
-            Step3,
-            GeneralizedGiunta,
-            GeneralizedPaviani,
-            Brown,
-            CosineMixture_OG,
-            CosineMixture,
-            Mishra07,
-            Mishra01,
-            GeneralizedPrice2,
-            BBOB_FID2_IID1,
-            BBOB_FID6_IID1,
-            BBOB_FID16_IID1,
-            BBOB_FID17_IID2,
-        ],
+        I=list(TRAINING_SET),
         n_x=30,
         B=2000,
     )

@@ -62,7 +62,7 @@ edaptive/
 │   │       └── tvac_pso.py   # TVACPSO: Ratnaweera et al. (2004) PSO-TVAC (linear w/c_1/c_2 schedules)
 │   ├── problems/
 │   │   ├── benchmark_problem.py   # BenchmarkProblem ABC
-│   │   ├── ela_benchmark_suite.py # ~24 hand-written functions + 4 BBOB wrappers (the tuning/training set)
+│   │   ├── ela_benchmark_suite.py # ~24 hand-written functions + 4 BBOB wrappers; TRAINING_SET
 │   │   ├── bbob.py                # BBOBProblem (COCO cocoex)
 │   │   ├── cec.py                 # CECProblem (opfunu)
 │   │   ├── custom_test_set.py     # evaluation set: BBOB_FIDx_IIDy and CEC_yyyy_FIDx classes
@@ -383,8 +383,10 @@ Adapters currently assume all adapted CPs are continuous.
 - `ela_benchmark_suite.py`: hand-coded functions (Schwefel1, Ripple25, Exponential, NeedleEye, Step3,
   GeneralizedGiunta, GeneralizedPaviani, Brown, CosineMixture(_OG), Mishra01/07, GeneralizedPrice2,
   GeneralizedEggCrate, Rosenbrock, Pinter2(_OG), Qing, DropWave, BonyadiMichalewicz, Discus, Elliptic) plus
-  `BBOB_FID{2,6,16,17}_IID*`, with optional `global_optimum` metadata. This set is used for **tuning / SAC training**
-  (presumably chosen for ELA-feature coverage). `plot_benchmark_3d` is a plotting helper.
+  `BBOB_FID{2,6,16,17}_IID*`, with optional `global_optimum` metadata. `plot_benchmark_3d` is a plotting helper.
+  `TRAINING_SET` (tuple of 24 classes, the Lang & Engelbrecht set, non-`_OG` variants) is the one configuration set:
+  `tune.py`'s I/F-race instances and SAC-SAPSO's training and validation functions.
+  `execute.py` still has its own lists (Known issue 4).
 - `custom_test_set.py`: the **evaluation** set (BBOB FID/IID combos + CEC 2013/2014/2015/2017 functions via opfunu):
   one problem per ELA cluster (closest to the cluster centroid, excluding `ela_benchmark_suite.py` problems).
   `experiments/problem_selection/select_evaluation_problems.py` makes the selection from `ela_features.csv` in the
