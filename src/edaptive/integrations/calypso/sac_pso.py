@@ -27,6 +27,8 @@ class CalypsoWrapper:
         nef=None,
         vc=None,
         seed=None,
+        budget_runs=None,
+        eval_seed_offset=None,
     ):
         self.dimensions = dimensions
         self.N = N
@@ -52,6 +54,11 @@ class CalypsoWrapper:
         self.vc = vc
 
         self.seed = seed
+
+        # Budget in PSO runs (initial collect + collect + validation episodes),
+        # and the seed offset of the validation instances.
+        self.budget_runs = budget_runs
+        self.eval_seed_offset = eval_seed_offset
 
     def _clear_previous_run(self, calypso_root):
         for directory_name in ("data", "log"):
@@ -96,6 +103,8 @@ class CalypsoWrapper:
             "ei": self.ei,
             "nef": self.nef,
             "seed": self.seed,
+            "budget-runs": self.budget_runs,
+            "eval-seed-offset": self.eval_seed_offset,
         }
         print(parameters)
         for name, value in parameters.items():

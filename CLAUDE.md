@@ -603,19 +603,51 @@ changes how solvers or tuners are built, update `cases.py`, not the reference.
 
 `calypso/` contains research code for two self-adaptive PSOs used as **comparison baselines**:
 belief-space-guided SA-PSO (`scripts/pso/calypso.py`, run via `scripts.pso.execute`) and Soft Actor-Critic SA-PSO
-(`scripts/rl/calypsoTrainSAC.py`, `calypsoEnv.py`, `softActorCritic.py`). The patch:
+(`scripts/rl/calypsoTrainSAC.py`, `calypsoEnv.py`, `softActorCritic_og.py`). The trainer is `softActorCritic_og.py`
+(the version behind the paper); `softActorCritic.py` is the author's in-progress reproducible rewrite, which
+`calypsoTrainSAC` does not import. The patch:
 - makes paths in `const.py` relative to the calypso root and creates output dirs;
 - adds CLI args `--problems/--train-problems/--eval-problems` (dotted import paths to **edaptive problem classes**),
   `--dimensions`, `--N`, `--max-iter-cal`, `--runs`, `--seed`;
 - makes calypso call edaptive problems directly (`loss = problem`, `lim = (problem.lower, problem.upper)`), so
   calypso must run inside the same venv with `edaptive` installed;
-- adds TF determinism (`set_random_seed`, `enable_op_determinism`) and seeds the SAC agent.
+- adds TF determinism (`set_random_seed`, `enable_op_determinism`) and seeds the SAC agent;
+- forwards `--max-iter-cal` to the env (`envParams["max_iter_cal"]`; before, episodes always ran `MAXITER_CAL = 5000`).
+
+**SAC training protocol** (`calypsoTrainSAC` + `softActorCritic_og.fit`), the SAC-SAPSO configuration procedure:
+- `--budget-runs B` (budget in PSO runs = episodes). With `F` functions, `ics` initial-collect passes and validation
+  every `ei` passes, it trains `C = max{c : F·ics + F·c + F·ceil(c/ei) ≤ B}` collect passes (B = 2000, F = 24,
+  ics = 5, ei = 10 → C = 70, 1968 runs). Initial collect runs `F·ics` episodes (`episodes_per_run`). Training stops
+  once `F·C` collect episodes have completed; `--i` (SAC collect steps) is only a safety cap, and the log says which
+  stopped it. `--resume` with `--budget-runs` raises.
+- Runs are counted in the env (`startedRuns`): an episode counts at its first `_step`. Resets that only build the
+  initial swarm (each `Actor` constructor resets its env; the driver ends an episode run on the reset after the
+  last episode) are counted in `resets` only. The collect actor's constructor reset skips one run index, so the
+  collect function order is rotated by one.
+- Validation: `--eval-problems` must equal `--train-problems` and `--nef` must be 1. The eval env's seeds are
+  `seed + --eval-seed-offset` (default 1 000 000) `+ r`; before every validation `envEval.run = -1` and
+  `eval_actor.reset()`, so every validation replays the same `F` instances (function `r % F`). Validation runs every
+  `F·ei` completed collect episodes and after the last one.
+- At every validation: `PolicySaver(agent.policy)` → `model/policies/validated/step_<step>`, and one row per episode
+  appended to `validation_results.csv` (`step,function,seed,f_final`, `f_final` = the episode's raw final gbest).
+  No other save selects a policy (the `PolicySavedModelTrigger` checkpoints every `psi` passes remain).
+- Selection (`scripts/rl/selectPolicy.py`, also a CLI: `python -m scripts.rl.selectPolicy --exp <exp>`): rank the
+  checkpoints within each instance (`rankdata`, average ties, lower is better), lowest mean rank wins, exact ties go
+  to the later checkpoint. GBN/`funcRanges` play no part.
+- Outputs in `data/<exp>/`: `validation_results.csv`, `selected_policy.json` (`step, path, mean_rank, n_checkpoints,
+  n_instances`), `budget.json` (`B, initial_collect_runs, collect_runs, validation_runs, total_runs, C,
+  n_validations`, plus `completed_collect_episodes`, `stopped_by`; asserts `total_runs ≤ B`), `training_times.json`
+  (wall `perf_counter` / CPU `process_time` of the whole script after argument parsing: the configuration cost).
+- `CalypsoWrapper(..., budget_runs=None, eval_seed_offset=None)` passes both through.
 
 The edaptive wrappers (`BS_PSO.run()`, `CalypsoWrapper.train()`) build the CLI, write a **placeholder**
 `misc/pkl/funcRanges.pkl` (low=inf, high=-inf, delta=NaN, so calypso's normalised "GBN" printouts are meaningless),
 **delete `calypso/data` and `calypso/log`**, then `subprocess.run(..., cwd=calypso_root)`. Results stay in calypso's
 own output dirs, and runs aren't safe to execute concurrently. To change calypso behaviour, edit the patched clone and
-regenerate `scripts/calypso-integration.patch` (`git -C calypso diff > scripts/calypso-integration.patch`).
+regenerate `scripts/calypso-integration.patch`. New files must be marked intent-to-add first, and the binary
+`funcRanges.pkl` is left out (the wrappers overwrite it):
+`git -C calypso add -N <new files> && git -C calypso diff -- . ':!misc/pkl/funcRanges.pkl' > scripts/calypso-integration.patch`.
+Training also rewrites `misc/pkl/funcRanges.pkl` (and `funcRangesPrev.pkl`) on exit.
 
 ## Conventions
 
@@ -689,6 +721,8 @@ R8b is not a separate step: add each component's unit tests in the step that tou
 8. PSO history keys `velocities`/`diversity` are only populated at initialisation.
 9. Empty placeholder: `problems/misc_problems.py`.
 10. Git: branches `main` and `elitist-ifrace` (also on origin).
+15. calypso's PSO runs in float32 and does not evaluate infeasible particles; edaptive's PSO is float64 and
+    evaluates them. Test-time comparisons of SAC-SAPSO use edaptive only.
 14. **Revisit: what an adapter does when fewer particles are feasible than it wants elites.** PSO has no position
     boundary handling, so often only a few particles are inside the bounds (with `n_s = 30`, `n_x = 10`: about 3–5
     under r-UMDA, 14–26 under r-PBIL). The adapters only rank feasible particles. Three strategies:
