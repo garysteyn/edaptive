@@ -76,6 +76,7 @@ edaptive/
 │   ├── registry.py                 # CLI names → solver/optimizer/adapter classes (`resolve(kind, name)`)
 │   └── utils/
 │       ├── experiment_utils.py     # parse_config: JSON config → (SolverConfig, tuning ParameterSpace)
+│       ├── seeding.py              # trial_seed(problem_name, n_x, trial, base): run seeds for execute.py
 │       └── timing.py               # @timed (wall + CPU time per method), core_time(timings)
 ├── experiments/
 │   ├── configs/*.json        # algorithm configs (see "Config schema")
@@ -89,7 +90,12 @@ edaptive/
 ├── scratch/                  # ad-hoc driver scripts (kept in git, excluded from ruff, not tests);
 │                             # r_eda_demo.py runs PSO + a multi-valued EDA and plots its frequencies;
 │                             # integrations_test.py: tiny SAC training smoke test via CalypsoWrapper;
-│                             # sac_sapso_equivalence.py: calypso policy vs SACSAPSO (see "SACSAPSO")
+│                             # sac_sapso_equivalence.py: calypso policy vs SACSAPSO (see "SACSAPSO");
+│                             # pso_core_equivalence.py: CALYPSO vs PSO with fixed CPs (MWU per checkpoint);
+│                             # sac_observation_equivalence.py: observations, expected actions and recovered
+│                             # policy noise at every decision, calypso vs SACSAPSO;
+│                             # sac_sapso_seed_bases.py: SACSAPSO's policy noise and mean actions per seed base
+│                             # (old shared-seed scheme on purpose: reproduces the c_1/c_2-shift diagnosis)
 ├── tests/                    # pytest (`testpaths` set in pyproject.toml); see "Tests"
 │   ├── conftest.py           # forces the Agg matplotlib backend
 │   ├── core/                 # unit tests: adaptable-CP mapping, SolverConfig/parse_config
@@ -97,7 +103,7 @@ edaptive/
 │   ├── adapters/             # unit tests: BetaEDA elite selection; multi-valued EDA model and updates; elite weights
 │   ├── solvers/              # unit tests: subset / reordered "adapted" spaces, construction, timings, SACSAPSO
 │   ├── fixtures/             # sac_sapso_policy.npz (small fixed random policy) + make_sac_sapso_policy.py
-│   ├── utils/                # unit tests: @timed, core_time
+│   ├── utils/                # unit tests: @timed, core_time, trial_seed
 │   ├── tuning/               # unit tests of IFRace pieces; mpirun -n 2 vs serial reference
 │   └── characterisation/     # R8a: pinned seeded results of the current code
 │       ├── cases.py          # case definitions (solver/tuner builds + what gets pinned)
@@ -368,13 +374,20 @@ PSO velocities and Poli's criterion), not an adapter.
 - Timed: `_load_policy`, `_swarm_data` (every iteration), `_observation`, `_policy_action`, `_set_adapted_CPs`.
 - Config `experiments/configs/sac_sapso.json` (`nt` 50, `max_iterations` 5000, `n_s` 30, `V_max_fraction` 1.0 =
   calypso's `--vc`, `policy_path` `results/sac_training/vc_sac_j50/policy.npz`).
-- `scratch/sac_sapso_equivalence.py --exp <exp> [--seeds 30] [--tf-seed 0]` runs calypso's env with the saved TF
-  policy (the export's `saved_policy/` copy, else `calypso/data`; loaded once, TF seeded once) and `SACSAPSO`
-  (`V_max_fraction` 1.0; raises for a policy trained without `--vc`) on 5 training functions (one BBOB) × seeds from
-  5 000 000. Two-sided Mann–Whitney U across seeds, with both medians, on the final gbest and, per action
+- `scratch/sac_sapso_equivalence.py --exp <exp> [--seeds 30]` runs calypso's env with the saved TF
+  policy (the export's `saved_policy/` copy, else `calypso/data`; loaded once) and `SACSAPSO`
+  (`V_max_fraction` 1.0; raises for a policy trained without `--vc`) on 5 training functions (one BBOB). Run `s`
+  of a function uses `trial_seed(name, D, s, base=seed_base)` (`function_seeds`; `--seed-base`, default
+  5 000 000) on both sides, so SACSAPSO's policy noise differs between functions. TF is seeded once, before the
+  first calypso episode, and stays that way: the saved policy's sampling op has its seed fixed in the graph, so
+  `tf.random.set_seed` only resets the stream (the value is ignored) and calypso's policy noise depends on the
+  order of the episodes; the exported `distribution` function is a placeholder that raises. Time steps are cast
+  to the saved policy's dtype (`policy_time_step`; Known issue 16).
+  Two-sided Mann–Whitney U across seeds, with both medians, on the final gbest and, per action
   dimension, the run's mean and standard deviation of actions and the actions at decisions 1, 25, 50, 100;
   Holm-adjusted over all tests. Also the largest gap between seed-mean actions per dimension, raw and over the
-  pooled standard error. Writes `results/sac_training/<exp>/equivalence.json` (with the TF seed). No exact agreement
+  pooled standard error. Writes `results/sac_training/<exp>/equivalence.json` (with `seed_base`, and a `tf_noise`
+  note on the TF seeding). No exact agreement
   is expected (calypso draws from numpy's global RNG).
 
 ### Timing (`utils/timing.py`)
@@ -611,7 +624,14 @@ mpirun -n 8 python experiments/scripts/execute.py --solver SACSAPSO --identifier
 python experiments/problem_selection/select_evaluation_problems.py
 ```
 `execute.py` writes `results/experiment_results/<identifier>.pkl` as `{problem_name: {trial: history_dict}}`
-(trial index = seed; `history_dict["timings"]` as in "Timing").
+(`history_dict["timings"]` as in "Timing"; `history_dict["seed"]` is the run's seed). Trial `j` of a problem uses
+`utils/seeding.py: trial_seed(problem_name, n_x, j, base=--seed_base)` (default base 0): SeedSequence entropy
+`[base, crc32(problem_name), n_x, trial]`, returned as a uint32 (so calypso's legacy `np.random.seed` accepts it
+too). It is the same for every algorithm (paired comparisons per problem and trial) and doesn't depend on the
+order of the problem lists. Problems need distinct seeds: with one shared seed list, PSO's initial swarm and
+`r_1`/`r_2` are the same draws (in unit-box terms) on every problem, and solvers whose draw counts don't depend on
+the problem (SACSAPSO's policy noise, `UniformRandomSolver`, `StabilityGuidedPSO`, `BasicSolver`, `TVACPSO`)
+repeat their whole random sequence, so problems are not independent replicates.
 
 ### Environment setup
 - Python **3.10** (TensorFlow 2.9 for calypso), `numpy<2`. Install with `pip install -e '.[dev]'` (`dev` adds ruff and pytest).
@@ -813,6 +833,10 @@ R8b is not a separate step: add each component's unit tests in the step that tou
 9. Empty placeholder: `problems/misc_problems.py`.
 10. Git: branches `main` and `elitist-ifrace` (also on origin).
 15. calypso skips evaluating infeasible particles (no effect on trajectories; calypso runs aren't timed).
+16. The selected policy `vc_sac_j50` (step 71999) was trained before the float64 change: its SavedModel specs and
+    `policy.npz` are float32, and training ran a float32 PSO. The float64 `calypsoEnv` time steps match no concrete
+    function of that SavedModel (`ValueError`), so the equivalence scripts cast them to the policy's spec dtype
+    (`policy_time_step`). Retrain to get a float64 policy, then remove the cast.
 14. **Revisit: what an adapter does when fewer particles are feasible than it wants elites.** PSO has no position
     boundary handling, so often only a few particles are inside the bounds (with `n_s = 30`, `n_x = 10`: about 3–5
     under r-UMDA, 14–26 under r-PBIL). The adapters only rank feasible particles. Three strategies:
