@@ -408,9 +408,9 @@ PSO velocities and Poli's criterion), not an adapter.
   CPU time covers all compute) before numpy is imported; a shell value wins. `calypsoTrainSAC` also sets
   TensorFlow's intra-/inter-op thread pools to 1. Use no more ranks than physical cores, or wall times include
   waiting; CPU time is robust to that.
-- SAC training is not strictly serial even so: tf-agents' replay pipeline (reverb server, gRPC, `tf.data`
-  prefetch) runs alongside collection, so its CPU time is about 1.25× its wall time. Compare configuration costs
-  by CPU time.
+- SAC training with `--trainer original` is not strictly serial even so: tf-agents' replay pipeline (reverb
+  server, gRPC, `tf.data` prefetch) runs alongside collection, so its CPU time is about 1.25–1.4× its wall time.
+  `--trainer det` samples synchronously and is serial (CPU/wall 1.00). Compare configuration costs by CPU time.
 
 ### SolverConfig (`core/config.py`)
 Frozen dataclass `SolverConfig(identifier, fixed_CPs, adapted_CP_space, adapter_params)`:
@@ -684,10 +684,17 @@ changes how solvers or tuners are built, update `cases.py`, not the reference.
 
 `calypso/` contains research code for two self-adaptive PSOs used as **comparison baselines**:
 belief-space-guided SA-PSO (`scripts/pso/calypso.py`, run via `scripts.pso.execute`) and Soft Actor-Critic SA-PSO
-(`scripts/rl/calypsoTrainSAC.py`, `calypsoEnv.py`, `softActorCritic.py`). The trainer is `softActorCritic.py`
-(the authors' trainer, the version behind the paper, plus the training-protocol changes below);
-`softActorCritic_rewrite.py` is the author's earlier rewrite (TFUniformReplayBuffer, no protocol changes), kept for
-reference; nothing imports it. The patch:
+(`scripts/rl/calypsoTrainSAC.py`, `calypsoEnv.py`, `softActorCritic.py`). Trainers, chosen with
+`calypsoTrainSAC --trainer {original,det}` (default `original`; recorded as `sacParams['trainer']`, and by
+`exportPolicy` as `metadata['trainer']`, `'original'` for experiments without it):
+- `softActorCritic.py` (`original`): the authors' trainer (the version behind the paper) plus the training-protocol
+  changes below. Reverb replay buffer, so not deterministic (see "Deterministic trainer").
+- `softActorCritic_det.py` (`det`): a copy of it that differs only in the replay buffer and its sampling
+  (`git diff --no-index` between the two shows only that).
+- `softActorCritic_rewrite.py`: the author's earlier rewrite (TFUniformReplayBuffer, no protocol changes, still
+  prefetching). Kept for reference; nothing imports it.
+
+The patch:
 - makes paths in `const.py` relative to the calypso root and creates output dirs;
 - adds CLI args `--problems/--train-problems/--eval-problems` (dotted import paths to **edaptive problem classes**),
   `--dimensions`, `--N`, `--max-iter-cal`, `--runs`, `--seed`;
@@ -696,7 +703,8 @@ reference; nothing imports it. The patch:
 - adds TF determinism (`set_random_seed`, `enable_op_determinism`) and seeds the SAC agent;
 - forwards `--max-iter-cal` to the env (`envParams["max_iter_cal"]`; before, episodes always ran `MAXITER_CAL = 5000`).
 
-**SAC training protocol** (`calypsoTrainSAC` + `softActorCritic.fit`), the SAC-SAPSO configuration procedure:
+**SAC training protocol** (`calypsoTrainSAC` + `softActorCritic.fit`, same in `_det`), the SAC-SAPSO
+configuration procedure:
 - Precision: float64 throughout, as in edaptive. `CALYPSO`'s `dtype` defaults to `np.float64` (so also
   `scripts.pso.execute`/`BS_PSO`); `calypsoEnv.dtype = np.float64` sets its PSO and all its specs (observation,
   action, reward, discount; it overrides `reward_spec`/`discount_spec`/`time_step_spec` and builds its `TimeStep`s
@@ -705,6 +713,16 @@ reference; nothing imports it. The patch:
   float32), builds the actor with `dtype=tf.float64`, and `calypsoTrainSAC` sets
   `tf.keras.backend.set_floatx('float64')` (critic and projection layers), so networks, losses and the saved
   policy are float64. This relies on `scripts/patch_tf_agents.py`.
+- Discount: a property of the authors' implementation, kept in both trainers. The env's MID time steps carry
+  `discount = gamma` and the SAC agent multiplies by its own `gamma` again (`td_target = r + gamma·discount·Q'`),
+  so with the configured `gamma = 0.99` the effective per-step discount is 0.99² ≈ 0.98 (LAST steps: 0).
+- Replay items: the observer writes `[traj_t, traj_{t+1}]` pairs within one episode (Reverb
+  `sequence_length = 2`, `stride = 1`; the cache is dropped after the boundary trajectory LAST → FIRST), so an
+  episode of `T` transitions (`T = max_iter_cal/j`) gives `T` items, the last ending in its boundary trajectory,
+  and no item spans two episodes. tf-agents 0.13's SAC loss does not mask any step type (`to_transition` takes
+  reward/discount from the first trajectory and only the observation from the second), so a cross-episode
+  window would be a made-up transition. Capacity `replay_buffer_capacity_steps = 50000` items, FIFO eviction,
+  uniform sampling with replacement, batches `[n, 2, …]`.
 - `--budget-runs B` (budget in PSO runs = episodes). With `F` functions, `ics` initial-collect passes and validation
   every `ei` passes, it trains `C = max{c : F·ics + F·c + F·ceil(c/ei) ≤ B}` collect passes (B = 2000, F = 24,
   ics = 5, ei = 10 → C = 70, 1968 runs). Initial collect runs `F·ics` episodes (`episodes_per_run`). Training stops
@@ -734,6 +752,23 @@ reference; nothing imports it. The patch:
 - Measured on the dev container, single-threaded as in "Timing" (3 full-size functions incl. BBOB, no `--dsoff`):
   ≈ 0.9 s per initial-collect episode, ≈ 5 s per collect episode (incl. 100 learner steps at `n = 256`), ≈ 1.4 s per
   validation episode, so ≈ 2.5 h wall for the 1968 runs.
+- **Deterministic trainer** (`--trainer det`). The original is non-deterministic: Reverb's `Uniform` selector
+  uses its own unseeded RNG, and which items exist when a batch is drawn depends on thread timing (asynchronous
+  item writes, Reverb in-flight samples, `.prefetch(50)`, and the `MirroredStrategy`'s per-replica prefetch
+  buffer). `softActorCritic_det.py` instead:
+  - stores the same pair items in a `TFUniformReplayBuffer` (`PairObserver`, same capacity in items, FIFO);
+  - samples batch `k` (learner step `k`) with `tf.random.stateless_uniform(seed=[seed, k])` over the stored
+    items, reading rows through `readItems` (private `_data_table`, asserts tf-agents 0.13.0);
+  - samples synchronously: no `.prefetch`, deterministic `tf.data` options (no autotune, no default
+    optimisations), and `Learner(experience_dataset_options=InputOptions(experimental_per_replica_buffer_size=0))`;
+    with the default buffer the strategy prefetches 1–2 batches, timing-dependently;
+  - leaves the buffer out of its checkpointers (the original's Reverb buffer holds no TF variables, so its
+    checkpoints save nothing of it either).
+
+  Fresher data: the original's learner may train on a batch drawn up to about 55 batches earlier (measured with
+  one item added per step: Reverb `table_size` lag median 55), before the latest transitions were inserted, by a
+  timing-dependent amount; det's learner step `k` samples from every transition collected before it, including
+  the latest. That is the only intended difference in what the learner sees.
 - **Export** (`scripts/rl/exportPolicy.py --exp <exp> [--out <dir>] [--step <step>]`, default step from
   `selected_policy.json`, default `<dir>` = `../results/sac_training/<exp>/` in edaptive's gitignored `results/`):
   writes `policy.npz` (format in "SACSAPSO", `policy_type "stochastic"`, `dtype` from the saved actor's variables
@@ -753,7 +788,10 @@ regenerate `scripts/calypso-integration.patch`. New files must be marked intent-
 `funcRanges.pkl` is left out (the wrappers overwrite it), and `-C` stores `softActorCritic_rewrite.py` as a copy
 of `softActorCritic.py` (`git apply` handles it):
 `git -C calypso add -N <new files> && git -C calypso diff -C -- . ':!misc/pkl/funcRanges.pkl' > scripts/calypso-integration.patch`.
-Training also rewrites `misc/pkl/funcRanges.pkl` (and `funcRangesPrev.pkl`) on exit.
+Training also rewrites `misc/pkl/funcRanges.pkl` (and `funcRangesPrev.pkl`) on exit. The env reads it at start and
+needs every function in its index; it affects only the GBN logging (rewards are `relativeReward`). Trainings with
+distinct experiment names (`--text`) can run concurrently by calling `calypsoTrainSAC` directly, not through the
+wrappers.
 
 ## Conventions
 
@@ -808,13 +846,9 @@ Suggested order (each step is checked against the R8a reference results):
 
 R8b is not a separate step: add each component's unit tests in the step that touches it.
 
-**SAC trainer** (when the author's deterministic rewrite is ready).
-- [ ] Replace `softActorCritic.py` with a deterministic trainer (in-process
-  `tf_uniform_replay_buffer` instead of reverb). This also removes the reverb/`tf.data` prefetch concurrency that
-  keeps SAC training from being single-threaded (see "Timing").
-- [ ] Port the training protocol to the rewrite: budget (`--budget-runs`, run counting, `budget.json`), fixed
-  validation seeds, per-validation policy saving with `validation_results.csv`, mean-rank selection, and
-  `training_times.json`. Then point `calypsoTrainSAC` at it.
+**SAC trainer**.
+- [ ] Decide whether `det` becomes the default trainer, and if so retrain the deployed policy (`vc_sac_j50`,
+  trained with `original`) with it. See "Deterministic trainer" for the comparison.
 
 **R8b Unit tests** (pytest, `tests/` mirroring `src/edaptive/`; R8a, the characterisation tests, is done).
 - [ ] (b) Unit tests: `Parameter`/`ParameterSpace` validation; `parse_config`; `BenchmarkProblem` batching and

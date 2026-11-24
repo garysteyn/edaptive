@@ -636,10 +636,10 @@ index 84ef508..b7b4c1a 100644
      def observation_spec(self):
          return self._observation_spec
 diff --git a/scripts/rl/calypsoTrainSAC.py b/scripts/rl/calypsoTrainSAC.py
-index b6fb403..ce9a8a2 100644
+index b6fb403..b1370ee 100644
 --- a/scripts/rl/calypsoTrainSAC.py
 +++ b/scripts/rl/calypsoTrainSAC.py
-@@ -7,26 +7,41 @@ which tunes the Calypso control parameters.
+@@ -7,26 +7,40 @@ which tunes the Calypso control parameters.
  
  ## Imports
  import os
@@ -667,7 +667,7 @@ index b6fb403..ce9a8a2 100644
  from scripts.const import *
  from scripts.tools.utils import *
  from scripts.rl.calypsoEnv import calypsoEnv
- from scripts.rl.softActorCritic import softActorCritic
+-from scripts.rl.softActorCritic import softActorCritic
  
 -tf.random.set_seed(SEED_TF)
 +import importlib
@@ -683,7 +683,7 @@ index b6fb403..ce9a8a2 100644
  # parser.add_argument('--k',     type=int,            help='max_iter_funcsets -- i.t.o whole function sets')
  
  parser.add_argument('--n',     type=int,            help='batch_size & layer_params')
-@@ -48,8 +63,101 @@ parser.add_argument('--text',  type=str,            help='Some text')
+@@ -48,8 +62,113 @@ parser.add_argument('--text',  type=str,            help='Some text')
  parser.add_argument('--vc',    action='store_true', help='Velocity clamping')
  parser.add_argument('--dsoff', action='store_true', help='Turn off distributed strategy parallel processing')
  parser.add_argument('--temp',  action='store_true', help='Perform a temporary run which can be discarded')
@@ -735,6 +735,13 @@ index b6fb403..ce9a8a2 100644
 +)
 +
 +parser.add_argument(
++    '--trainer',
++    choices=('original', 'det'),
++    default='original',
++    help='SAC trainer: original (Reverb replay buffer) or det (deterministic TFUniformReplayBuffer)'
++)
++
++parser.add_argument(
 +    '--seed',
 +    type=int,
 +    default=None,
@@ -753,6 +760,11 @@ index b6fb403..ce9a8a2 100644
 +
  args = parser.parse_args()
 -fi(args.ei/args.psi)  # check that the policy is saved at least before every evaluation interval
++
++if args.trainer == 'det':
++    from scripts.rl.softActorCritic_det import softActorCritic
++else:
++    from scripts.rl.softActorCritic import softActorCritic
 +
 +trainingStartWall = time.perf_counter()
 +trainingStartCPU  = time.process_time()
@@ -786,7 +798,7 @@ index b6fb403..ce9a8a2 100644
  argsDict = vars(args)
  
  
-@@ -60,6 +168,33 @@ NUMFUNCS_EVAL = len(FUNCTIONS_EVAL)
+@@ -60,6 +179,33 @@ NUMFUNCS_EVAL = len(FUNCTIONS_EVAL)
  
  
  
@@ -820,7 +832,7 @@ index b6fb403..ce9a8a2 100644
  ## File management
  if args.resume:
      exp = args.resume
-@@ -137,11 +272,13 @@ if args.resume:
+@@ -137,11 +283,13 @@ if args.resume:
      envParams = ljson(glob.glob(f'{varsPath}/envParams*')[0])
  else:
      envParams = {
@@ -836,7 +848,7 @@ index b6fb403..ce9a8a2 100644
      }
      wjson(f'{varsPath}/envParams--{int(time.time())}.json', envParams)
  
-@@ -151,7 +288,7 @@ else:
+@@ -151,7 +299,7 @@ else:
  if args.j.isnumeric():
      j = int(args.j)
      pl(f'j: {j}')
@@ -845,7 +857,7 @@ index b6fb403..ce9a8a2 100644
      pl(f'SAC steps per Function: {stepsPerFunc}')
      pl(f'Functions per Training Set: {NUMFUNCS_TRAIN}')
      pl(f'Training Sets per Training: {args.i / NUMFUNCS_TRAIN / stepsPerFunc}')
-@@ -161,7 +298,7 @@ elif args.j=='auto':
+@@ -161,7 +309,7 @@ elif args.j=='auto':
      pl('CHECK "j" in calypsoTrainSac.py and "MAXITER / x" in calypsoEnv.py!!!')
      j = 250  # might have to adjust this, it affects the size of buffers & iters, also because it learns to use more steps
      pl(f'Estimated j: {j}')
@@ -854,7 +866,7 @@ index b6fb403..ce9a8a2 100644
      pl(f'Estimated SAC steps per Function: {stepsPerFunc}')
      pl(f'Functions per Training Function Set: {NUMFUNCS_TRAIN}')
      pl(f'Estimated Training Sets per Training: {args.i / NUMFUNCS_TRAIN / stepsPerFunc}')
-@@ -189,14 +326,17 @@ sacParams = {
+@@ -189,14 +337,17 @@ sacParams = {
      
      # 'initial_collect_funcsets'       :   (1                * args.ics * 1           ),
      # 'initial_collect_funcs'          : fi(NUMFUNCS_TRAIN   * args.ics * 1           ),
@@ -874,7 +886,7 @@ index b6fb403..ce9a8a2 100644
      # 'eval_interval_steps'            : fi(NUMFUNCS_TRAIN   * args.ei  * stepsPerFunc),
  
      # 'num_eval_funcsets'              :   (1                * args.nef * 1           ),
-@@ -233,10 +373,16 @@ sacParams = {
+@@ -233,10 +384,17 @@ sacParams = {
      'funcs_train'                    : FUNCTIONS_TRAIN,
      'numfuncs_train'                 : NUMFUNCS_TRAIN,
      'funcs_eval'                     : FUNCTIONS_EVAL,
@@ -882,6 +894,7 @@ index b6fb403..ce9a8a2 100644
 +    'numfuncs_eval'                  : NUMFUNCS_EVAL,
 +
 +    'seed': seed,
++    'trainer': args.trainer,
  }
 -wjson(f'{varsPath}/sacParams--{int(time.time())}.json', sacParams)
  
@@ -893,7 +906,7 @@ index b6fb403..ce9a8a2 100644
  
  
  ## Environment
-@@ -257,7 +403,8 @@ envEval = calypsoEnv(
+@@ -257,7 +415,8 @@ envEval = calypsoEnv(
      pklPath         = pklPath,
      numEvalEpisodes = sacParams['num_eval_funcs'],
      funcs           = FUNCTIONS_EVAL,
@@ -903,7 +916,7 @@ index b6fb403..ce9a8a2 100644
  )
  
  
-@@ -273,6 +420,7 @@ sacAgent = softActorCritic(
+@@ -273,6 +432,7 @@ sacAgent = softActorCritic(
      params      = sacParams,
      modelPath   = modelPath,
      plotPath    = plotPath,
@@ -911,7 +924,7 @@ index b6fb403..ce9a8a2 100644
      distributed = distributed  # check that the GPU is actually being used
  )
  
-@@ -281,6 +429,11 @@ sacAgent = softActorCritic(
+@@ -281,6 +441,11 @@ sacAgent = softActorCritic(
  ## Train
  sacAgent.fit(resume=args.resume)
  
@@ -925,10 +938,10 @@ index b6fb403..ce9a8a2 100644
  ## Cleanup
 diff --git a/scripts/rl/exportPolicy.py b/scripts/rl/exportPolicy.py
 new file mode 100644
-index 0000000..2c761c5
+index 0000000..de27c0c
 --- /dev/null
 +++ b/scripts/rl/exportPolicy.py
-@@ -0,0 +1,241 @@
+@@ -0,0 +1,243 @@
 +'''
 +Exports a validated SAC policy to a numpy file for edaptive's SACSAPSO solver.
 +
@@ -1111,6 +1124,7 @@ index 0000000..2c761c5
 +    policyPath = os.path.join(expPath, 'model', 'policies', 'validated', f'step_{step}')
 +
 +    trainArgs = latest_json(f'{expPath}/vars', 'args')
++    sacParams = latest_json(f'{expPath}/vars', 'sacParams')
 +    if trainArgs['j'] == 'auto' or not str(trainArgs['j']).isnumeric():
 +        raise ValueError(f'Only a numeric j is supported, got {trainArgs["j"]!r}')
 +    budget = {}
@@ -1133,6 +1147,7 @@ index 0000000..2c761c5
 +        'max_iter_cal'     : trainArgs['max_iter_cal'],
 +        'velocity_clamping': trainArgs['vc'],
 +        'training_seed'    : trainArgs['seed'],
++        'trainer'          : sacParams.get('trainer', 'original'),  # absent before --trainer existed
 +        'eval_seed_offset' : trainArgs.get('eval_seed_offset'),
 +        'experiment'       : args.exp,
 +        'step'             : step,
@@ -1481,6 +1496,528 @@ index 79d7fd6..ec18056 100644
 -        self.reverb_server.stop()
 \ No newline at end of file
 +        self.reverb_server.stop()
++
++        ## Budget
++        F = self.p['numfuncs_train']
++        budget = {
++            'B'                   : self.p.get('budget_runs'),
++            'initial_collect_runs': initialCollectRuns,
++            'collect_runs'        : self.envCollect.startedRuns - initialCollectRuns,
++            'validation_runs'     : self.envEval.startedRuns,
++            'total_runs'          : self.envCollect.startedRuns + self.envEval.startedRuns,
++            'C'                   : self.p.get('collect_passes'),
++            'n_validations'       : len(perfEval),
++            'completed_collect_episodes': completedCollect,
++            'stopped_by'          : stopReason,
++        }
++        wjson(os.path.join(self.expPath, 'budget.json'), budget)
++        pl(f'Budget: {budget}')
++        if budget['B'] is not None:
++            assert budget['total_runs'] <= budget['B'], budget
++
++        ## Checkpoint selection
++        if os.path.isfile(validationCSV):
++            selected = selectPolicy(validationCSV, validatedPolicyDir)
++            wjson(os.path.join(self.expPath, 'selected_policy.json'), selected)
++            pl(f'Selected policy: {selected}')
+diff --git a/scripts/rl/softActorCritic_det.py b/scripts/rl/softActorCritic_det.py
+new file mode 100644
+index 0000000..5cb6c45
+--- /dev/null
++++ b/scripts/rl/softActorCritic_det.py
+@@ -0,0 +1,516 @@
++# Soft Actor-Critic with the Actor-Learner API for CALYPSO
++'''
++Deterministic variant of softActorCritic.py: identical except for the replay
++buffer and how it is sampled.
++
++- Buffer: a TFUniformReplayBuffer of the items Reverb's
++  ReverbAddTrajectoryObserver(sequence_length=2, stride_length=1) writes, i.e.
++  [previous, current] trajectory pairs within one episode (PairObserver), with the
++  same capacity in items (replay_buffer_capacity_steps) and FIFO eviction.
++- Sampling: learner step k draws its batch uniformly with replacement over the
++  stored items using tf.random.stateless_uniform(seed=[seed, k]), synchronously
++  (no prefetch, deterministic tf.data options, and no per-replica prefetch buffer
++  in the distribution strategy: EXPERIENCE_DATASET_OPTIONS), so the same seed gives
++  the same batches.
++
++Fresher data: the original samples through Reverb's dataset with in-flight
++samples and .prefetch(dataset_buffer_size), so a learner step may train on a
++batch drawn up to about that many batches earlier, before the latest collected
++transitions were inserted, by an amount that depends on thread timing. Here learner
++step k samples from every transition collected before it, including the latest.
++'''
++
++
++
++## Imports
++import os
++import glob
++import datetime
++import math
++import numpy as np
++import pandas as pd
++import tensorflow as tf
++import tf_agents
++import matplotlib as mpl
++import matplotlib.pyplot as plt
++from tf_agents.agents.ddpg import critic_network
++from tf_agents.agents.sac import sac_agent, tanh_normal_projection_network
++from tf_agents.metrics import py_metrics
++from tf_agents.networks import actor_distribution_network
++from tf_agents.policies import py_tf_eager_policy, random_py_policy, policy_saver
++from tf_agents.replay_buffers import tf_uniform_replay_buffer
++from tf_agents.train import actor, learner, triggers
++from tf_agents.train.utils import spec_utils, train_utils, strategy_utils
++from tf_agents.utils import common
++from tf_agents.specs import tensor_spec
++
++from scripts.const import *
++from scripts.tools.utils import *
++from scripts.rl.selectPolicy import selectPolicy
++
++mpl.use('Agg')
++
++
++
++## Deterministic replay buffer
++class PairObserver:
++    '''
++    Adds the items ReverbAddTrajectoryObserver(sequence_length=2, stride_length=1)
++    writes to a TFUniformReplayBuffer whose items are trajectory pairs (pairSpec):
++    [previous, current] for every trajectory after the first of an episode. The
++    cache is cleared after a boundary trajectory (LAST -> FIRST), so no item spans
++    two episodes, and an episode's last item ends with its boundary trajectory.
++    '''
++    def __init__(self, replayBuffer):
++        self.replayBuffer = replayBuffer
++        self.previous = None
++
++    def __call__(self, trajectory):
++        if self.previous is not None:
++            item = tf.nest.map_structure(
++                lambda previous, current: np.stack([previous, current])[np.newaxis],  # [1 (batch), 2 (time), ...]
++                self.previous, trajectory
++            )
++            self.replayBuffer.add_batch(item)
++        self.previous = trajectory
++        if trajectory.is_boundary():
++            self.previous = None
++
++
++def pairSpec(trajectorySpec):
++    '''
++    Spec of one stored item: two consecutive trajectories on a leading time axis.
++    '''
++    return tensor_spec.add_outer_dims_nest(trajectorySpec, (2,))
++
++
++def readItems(replayBuffer, rows):
++    '''
++    The items in buffer rows `rows` (the buffer's batch_size is 1, so a row is one
++    item's slot). TFUniformReplayBuffer has no public read by index (get_next draws
++    its own unseeded ids), so this reads its private _data_table, whose layout is
++    that of tf-agents 0.13.0; recheck it before changing the version.
++    '''
++    assert tf_agents.__version__ == '0.13.0', f'readItems relies on tf-agents 0.13.0 internals, got {tf_agents.__version__}'
++    return replayBuffer._data_table.read(rows)
++
++
++# The distributed dataset otherwise prefetches up to 2 batches per replica on a
++# background thread (MirroredStrategy, the default per-replica buffer), so a batch
++# could miss the latest transitions, depending on thread timing.
++EXPERIENCE_DATASET_OPTIONS = tf.distribute.InputOptions(experimental_per_replica_buffer_size=0)
++
++
++def seededDataset(replayBuffer, batchSize, seed):
++    '''
++    Element k (learner step k: the learner draws one batch per step and nothing is
++    prefetched) holds batchSize items drawn uniformly with replacement using
++    tf.random.stateless_uniform(seed=[seed, k]). The buffer fills rows 0, 1, ... and
++    then overwrites the oldest, so rows [0, num_frames) are exactly the stored items.
++    Info is (rows, number of stored items when the batch was drawn).
++    '''
++    if seed is None:
++        raise ValueError('The det trainer needs a seed')
++
++    def sample(k):
++        numItems = replayBuffer.num_frames()
++        with tf.control_dependencies([tf.debugging.assert_positive(numItems, 'The replay buffer is empty')]):
++            rows = tf.random.stateless_uniform(
++                [batchSize], seed=tf.stack([tf.constant(seed, tf.int64), k]),
++                minval=0, maxval=numItems, dtype=tf.int64
++            )
++        return readItems(replayBuffer, rows), (rows, numItems)
++
++    options = tf.data.Options()
++    options.deterministic = True
++    options.autotune.enabled = False
++    options.experimental_optimization.apply_default_optimizations = False
++    options.experimental_optimization.map_parallelization = False
++    return tf.data.experimental.Counter().map(sample).with_options(options)
++
++
++
++class softActorCritic:
++    def __init__(self, envCollect, envEval, params, modelPath, plotPath, expPath=None, distributed=True, useTPU=False, useGPU=True):
++        '''
++        Instantiate the Soft Actor-Critic.
++        '''
++
++
++
++        ## Class Variables
++        self.envCollect = envCollect
++        self.envEval    = envEval
++        self.p          = params
++        self.modelPath  = modelPath
++        self.plotPath   = plotPath
++        self.expPath    = expPath if expPath is not None else os.path.dirname(modelPath)
++        if distributed:
++            self.strategy = strategy_utils.get_strategy(tpu=useTPU, use_gpu=useGPU)
++        else:
++            self.strategy = None
++
++
++
++        ## Agent
++        def createAgent():
++            observation_spec, action_spec, _ = spec_utils.get_tensor_specs(self.envCollect)
++            # get_tensor_specs always makes the reward and discount specs float32; the env's are float64
++            time_step_spec = tensor_spec.from_spec(self.envCollect.time_step_spec())
++
++            critic_net = critic_network.CriticNetwork(
++                input_tensor_spec       = (observation_spec, action_spec),
++                joint_fc_layer_params   = self.p['critic_joint_fc_layer_params'],
++                kernel_initializer      = self.p['kernel_initializer'],
++                last_kernel_initializer = self.p['kernel_initializer']
++            )
++
++            actor_net = actor_distribution_network.ActorDistributionNetwork(
++                input_tensor_spec         = observation_spec,
++                output_tensor_spec        = action_spec,
++                fc_layer_params           = self.p['actor_fc_layer_params'],
++                continuous_projection_net = (tanh_normal_projection_network.TanhNormalProjectionNetwork),
++                dtype                     = tf.float64,
++            )
++
++            # self.train_step = train_utils.create_train_step()
++            self.global_step = tf.compat.v1.train.get_or_create_global_step()
++
++            critic_learning_rate = tf.keras.optimizers.schedules.ExponentialDecay(
++                initial_learning_rate = self.p['initial_learning_rate'],
++                decay_steps           = self.p['decay_steps'],
++                decay_rate            = self.p['decay_rate']
++            )
++            actor_learning_rate = tf.keras.optimizers.schedules.ExponentialDecay(
++                initial_learning_rate = self.p['initial_learning_rate'],
++                decay_steps           = self.p['decay_steps'],
++                decay_rate            = self.p['decay_rate']
++            )
++            alpha_learning_rate = tf.keras.optimizers.schedules.ExponentialDecay(
++                initial_learning_rate = self.p['initial_learning_rate'],
++                decay_steps           = self.p['decay_steps'],
++                decay_rate            = self.p['decay_rate']
++            )
++            self.critic_optimizer = tf.keras.optimizers.Adam(critic_learning_rate)
++            self.actor_optimizer = tf.keras.optimizers.Adam(actor_learning_rate)
++            self.alpha_optimizer = tf.keras.optimizers.Adam(alpha_learning_rate)
++
++            self.agent = sac_agent.SacAgent(
++                time_step_spec       = time_step_spec,
++                action_spec          = action_spec,
++                critic_network       = critic_net,
++                actor_network        = actor_net,
++                critic_optimizer     = self.critic_optimizer,
++                actor_optimizer      = self.actor_optimizer,
++                alpha_optimizer      = self.alpha_optimizer,
++                target_update_tau    = self.p['target_update_tau'],
++                target_update_period = self.p['target_update_period'],
++                td_errors_loss_fn    = tf.math.squared_difference,
++                gamma                = self.p['gamma'],
++                reward_scale_factor  = self.p['reward_scale_factor'],
++                # train_step_counter   = self.train_step
++                train_step_counter   = self.global_step
++            )
++
++            self.agent.initialize()
++        
++        if self.strategy is not None:
++            with self.strategy.scope():
++                createAgent()
++        else:
++            createAgent()
++
++
++
++    def fit(self, resume):
++        '''
++        Train the Soft Actor-Critic.
++        '''
++
++
++
++        ## Replay Buffer
++        self.tf_replay_buffer = tf_uniform_replay_buffer.TFUniformReplayBuffer(
++            data_spec  = pairSpec(self.agent.collect_data_spec),
++            batch_size = 1,
++            max_length = self.p['replay_buffer_capacity_steps']
++        )
++
++        tf_replay_buffer_dataset = seededDataset(
++            replayBuffer = self.tf_replay_buffer,
++            batchSize    = self.p['batch_size'],
++            seed         = self.p.get('seed')
++        )
++
++        self.experience_dataset_fn = lambda: tf_replay_buffer_dataset
++
++
++
++        ## Policies
++        self.tf_eval_policy = self.agent.policy
++        self.eval_policy = py_tf_eager_policy.PyTFEagerPolicy(
++            policy          = self.tf_eval_policy,
++            use_tf_function = True
++        )
++
++        self.tf_collect_policy = self.agent.policy
++        self.collect_policy = py_tf_eager_policy.PyTFEagerPolicy(
++            policy          = self.tf_collect_policy,
++            use_tf_function = True
++        )
++
++        self.random_policy = random_py_policy.RandomPyPolicy(
++            time_step_spec = self.envCollect.time_step_spec(),
++            action_spec    = self.envCollect.action_spec(),
++            seed           = self.p.get('seed')
++        )
++
++
++
++        ## Actors
++        rb_observer = PairObserver(self.tf_replay_buffer)
++
++        pl('\n\n\n#---------------Initial Collect---------------#')
++        pl(f'Time: {datetime.datetime.now()}')
++        initial_collect_actor = actor.Actor(
++            env           = self.envCollect,
++            policy        = self.random_policy,
++            # train_step    = self.train_step,
++            train_step    = self.global_step,
++            episodes_per_run = self.p['initial_collect_episodes'],
++            observers        = [rb_observer]
++        )
++        initial_collect_actor.run()
++
++        env_step_metric = py_metrics.EnvironmentSteps()
++
++        collect_summary_dir = os.path.join(self.modelPath, learner.TRAIN_DIR)
++
++        collect_actor = actor.Actor(  # creates model/train/events.out.tfevents...
++            env           = self.envCollect,
++            policy        = self.collect_policy,
++            # train_step    = self.train_step,
++            train_step    = self.global_step,
++            steps_per_run = self.p['collect_actor_steps_per_run'],
++            metrics       = actor.collect_metrics(self.p['collect_actor_buffer_size']),
++            summary_dir   = collect_summary_dir,
++            observers     = [rb_observer, env_step_metric]
++        )
++
++        eval_summary_dir = os.path.join(self.modelPath, 'eval')
++
++        eval_actor = actor.Actor(  # creates model/eval/events.out.tfevents...
++            env              = self.envEval,
++            policy           = self.eval_policy,
++            # train_step       = self.train_step,
++            train_step       = self.global_step,
++            episodes_per_run = self.p['num_eval_funcs'],
++            metrics          = actor.eval_metrics(self.p['num_eval_funcs']),
++            summary_dir      = eval_summary_dir
++        )
++
++
++
++        ## Learners
++        pl('\n\n\n#---------------Policy Creation---------------#')
++        pl(f'Time: {datetime.datetime.now()}')
++        saved_model_dir = os.path.join(self.modelPath, learner.POLICY_SAVED_MODEL_DIR)
++        learning_triggers = [                  # Triggers to save the agent's policy checkpoints.
++            triggers.PolicySavedModelTrigger(  # creates model/policies/collect_policy|greedy_policy|policy
++                saved_model_dir = saved_model_dir,
++                agent           = self.agent,
++                # train_step      = self.train_step,
++                train_step      = self.global_step,
++                interval        = self.p['policy_save_interval_steps']
++            ),
++            triggers.StepPerSecondLogTrigger(
++                # train_step = self.train_step,
++                train_step = self.global_step,
++                interval   = self.p['log_trigger_interval']
++            )
++        ]
++
++        pl('\n\n\nThe agent already restores the checkpoint!!!\n\n\n')
++        agent_learner = learner.Learner(
++            root_dir              = self.modelPath,
++            # train_step            = self.train_step,
++            train_step            = self.global_step,
++            agent                 = self.agent,
++            experience_dataset_fn = self.experience_dataset_fn,
++            experience_dataset_options = EXPERIENCE_DATASET_OPTIONS,
++            triggers              = learning_triggers,
++            strategy              = self.strategy
++        )
++
++
++
++        ## Checkpointing
++        bufferCheckpointDir = os.path.join(self.modelPath, 'bufferCheckpointer')
++        # The replay buffer is left out of both checkpointers: the original's Reverb
++        # buffer holds no TF variables, so its checkpoints save nothing of it either.
++        bufferCheckpointer = common.Checkpointer(
++            ckpt_dir      = bufferCheckpointDir,
++            max_to_keep   = 5000
++        )
++        bufferCheckpointer.initialize_or_restore()
++
++        agentCheckpointDir = os.path.join(self.modelPath, 'agentCheckpointer')
++        agentCheckpointer  = common.Checkpointer(  # train_checkpointer
++            ckpt_dir      = agentCheckpointDir,
++            max_to_keep   = 5000,
++            agent         = self.agent,
++            policy        = self.agent.policy,
++            # global_step   = self.train_step
++            global_step   = self.global_step
++        )
++        agentCheckpointer.initialize_or_restore()
++
++        validatedPolicyDir = os.path.join(self.modelPath, 'policies', 'validated')
++        policySaver = policy_saver.PolicySaver(self.agent.policy)
++        validationCSV = os.path.join(self.expPath, 'validation_results.csv')
++
++        self.global_step = tf.compat.v1.train.get_global_step()
++
++
++
++        ## Visualization
++        def visualize(perf, name):
++            '''
++            Visualize the Soft Actor-Critic.
++            '''
++            for col in perf.columns:
++                plt.plot(perf.index, perf[col])
++                plt.ylabel(col)
++                plt.xlabel('steps')
++                plt.title(name)
++                plt.savefig(f'{self.plotPath}/{name}_{col}.png')
++                plt.close()
++
++
++
++        ## Training the agent
++        if resume:
++            perfFunc  = lpkl(f'{self.plotPath}/perfFunc.pkl')
++            perfTrain = lpkl(f'{self.plotPath}/perfTrain.pkl')
++            perfEval  = lpkl(f'{self.plotPath}/perfEval.pkl')
++            bestTrainGBN = perfTrain['TrainGBN'].min()
++            bestEvalGBN = perfEval['EvalGBN'].min()
++        else:
++            perfFunc  = pd.DataFrame(columns=['TrainGBN', 'TrainReturn'])
++            perfTrain = pd.DataFrame(columns=['TrainGBN', 'TrainReturn'])
++            perfEval  = pd.DataFrame(columns=['EvalGBN', 'EvalReturn'])
++            bestTrainGBN = 1
++            bestEvalGBN = 1
++
++        def validate(step):
++            '''
++            Run one validation pass (the same instances every time), save the
++            policy and record each episode's raw final global best.
++            '''
++            count = len(perfEval)
++            pl(f'\n\n\n#---------------Evaluation Set {count} Start---------------#')
++            pl(f'Time: {datetime.datetime.now()}')
++
++            # Every validation replays runs 0..F-1: function funcs[r % F], seed base + r.
++            self.envEval.run = -1
++            eval_actor.reset()
++            self.envEval.episodeResults = []
++            eval_actor.run()
++            if len(self.envEval.episodeResults) != self.p['num_eval_funcs']:
++                raise RuntimeError(
++                    f'Expected {self.p["num_eval_funcs"]} validation episodes, '
++                    f'got {len(self.envEval.episodeResults)}'
++                )
++
++            policySaver.save(os.path.join(validatedPolicyDir, f'step_{step}'))
++            rows = pd.DataFrame(self.envEval.episodeResults)
++            rows.insert(0, 'step', step)
++            rows[['step', 'function', 'seed', 'f_final']].to_csv(
++                validationCSV, mode='a', index=False, header=not os.path.isfile(validationCSV)
++            )
++
++            metrics = {}
++            for metric in eval_actor.metrics:
++                metrics[metric.name] = metric.result()
++            perfEval.loc[step] = [self.envEval.cumulative_gbn() / self.p["num_eval_funcs"], metrics["AverageReturn"]]
++
++            bufferCheckpointer.save(global_step = self.global_step)
++            agentCheckpointer.save(global_step = self.global_step)  # self.train_step
++
++            pl(', '.join([
++                f'Step = {step}',
++                f'TrainGBN = {perfTrain.loc[step, "TrainGBN"]:.6f}' if step in perfTrain.index else 'TrainGBN = n/a',
++                f'EvalGBN = {perfEval.loc[step, "EvalGBN"]:.6f}',
++                f'EvalReturn = {perfEval.loc[step, "EvalReturn"]:.6f}',
++                f'LearningRate = {self.alpha_optimizer._decayed_lr("float32").numpy():.6f}',
++                f'EvalAverageEpisodeLength = {metrics["AverageEpisodeLength"]:.6f}',
++            ]) + '\n')
++
++            visualize(perfTrain, name='Training')
++            visualize(perfEval,  name='Evaluation')
++
++            wpkl(f'{self.plotPath}/perfFunc.pkl',  perfFunc)
++            wpkl(f'{self.plotPath}/perfTrain.pkl', perfTrain)
++            wpkl(f'{self.plotPath}/perfEval.pkl',  perfEval)
++
++            pl(f'#---------------Evaluation Set {count} End---------------#\n\n\n')
++            pl(f'Time: {datetime.datetime.now()}')
++
++        # Train until max_collect_episodes collect episodes have completed (the
++        # budget), or max_iter_steps collect steps (a safety cap), whichever
++        # comes first. Validate every eval_interval_funcs completed collect
++        # episodes and after the last one.
++        initialCollectRuns = self.envCollect.startedRuns
++        maxCollectEpisodes = self.p.get('max_collect_episodes')
++        completedCollect = 0
++        stopReason = 'safety cap --i (max_iter_steps)'
++        for _ in range(self.p['max_iter_steps']):
++
++            # Training
++            step = agent_learner.train_step_numpy
++            collect_actor.run()
++
++            loss_info = agent_learner.run(iterations=1)
++
++            # Logging
++            if self.envCollect.current_time_step().is_last():
++                completedCollect += 1
++                perfFunc.loc[step] = [self.envCollect.funcGBN, self.envCollect.funcReward]
++                perfTrain.loc[step] = perfFunc.iloc[-self.p["numfuncs_train"]:].mean()
++
++                lastEpisode = maxCollectEpisodes is not None and completedCollect >= maxCollectEpisodes
++
++                # Evaluation
++                if completedCollect % self.p['eval_interval_funcs'] == 0 or lastEpisode:
++                    validate(step)
++
++                if lastEpisode:
++                    stopReason = f'budget ({completedCollect} collect episodes)'
++                    break
++
++        pl(f'Training stopped by the {stopReason}')
++
 +
 +        ## Budget
 +        F = self.p['numfuncs_train']
