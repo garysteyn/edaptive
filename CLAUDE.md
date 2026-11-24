@@ -95,7 +95,9 @@ edaptive/
 │                             # sac_observation_equivalence.py: observations, expected actions and recovered
 │                             # policy noise at every decision, calypso vs SACSAPSO;
 │                             # sac_sapso_seed_bases.py: SACSAPSO's policy noise and mean actions per seed base
-│                             # (old shared-seed scheme on purpose: reproduces the c_1/c_2-shift diagnosis)
+│                             # (old shared-seed scheme on purpose: reproduces the c_1/c_2-shift diagnosis);
+│                             # sac_replay_buffer_check.py, sac_trainer_comparison.py: original vs det SAC
+│                             # trainer (see "Deterministic trainer")
 ├── tests/                    # pytest (`testpaths` set in pyproject.toml); see "Tests"
 │   ├── conftest.py           # forces the Agg matplotlib backend
 │   ├── core/                 # unit tests: adaptable-CP mapping, SolverConfig/parse_config
@@ -410,7 +412,9 @@ PSO velocities and Poli's criterion), not an adapter.
   waiting; CPU time is robust to that.
 - SAC training with `--trainer original` is not strictly serial even so: tf-agents' replay pipeline (reverb
   server, gRPC, `tf.data` prefetch) runs alongside collection, so its CPU time is about 1.25–1.4× its wall time.
-  `--trainer det` samples synchronously and is serial (CPU/wall 1.00). Compare configuration costs by CPU time.
+  `--trainer det` samples synchronously and is serial (CPU/wall 1.00 at the reduced scale of
+  `scratch/sac_trainer_comparison.py`, where it used about 360 s CPU against the original's about 500 s at equal
+  wall time). Compare configuration costs by CPU time.
 
 ### SolverConfig (`core/config.py`)
 Frozen dataclass `SolverConfig(identifier, fixed_CPs, adapted_CP_space, adapter_params)`:
@@ -769,6 +773,17 @@ configuration procedure:
   one item added per step: Reverb `table_size` lag median 55), before the latest transitions were inserted, by a
   timing-dependent amount; det's learner step `k` samples from every transition collected before it, including
   the latest. That is the only intended difference in what the learner sees.
+  Checks (`scratch/`): `sac_replay_buffer_check.py` (buffer level: same items as Reverb in the same order, with
+  and without eviction; no stored or sampled item spans episodes, whereas a raw 2-step window over trajectories
+  does at every boundary; same shapes; uniform sampling, homogeneous with Reverb; seeding; no prefetch under
+  `MirroredStrategy`) and `sac_trainer_comparison.py` (`determinism`: two det smoke trainings with one seed give
+  identical `validation_results.csv` and validated policies; `train`/`evaluate`: original vs det at reduced
+  scale). Outputs in `results/sac_trainer_comparison/`. At reduced scale (6 training functions incl. one BBOB,
+  30-D, 1000 iterations, B = 480, 5 training seeds per trainer) a repeated det seed reproduced every validation
+  result and validated policy bit for bit (the original's repeat differed in all 42 validation rows), and no
+  difference between the trainers was found (two-sided MWU, 5 vs 5: validation mean rank at each of the 7
+  checkpoints p ≥ 0.17; selected policies on fresh seeds of the training functions, overall p = 0.84, per function
+  Holm p = 1). With 5 vs 5 the smallest possible p is 0.0079, so this only rules out large differences.
 - **Export** (`scripts/rl/exportPolicy.py --exp <exp> [--out <dir>] [--step <step>]`, default step from
   `selected_policy.json`, default `<dir>` = `../results/sac_training/<exp>/` in edaptive's gitignored `results/`):
   writes `policy.npz` (format in "SACSAPSO", `policy_type "stochastic"`, `dtype` from the saved actor's variables
@@ -790,8 +805,8 @@ of `softActorCritic.py` (`git apply` handles it):
 `git -C calypso add -N <new files> && git -C calypso diff -C -- . ':!misc/pkl/funcRanges.pkl' > scripts/calypso-integration.patch`.
 Training also rewrites `misc/pkl/funcRanges.pkl` (and `funcRangesPrev.pkl`) on exit. The env reads it at start and
 needs every function in its index; it affects only the GBN logging (rewards are `relativeReward`). Trainings with
-distinct experiment names (`--text`) can run concurrently by calling `calypsoTrainSAC` directly, not through the
-wrappers.
+distinct experiment names (`--text`) can run concurrently by calling `calypsoTrainSAC` directly (as
+`scratch/sac_trainer_comparison.py` does), not through the wrappers.
 
 ## Conventions
 
