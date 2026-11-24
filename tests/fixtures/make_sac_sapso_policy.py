@@ -33,6 +33,7 @@ def make_policy(path=POLICY_PATH, policy_type="stochastic"):
         high=[1, 4, 4],
         metadata={
             "policy_type": policy_type,
+            "dtype": "float64",
             "j": NT,
             "N": N_S,
             "max_iter_cal": MAX_ITERATIONS,

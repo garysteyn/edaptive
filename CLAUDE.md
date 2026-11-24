@@ -355,8 +355,9 @@ PSO velocities and Poli's criterion), not an adapter.
   round-trip these settings.
 - Policy file `policy.npz` (numpy only; `save_policy`/`load_policy`): `hidden_kernel_k`/`hidden_bias_k` (ReLU),
   `projection_kernel`/`projection_bias` (outputs `[means, raw stds]`), `low`/`high`, `metadata` (JSON string:
-  `policy_type`, `j`, `N`, `D`, `max_iter_cal`, training seed, step, budget, ...). Arrays are stored and read as
-  float64 (`load_policy` casts, so float32 files still load); the forward pass is float64,
+  `policy_type`, `dtype`, `j`, `N`, `D`, `max_iter_cal`, training seed, step, budget, ...). Arrays are stored and read
+  as float64; `load_policy` raises unless `metadata["dtype"]` is `"float64"` (a policy trained in float64, as the
+  export records it); the forward pass is float64,
   `std = exp(raw)` (tf-agents `ActorDistributionNetwork` + `TanhNormalProjectionNetwork`).
 - Action (`policy_action`): `"stochastic"` (what calypso validates and saves: `agent.policy` is an `ActorPolicy`
   that samples) draws one `rng.standard_normal(3)`, `z = mean + std·eps` (float64); `"greedy"` uses `z = mean`
@@ -734,7 +735,8 @@ belief-space-guided SA-PSO (`scripts/pso/calypso.py`, run via `scripts.pso.execu
   validation episode, so ≈ 2.5 h wall for the 1968 runs.
 - **Export** (`scripts/rl/exportPolicy.py --exp <exp> [--out <dir>] [--step <step>]`, default step from
   `selected_policy.json`, default `<dir>` = `../results/sac_training/<exp>/` in edaptive's gitignored `results/`):
-  writes `policy.npz` (format in "SACSAPSO", `policy_type "stochastic"`), copies `selected_policy.json`,
+  writes `policy.npz` (format in "SACSAPSO", `policy_type "stochastic"`, `dtype` from the saved actor's variables
+  and the observation of its `action` signatures, which must agree), copies `selected_policy.json`,
   `budget.json`, `training_times.json`, `validation_results.csv` and the exported SavedModel (as `saved_policy/`),
   and writes `export_checks.json`. It fails loudly
   unless (1) the saved actor variables have the assumed names/shapes (2 hidden Dense + projection), (2) the numpy

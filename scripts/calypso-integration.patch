@@ -926,10 +926,10 @@ index b6fb403..a201708 100644
  ## Cleanup
 diff --git a/scripts/rl/exportPolicy.py b/scripts/rl/exportPolicy.py
 new file mode 100644
-index 0000000..c19fa52
+index 0000000..2c761c5
 --- /dev/null
 +++ b/scripts/rl/exportPolicy.py
-@@ -0,0 +1,227 @@
+@@ -0,0 +1,241 @@
 +'''
 +Exports a validated SAC policy to a numpy file for edaptive's SACSAPSO solver.
 +
@@ -944,7 +944,8 @@ index 0000000..c19fa52
 +
 +Checks, failing loudly:
 +1. the saved variables have the assumed names and shapes (2 hidden Dense layers,
-+   then the projection layer);
++   then the projection layer), and they and the observation spec share one dtype,
++   recorded as metadata['dtype'] (edaptive's load_policy accepts only float64);
 +2. numpy forward pass vs the rebuilt tf-agents actor network (same weights):
 +   means and stds within 1e-5 on 1000 random observations in [0, 1]^(N+3);
 +3. the saved policy itself: for 20 random observations, 5000 actions each from
@@ -1005,6 +1006,18 @@ index 0000000..c19fa52
 +        (f'{prefix}/TanhNormalProjectionNetwork/projection_layer/kernel:0', (n_hidden_units, 6)),
 +        (f'{prefix}/TanhNormalProjectionNetwork/projection_layer/bias:0',   (6,)),
 +    ]
++
++
++def policy_dtype(saved):
++    """The saved policy's dtype: that of its variables and of the observation in its action
++    signatures, which must agree."""
++    dtypes = {v.dtype.name for v in saved.model_variables}
++    for function in saved.action.concrete_functions:
++        time_step = function.structured_input_signature[0][0]
++        dtypes.add(time_step.observation.dtype.name)
++    if len(dtypes) != 1:
++        raise RuntimeError(f'Saved policy mixes dtypes {sorted(dtypes)}')
++    return dtypes.pop()
 +
 +
 +def check_layout(saved, n_obs, n_hidden_units):
@@ -1114,6 +1127,7 @@ index 0000000..c19fa52
 +
 +    metadata = {
 +        'policy_type'      : 'stochastic',  # calypso validates and saves agent.policy, which samples
++        'dtype'            : policy_dtype(saved),  # load_policy requires float64
 +        'j'                : int(trainArgs['j']),
 +        'N'                : trainArgs['N'],
 +        'D'                : trainArgs['dimensions'],

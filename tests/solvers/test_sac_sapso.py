@@ -174,7 +174,7 @@ def test_observation_time_and_stability_match_calypso():
 # --- policy ------------------------------------------------------------------
 
 
-def tiny_policy(tmp_path, policy_type="stochastic"):
+def tiny_policy(tmp_path, policy_type="stochastic", dtype="float64"):
     path = tmp_path / "tiny.npz"
     save_policy(
         path,
@@ -185,9 +185,21 @@ def tiny_policy(tmp_path, policy_type="stochastic"):
         ),
         low=[0, 0, 0],
         high=[1, 4, 4],
-        metadata={"policy_type": policy_type, "j": 1, "N": 0, "max_iter_cal": 1},
+        metadata={
+            "policy_type": policy_type,
+            "dtype": dtype,
+            "j": 1,
+            "N": 0,
+            "max_iter_cal": 1,
+        },
     )
     return load_policy(path)
+
+
+@pytest.mark.parametrize("dtype", ["float32", None])
+def test_load_policy_rejects_non_float64_policies(tmp_path, dtype):
+    with pytest.raises(ValueError, match="dtype"):
+        tiny_policy(tmp_path, dtype=dtype)
 
 
 def test_forward_pass_against_hand_computation(tmp_path):

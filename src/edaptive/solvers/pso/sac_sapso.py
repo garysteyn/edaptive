@@ -13,7 +13,8 @@ Policy file (``policy.npz``, written by ``save_policy``):
   outputs are ``[means, raw stds]`` (3 each);
 - ``low``, ``high``: the action bounds (``w``, ``c_1``, ``c_2``);
 - ``metadata``: a JSON string with at least ``policy_type`` (``"stochastic"`` or
-  ``"greedy"``), ``j``, ``N`` and ``max_iter_cal``.
+  ``"greedy"``), ``dtype`` (the trained policy's dtype; must be ``"float64"``),
+  ``j``, ``N`` and ``max_iter_cal``.
 """
 
 import json
@@ -25,6 +26,7 @@ from edaptive.optimizers.pso import PSO, stable_particle_proportion
 from edaptive.utils.timing import timed
 
 POLICY_TYPES = ("stochastic", "greedy")
+POLICY_DTYPE = "float64"
 
 
 def save_policy(path, hidden_layers, projection, low, high, metadata):
@@ -65,6 +67,11 @@ def load_policy(path):
         raise ValueError(
             f"policy_type must be one of {POLICY_TYPES}, "
             f"got {policy['metadata'].get('policy_type')!r}"
+        )
+    if policy["metadata"].get("dtype") != POLICY_DTYPE:
+        raise ValueError(
+            f"policy dtype must be {POLICY_DTYPE!r} (a policy trained in float64), "
+            f"got {policy['metadata'].get('dtype')!r}"
         )
     return policy
 
