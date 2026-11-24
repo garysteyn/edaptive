@@ -2,14 +2,28 @@
 
 Run from the repo root in the TF venv, after training and export:
 
-    python scratch/sac_sapso_equivalence.py --exp vc_sac_j50 [--seeds 30] [--tf-seed 0]
+    python scratch/sac_sapso_equivalence.py --exp vc_sac_j50 [--seeds 30]
 
 For each function (default: 5 training functions, one BBOB) and seed, it runs one
 calypso episode (``calypsoEnv`` + the saved TF policy, as ``calypsoEvalSAC.py``
 does) and one ``SACSAPSO`` run (``policy.npz``). The saved policy is the export's
 copy, ``results/sac_training/<exp>/saved_policy/``, or, if that is missing,
-``calypso/data/<exp>/model/policies/validated/step_<step>``. It is loaded once,
-and TF's random seed is set once (``--tf-seed``) before any calypso episode.
+``calypso/data/<exp>/model/policies/validated/step_<step>``. It is loaded once.
+
+Seeds: run ``s`` (``s = 0 .. seeds - 1``) of a function uses
+``trial_seed(function name, D, s, base=seed_base)`` on both sides
+(``function_seeds``), as ``experiments/scripts/execute.py`` does. With one seed
+list for every function, SACSAPSO would draw the same policy noise on every
+function, so the functions would not be independent replicates.
+
+TF is seeded once, before the first calypso episode, and the policy's noise
+stream runs on across episodes, so calypso's noise depends on the order of the
+episodes. The saved policy's sampling op has its seed fixed in the graph:
+``tf.random.set_seed`` only resets the stream and ignores the value, so seeding per
+episode would replay the same noise in every episode. The exported
+``distribution`` function is a placeholder that cannot be called, so the noise
+cannot be drawn with a seed of our own either. The output records this as
+``tf_noise``.
 
 Every comparison is a two-sided Mann-Whitney U test across seeds on a per-run
 quantity, reported with both medians:
@@ -52,13 +66,45 @@ from edaptive.problems.ela_benchmark_suite import (  # noqa: E402
     Rosenbrock,
 )
 from edaptive.solvers.pso.sac_sapso import SACSAPSO, load_policy  # noqa: E402
+from edaptive.utils.seeding import trial_seed  # noqa: E402
+
+TF_NOISE_NOTE = (
+    "Not seeded per run: the SavedModel's sampling op has its seed fixed in the "
+    "graph, and tf.random.set_seed (called once, before the first calypso episode) "
+    "only resets its stream. Calypso's policy noise depends on the order of the "
+    "episodes."
+)
 
 DEFAULT_FUNCTIONS = [Rosenbrock, Qing, GeneralizedEggCrate, Brown, BBOB_FID17_IID2]
 ACTION_NAMES = ("w", "c_1", "c_2")
 DECISIONS = (1, 25, 50, 100)  # 1-based
 
 
-def run_calypso(problem_type, seed, policy, metadata):
+def function_seeds(problem_type, n_x, seed_base, n_seeds):
+    """The seeds of runs ``0 .. n_seeds - 1`` of ``problem_type`` in ``n_x``
+    dimensions (``trial_seed``)."""
+    return [
+        trial_seed(problem_type.__name__, n_x, s, base=seed_base)
+        for s in range(n_seeds)
+    ]
+
+
+def policy_time_step(time_step, dtype):
+    """``time_step`` with its float fields cast to the saved policy's dtype.
+
+    The selected policy was trained before the float64 change and has only
+    float32 signatures, while ``calypsoEnv`` builds float64 time steps (the
+    float64 PSO and observation stay as they are). Remove this cast after the
+    float64 retrain.
+    """
+    return time_step._replace(
+        observation=np.asarray(time_step.observation, dtype=dtype),
+        reward=np.asarray(time_step.reward, dtype=dtype),
+        discount=np.asarray(time_step.discount, dtype=dtype),
+    )
+
+
+def run_calypso(problem_type, seed, policy, metadata, obs_dtype):
     from scripts.rl.calypsoEnv import calypsoEnv
 
     params = {
@@ -81,7 +127,7 @@ def run_calypso(problem_type, seed, policy, metadata):
     time_step = env.reset()
     actions = []
     while not time_step.is_last():
-        action = policy.action(time_step).action
+        action = policy.action(policy_time_step(time_step, obs_dtype)).action
         actions.append(np.asarray(action, dtype=float))
         time_step = env.step(action)
     return float(env.lsbCurr), np.array(actions)
@@ -195,7 +241,6 @@ def main():
     parser.add_argument("--policy-npz", type=Path, default=None)
     parser.add_argument("--seeds", type=int, default=30)
     parser.add_argument("--seed-base", type=int, default=5_000_000)
-    parser.add_argument("--tf-seed", type=int, default=0)
     args = parser.parse_args()
 
     out_dir = REPO / "results" / "sac_training" / args.exp
@@ -203,23 +248,27 @@ def main():
     metadata = load_policy(policy_npz)["metadata"]
     v_max_fraction(metadata)  # fail before any run
     policy_dir = saved_policy_dir(out_dir, args.exp, metadata["step"])
-    print(f"Saved policy {policy_dir} (step {metadata['step']})")
 
     import tensorflow as tf
     from tf_agents.policies import py_tf_eager_policy
 
-    tf.keras.utils.set_random_seed(args.tf_seed)
+    tf.keras.utils.set_random_seed(0)  # resets the policy's noise stream; see TF_NOISE_NOTE
     saved_policy = py_tf_eager_policy.SavedModelPyTFEagerPolicy(
         str(policy_dir), load_specs_from_pbtxt=True
     )
+    obs_dtype = saved_policy.time_step_spec.observation.dtype
+    print(f"Saved policy {policy_dir} (step {metadata['step']}, {obs_dtype})")
 
     os.chdir(CALYPSO)  # calypso's const.py paths
-    seeds = [args.seed_base + k for k in range(args.seeds)]
+    seeds_by_function = {}
     report = {}
     for problem_type in DEFAULT_FUNCTIONS:
         name = problem_type.__name__
+        seeds = function_seeds(problem_type, metadata["D"], args.seed_base, args.seeds)
+        seeds_by_function[name] = seeds
         calypso_runs = [
-            run_calypso(problem_type, s, saved_policy, metadata) for s in seeds
+            run_calypso(problem_type, s, saved_policy, metadata, obs_dtype)
+            for s in seeds
         ]
         edaptive_runs = [
             run_edaptive(problem_type, s, policy_npz, metadata) for s in seeds
@@ -260,8 +309,10 @@ def main():
     with open(out_dir / "equivalence.json", "w") as file:
         json.dump(
             {
-                "seeds": seeds,
-                "tf_seed": args.tf_seed,
+                "seeds": seeds_by_function,
+                "seed_base": args.seed_base,
+                "tf_noise": TF_NOISE_NOTE,
+                "policy_obs_dtype": str(obs_dtype),
                 "saved_policy": str(policy_dir),
                 "policy_npz": str(policy_npz),
                 "decisions": list(DECISIONS),
