@@ -59,6 +59,7 @@ from edaptive.problems.ela_benchmark_suite import (
 )
 from edaptive.registry import resolve
 from edaptive.utils.experiment_utils import parse_config
+from edaptive.utils.seeding import trial_seed
 
 comm = MPI.COMM_WORLD
 
@@ -109,6 +110,14 @@ def parse_args():
     )
 
     parser.add_argument("--config", type=Path, required=False, help="Config file.")
+
+    parser.add_argument(
+        "--seed_base",
+        type=int,
+        required=False,
+        default=0,
+        help="Base of the run seeds (see edaptive.utils.seeding.trial_seed).",
+    )
 
     return parser.parse_args()
 
@@ -200,15 +209,20 @@ for i, p in enumerate(tuning_problems):
         if task_id % size != rank:
             continue
 
+        # Depends only on (problem, n_x, trial), so it is the same for every
+        # algorithm and differs between problems.
+        seed = trial_seed(p.__name__, n_x, j, base=args.seed_base)
+
         solver = solver_type(
             optimizer_type,
             adapter_type,
             problem=p(dimensions=n_x),
             config=config,
-            rnd_seed=j,
+            rnd_seed=seed,
         )
 
         _, results_dict = solver.run(max_iterations=max_iter)
+        results_dict["seed"] = seed
 
         local_results[p.__name__][j] = results_dict
 
