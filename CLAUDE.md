@@ -382,8 +382,8 @@ PSO velocities and Poli's criterion), not an adapter.
   5 000 000) on both sides, so SACSAPSO's policy noise differs between functions. TF is seeded once, before the
   first calypso episode, and stays that way: the saved policy's sampling op has its seed fixed in the graph, so
   `tf.random.set_seed` only resets the stream (the value is ignored) and calypso's policy noise depends on the
-  order of the episodes; the exported `distribution` function is a placeholder that raises. Time steps are cast
-  to the saved policy's dtype (`policy_time_step`; Known issue 16).
+  order of the episodes; the exported `distribution` function is a placeholder that raises. The float64 time
+  steps go to the policy as they are.
   Two-sided Mann–Whitney U across seeds, with both medians, on the final gbest and, per action
   dimension, the run's mean and standard deviation of actions and the actions at decisions 1, 25, 50, 100;
   Holm-adjusted over all tests. Also the largest gap between seed-mean actions per dimension, raw and over the
@@ -835,10 +835,6 @@ R8b is not a separate step: add each component's unit tests in the step that tou
 9. Empty placeholder: `problems/misc_problems.py`.
 10. Git: branches `main` and `elitist-ifrace` (also on origin).
 15. calypso skips evaluating infeasible particles (no effect on trajectories; calypso runs aren't timed).
-16. The selected policy `vc_sac_j50` (step 71999) was trained before the float64 change: its SavedModel specs and
-    `policy.npz` are float32, and training ran a float32 PSO. The float64 `calypsoEnv` time steps match no concrete
-    function of that SavedModel (`ValueError`), so the equivalence scripts cast them to the policy's spec dtype
-    (`policy_time_step`). Retrain to get a float64 policy, then remove the cast.
 14. **Revisit: what an adapter does when fewer particles are feasible than it wants elites.** PSO has no position
     boundary handling, so often only a few particles are inside the bounds (with `n_s = 30`, `n_x = 10`: about 3–5
     under r-UMDA, 14–26 under r-PBIL). The adapters only rank feasible particles. Three strategies:

@@ -9,10 +9,7 @@ Same runs as ``sac_sapso_equivalence.py`` (functions, seeds from ``trial_seed``,
 saved policy, TF seeded once before the calypso episodes, which run in order in
 this process; see that script for why TF cannot be seeded per episode), but at
 every decision it records the observation and the action on both sides. The
-calypso env builds float64 time steps; they are cast to the saved policy's spec
-dtype at the policy call only (``policy_time_step``; a float32 policy has no
-float64 signature, and the cast goes after the float64 retrain). The SACSAPSO
-runs go to a process pool (they use no TF).
+SACSAPSO runs go to a process pool (they use no TF).
 
 Observation components: ``time`` (index 0), ``infeasible`` (1), ``stable`` (2),
 ``velocity`` (mean over particles of indices 3:). Per run, each is averaged over
@@ -60,7 +57,6 @@ from sac_sapso_equivalence import (  # noqa: E402
     TF_NOISE_NOTE,
     function_seeds,
     holm,
-    policy_time_step,
     saved_policy_dir,
     v_max_fraction,
 )
@@ -106,7 +102,7 @@ def run_edaptive(args):
     return float(f_final), observations, actions
 
 
-def run_calypso(problem_type, seed, policy, metadata, obs_dtype):
+def run_calypso(problem_type, seed, policy, metadata):
     from scripts.rl.calypsoEnv import calypsoEnv
 
     params = {
@@ -130,7 +126,7 @@ def run_calypso(problem_type, seed, policy, metadata, obs_dtype):
     observations, actions = [], []
     while not time_step.is_last():
         observations.append(np.array(time_step.observation, dtype=np.float64))
-        action = policy.action(policy_time_step(time_step, obs_dtype)).action
+        action = policy.action(time_step).action
         actions.append(np.array(action, dtype=float))
         time_step = env.step(action)
     return float(env.lsbCurr), np.stack(observations), np.stack(actions)
@@ -221,7 +217,7 @@ def main():
     for k, problem_type in enumerate(DEFAULT_FUNCTIONS):
         name = problem_type.__name__
         calypso = [
-            run_calypso(problem_type, s, saved_policy, metadata, obs_dtype)
+            run_calypso(problem_type, s, saved_policy, metadata)
             for s in seeds_by_function[name]
         ]
         ed = edaptive[k * args.seeds:(k + 1) * args.seeds]

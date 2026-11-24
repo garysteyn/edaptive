@@ -89,22 +89,7 @@ def function_seeds(problem_type, n_x, seed_base, n_seeds):
     ]
 
 
-def policy_time_step(time_step, dtype):
-    """``time_step`` with its float fields cast to the saved policy's dtype.
-
-    The selected policy was trained before the float64 change and has only
-    float32 signatures, while ``calypsoEnv`` builds float64 time steps (the
-    float64 PSO and observation stay as they are). Remove this cast after the
-    float64 retrain.
-    """
-    return time_step._replace(
-        observation=np.asarray(time_step.observation, dtype=dtype),
-        reward=np.asarray(time_step.reward, dtype=dtype),
-        discount=np.asarray(time_step.discount, dtype=dtype),
-    )
-
-
-def run_calypso(problem_type, seed, policy, metadata, obs_dtype):
+def run_calypso(problem_type, seed, policy, metadata):
     from scripts.rl.calypsoEnv import calypsoEnv
 
     params = {
@@ -127,7 +112,7 @@ def run_calypso(problem_type, seed, policy, metadata, obs_dtype):
     time_step = env.reset()
     actions = []
     while not time_step.is_last():
-        action = policy.action(policy_time_step(time_step, obs_dtype)).action
+        action = policy.action(time_step).action
         actions.append(np.asarray(action, dtype=float))
         time_step = env.step(action)
     return float(env.lsbCurr), np.array(actions)
@@ -267,7 +252,7 @@ def main():
         seeds = function_seeds(problem_type, metadata["D"], args.seed_base, args.seeds)
         seeds_by_function[name] = seeds
         calypso_runs = [
-            run_calypso(problem_type, s, saved_policy, metadata, obs_dtype)
+            run_calypso(problem_type, s, saved_policy, metadata)
             for s in seeds
         ]
         edaptive_runs = [
