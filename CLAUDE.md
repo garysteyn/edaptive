@@ -684,9 +684,10 @@ changes how solvers or tuners are built, update `cases.py`, not the reference.
 
 `calypso/` contains research code for two self-adaptive PSOs used as **comparison baselines**:
 belief-space-guided SA-PSO (`scripts/pso/calypso.py`, run via `scripts.pso.execute`) and Soft Actor-Critic SA-PSO
-(`scripts/rl/calypsoTrainSAC.py`, `calypsoEnv.py`, `softActorCritic_og.py`). The trainer is `softActorCritic_og.py`
-(the version behind the paper); `softActorCritic.py` is the author's in-progress reproducible rewrite, which
-`calypsoTrainSAC` does not import. The patch:
+(`scripts/rl/calypsoTrainSAC.py`, `calypsoEnv.py`, `softActorCritic.py`). The trainer is `softActorCritic.py`
+(the authors' trainer, the version behind the paper, plus the training-protocol changes below);
+`softActorCritic_rewrite.py` is the author's earlier rewrite (TFUniformReplayBuffer, no protocol changes), kept for
+reference; nothing imports it. The patch:
 - makes paths in `const.py` relative to the calypso root and creates output dirs;
 - adds CLI args `--problems/--train-problems/--eval-problems` (dotted import paths to **edaptive problem classes**),
   `--dimensions`, `--N`, `--max-iter-cal`, `--runs`, `--seed`;
@@ -695,7 +696,7 @@ belief-space-guided SA-PSO (`scripts/pso/calypso.py`, run via `scripts.pso.execu
 - adds TF determinism (`set_random_seed`, `enable_op_determinism`) and seeds the SAC agent;
 - forwards `--max-iter-cal` to the env (`envParams["max_iter_cal"]`; before, episodes always ran `MAXITER_CAL = 5000`).
 
-**SAC training protocol** (`calypsoTrainSAC` + `softActorCritic_og.fit`), the SAC-SAPSO configuration procedure:
+**SAC training protocol** (`calypsoTrainSAC` + `softActorCritic.fit`), the SAC-SAPSO configuration procedure:
 - Precision: float64 throughout, as in edaptive. `CALYPSO`'s `dtype` defaults to `np.float64` (so also
   `scripts.pso.execute`/`BS_PSO`); `calypsoEnv.dtype = np.float64` sets its PSO and all its specs (observation,
   action, reward, discount; it overrides `reward_spec`/`discount_spec`/`time_step_spec` and builds its `TimeStep`s
@@ -749,8 +750,8 @@ The edaptive wrappers (`BS_PSO.run()`, `CalypsoWrapper.train()`) build the CLI, 
 **delete `calypso/data` and `calypso/log`**, then `subprocess.run(..., cwd=calypso_root)`. Results stay in calypso's
 own output dirs, and runs aren't safe to execute concurrently. To change calypso behaviour, edit the patched clone and
 regenerate `scripts/calypso-integration.patch`. New files must be marked intent-to-add first, the binary
-`funcRanges.pkl` is left out (the wrappers overwrite it), and `-C` stores `softActorCritic_og.py` as a copy of
-`softActorCritic.py` (`git apply` handles it):
+`funcRanges.pkl` is left out (the wrappers overwrite it), and `-C` stores `softActorCritic_rewrite.py` as a copy
+of `softActorCritic.py` (`git apply` handles it):
 `git -C calypso add -N <new files> && git -C calypso diff -C -- . ':!misc/pkl/funcRanges.pkl' > scripts/calypso-integration.patch`.
 Training also rewrites `misc/pkl/funcRanges.pkl` (and `funcRangesPrev.pkl`) on exit.
 
@@ -808,7 +809,7 @@ Suggested order (each step is checked against the R8a reference results):
 R8b is not a separate step: add each component's unit tests in the step that touches it.
 
 **SAC trainer** (when the author's deterministic rewrite is ready).
-- [ ] Replace `softActorCritic_og.py` with the deterministic `softActorCritic.py` rewrite (in-process
+- [ ] Replace `softActorCritic.py` with a deterministic trainer (in-process
   `tf_uniform_replay_buffer` instead of reverb). This also removes the reverb/`tf.data` prefetch concurrency that
   keeps SAC training from being single-threaded (see "Timing").
 - [ ] Port the training protocol to the rewrite: budget (`--budget-runs`, run counting, `budget.json`), fixed

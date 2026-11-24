@@ -636,7 +636,7 @@ index 84ef508..b7b4c1a 100644
      def observation_spec(self):
          return self._observation_spec
 diff --git a/scripts/rl/calypsoTrainSAC.py b/scripts/rl/calypsoTrainSAC.py
-index b6fb403..a201708 100644
+index b6fb403..ce9a8a2 100644
 --- a/scripts/rl/calypsoTrainSAC.py
 +++ b/scripts/rl/calypsoTrainSAC.py
 @@ -7,26 +7,41 @@ which tunes the Calypso control parameters.
@@ -667,12 +667,11 @@ index b6fb403..a201708 100644
  from scripts.const import *
  from scripts.tools.utils import *
  from scripts.rl.calypsoEnv import calypsoEnv
--from scripts.rl.softActorCritic import softActorCritic
-+from scripts.rl.softActorCritic_og import softActorCritic
-+
-+import importlib
+ from scripts.rl.softActorCritic import softActorCritic
  
 -tf.random.set_seed(SEED_TF)
++import importlib
++
  
  
  
@@ -1240,9 +1239,279 @@ index 0000000..5dedcac
 +        json.dump(selected, file, indent=4)
 +    print(selected)
 diff --git a/scripts/rl/softActorCritic.py b/scripts/rl/softActorCritic.py
-index 79d7fd6..5a070c9 100644
+index 79d7fd6..ec18056 100644
 --- a/scripts/rl/softActorCritic.py
 +++ b/scripts/rl/softActorCritic.py
+@@ -6,6 +6,7 @@
+ import os
+ import glob
+ import datetime
++import math
+ import reverb
+ import pandas as pd
+ import tensorflow as tf
+@@ -20,17 +21,18 @@ from tf_agents.replay_buffers import reverb_replay_buffer, reverb_utils
+ from tf_agents.train import actor, learner, triggers
+ from tf_agents.train.utils import spec_utils, train_utils, strategy_utils
+ from tf_agents.utils import common
++from tf_agents.specs import tensor_spec
+ 
+ from scripts.const import *
+ from scripts.tools.utils import *
++from scripts.rl.selectPolicy import selectPolicy
+ 
+ mpl.use('Agg')
+-tf.random.set_seed(SEED_TF)
+ 
+ 
+ 
+ class softActorCritic:
+-    def __init__(self, envCollect, envEval, params, modelPath, plotPath, distributed=True, useTPU=False, useGPU=True):
++    def __init__(self, envCollect, envEval, params, modelPath, plotPath, expPath=None, distributed=True, useTPU=False, useGPU=True):
+         '''
+         Instantiate the Soft Actor-Critic.
+         '''
+@@ -43,6 +45,7 @@ class softActorCritic:
+         self.p          = params
+         self.modelPath  = modelPath
+         self.plotPath   = plotPath
++        self.expPath    = expPath if expPath is not None else os.path.dirname(modelPath)
+         if distributed:
+             self.strategy = strategy_utils.get_strategy(tpu=useTPU, use_gpu=useGPU)
+         else:
+@@ -52,7 +55,9 @@ class softActorCritic:
+ 
+         ## Agent
+         def createAgent():
+-            observation_spec, action_spec, time_step_spec = spec_utils.get_tensor_specs(self.envCollect)
++            observation_spec, action_spec, _ = spec_utils.get_tensor_specs(self.envCollect)
++            # get_tensor_specs always makes the reward and discount specs float32; the env's are float64
++            time_step_spec = tensor_spec.from_spec(self.envCollect.time_step_spec())
+ 
+             critic_net = critic_network.CriticNetwork(
+                 input_tensor_spec       = (observation_spec, action_spec),
+@@ -65,8 +70,8 @@ class softActorCritic:
+                 input_tensor_spec         = observation_spec,
+                 output_tensor_spec        = action_spec,
+                 fc_layer_params           = self.p['actor_fc_layer_params'],
+-                continuous_projection_net = (tanh_normal_projection_network.TanhNormalProjectionNetwork)
+-                # dtype                   = np.float64,
++                continuous_projection_net = (tanh_normal_projection_network.TanhNormalProjectionNetwork),
++                dtype                     = tf.float64,
+             )
+ 
+             # self.train_step = train_utils.create_train_step()
+@@ -169,7 +174,8 @@ class softActorCritic:
+ 
+         self.random_policy = random_py_policy.RandomPyPolicy(
+             time_step_spec = self.envCollect.time_step_spec(),
+-            action_spec    = self.envCollect.action_spec()
++            action_spec    = self.envCollect.action_spec(),
++            seed           = self.p.get('seed')
+         )
+ 
+ 
+@@ -189,8 +195,8 @@ class softActorCritic:
+             policy        = self.random_policy,
+             # train_step    = self.train_step,
+             train_step    = self.global_step,
+-            steps_per_run = self.p['initial_collect_steps'],
+-            observers     = [rb_observer]
++            episodes_per_run = self.p['initial_collect_episodes'],
++            observers        = [rb_observer]
+         )
+         initial_collect_actor.run()
+ 
+@@ -276,8 +282,9 @@ class softActorCritic:
+         )
+         agentCheckpointer.initialize_or_restore()
+ 
+-        policyDir   = os.path.join(self.modelPath, 'policies', 'saved_policy')
++        validatedPolicyDir = os.path.join(self.modelPath, 'policies', 'validated')
+         policySaver = policy_saver.PolicySaver(self.agent.policy)
++        validationCSV = os.path.join(self.expPath, 'validation_results.csv')
+ 
+         self.global_step = tf.compat.v1.train.get_global_step()
+ 
+@@ -312,72 +319,117 @@ class softActorCritic:
+             bestTrainGBN = 1
+             bestEvalGBN = 1
+ 
+-        # self.agent.train_step_counter.assign(0)
++        def validate(step):
++            '''
++            Run one validation pass (the same instances every time), save the
++            policy and record each episode's raw final global best.
++            '''
++            count = len(perfEval)
++            pl(f'\n\n\n#---------------Evaluation Set {count} Start---------------#')
++            pl(f'Time: {datetime.datetime.now()}')
++
++            # Every validation replays runs 0..F-1: function funcs[r % F], seed base + r.
++            self.envEval.run = -1
++            eval_actor.reset()
++            self.envEval.episodeResults = []
++            eval_actor.run()
++            if len(self.envEval.episodeResults) != self.p['num_eval_funcs']:
++                raise RuntimeError(
++                    f'Expected {self.p["num_eval_funcs"]} validation episodes, '
++                    f'got {len(self.envEval.episodeResults)}'
++                )
++
++            policySaver.save(os.path.join(validatedPolicyDir, f'step_{step}'))
++            rows = pd.DataFrame(self.envEval.episodeResults)
++            rows.insert(0, 'step', step)
++            rows[['step', 'function', 'seed', 'f_final']].to_csv(
++                validationCSV, mode='a', index=False, header=not os.path.isfile(validationCSV)
++            )
++
++            metrics = {}
++            for metric in eval_actor.metrics:
++                metrics[metric.name] = metric.result()
++            perfEval.loc[step] = [self.envEval.cumulative_gbn() / self.p["num_eval_funcs"], metrics["AverageReturn"]]
++
++            bufferCheckpointer.save(global_step = self.global_step)
++            agentCheckpointer.save(global_step = self.global_step)  # self.train_step
++
++            pl(', '.join([
++                f'Step = {step}',
++                f'TrainGBN = {perfTrain.loc[step, "TrainGBN"]:.6f}' if step in perfTrain.index else 'TrainGBN = n/a',
++                f'EvalGBN = {perfEval.loc[step, "EvalGBN"]:.6f}',
++                f'EvalReturn = {perfEval.loc[step, "EvalReturn"]:.6f}',
++                f'LearningRate = {self.alpha_optimizer._decayed_lr("float32").numpy():.6f}',
++                f'EvalAverageEpisodeLength = {metrics["AverageEpisodeLength"]:.6f}',
++            ]) + '\n')
++
++            visualize(perfTrain, name='Training')
++            visualize(perfEval,  name='Evaluation')
++
++            wpkl(f'{self.plotPath}/perfFunc.pkl',  perfFunc)
++            wpkl(f'{self.plotPath}/perfTrain.pkl', perfTrain)
++            wpkl(f'{self.plotPath}/perfEval.pkl',  perfEval)
++
++            pl(f'#---------------Evaluation Set {count} End---------------#\n\n\n')
++            pl(f'Time: {datetime.datetime.now()}')
++
++        # Train until max_collect_episodes collect episodes have completed (the
++        # budget), or max_iter_steps collect steps (a safety cap), whichever
++        # comes first. Validate every eval_interval_funcs completed collect
++        # episodes and after the last one.
++        initialCollectRuns = self.envCollect.startedRuns
++        maxCollectEpisodes = self.p.get('max_collect_episodes')
++        completedCollect = 0
++        stopReason = 'safety cap --i (max_iter_steps)'
+         for _ in range(self.p['max_iter_steps']):
+-            
++
+             # Training
+             step = agent_learner.train_step_numpy
+             collect_actor.run()
++
+             loss_info = agent_learner.run(iterations=1)
+ 
+             # Logging
+             if self.envCollect.current_time_step().is_last():
++                completedCollect += 1
+                 perfFunc.loc[step] = [self.envCollect.funcGBN, self.envCollect.funcReward]
+                 perfTrain.loc[step] = perfFunc.iloc[-self.p["numfuncs_train"]:].mean()
+-                if len(perfTrain) > self.p['numfuncs_train'] and perfTrain.loc[step, 'TrainGBN'] < bestTrainGBN:
+-                    policySaver.save(f'{policyDir}_{step}')
+-                    bestTrainGBN = perfTrain.loc[step, 'TrainGBN']
+-                    pl(f'Best TrainGBN improved to {bestTrainGBN} at step {step}')
++
++                lastEpisode = maxCollectEpisodes is not None and completedCollect >= maxCollectEpisodes
+ 
+                 # Evaluation
+-                if len(perfTrain) % self.p['eval_interval_funcs'] == 0:
+-                    count = len(perfEval)
+-                    pl(f'\n\n\n#---------------Evaluation Set {count} Start---------------#')
+-                    pl(f'Time: {datetime.datetime.now()}')
+-                    
+-                    eval_actor.run(),
+-                    
+-                    metrics = {}
+-                    for metric in eval_actor.metrics:
+-                        metrics[metric.name] = metric.result()
+-                    perfEval.loc[step] = [self.envEval.cumulative_gbn() / self.p["num_eval_funcs"], metrics["AverageReturn"]]
+-                    if perfEval.loc[step, 'EvalGBN'] < bestEvalGBN:
+-                        policySaver.save(f'{policyDir}_{step}')
+-                        bestEvalGBN = perfEval.loc[step, 'EvalGBN']
+-                        pl(f'Best EvalGBN improved to {bestEvalGBN} at step {step}')
+-
+-                    bufferCheckpointer.save(global_step = self.global_step)
+-                    agentCheckpointer.save(global_step = self.global_step)  # self.train_step
+-
+-                    pl(', '.join([
+-                        f'Step = {step}',
+-                        f'TrainGBN = {perfTrain.loc[step, "TrainGBN"]:.6f}',
+-                        f'EvalGBN = {perfEval.loc[step, "EvalGBN"]:.6f}',
+-                        f'TrainReturn = {perfTrain.loc[step, "TrainReturn"]:.6f}',
+-                        f'EvalReturn = {perfEval.loc[step, "EvalReturn"]:.6f}',
+-                        f'LearningRate = {self.alpha_optimizer._decayed_lr("float32").numpy():.6f}',
+-                        f'EvalAverageEpisodeLength = {metrics["AverageEpisodeLength"]:.6f}',
+-                    ]) + '\n')
+-
+-                    if len(perfTrain) > self.p["numfuncs_train"]:
+-                        pl(', '.join([
+-                            f'Best Train Step = {perfTrain.iloc[self.p["numfuncs_train"]:].idxmin()["TrainGBN"]}',
+-                            f'Best TrainGBN = {perfTrain.iloc[self.p["numfuncs_train"]:].min()["TrainGBN"]}',
+-                            f'Best Eval Step = {perfEval.idxmin()["EvalGBN"]}',
+-                            f'Best EvalGBN = {perfEval.min()["EvalGBN"]}'
+-                        ]) + '\n')
+-                    
+-                    visualize(perfTrain, name='Training')
+-                    visualize(perfEval,  name='Evaluation')
+-                    
+-                    wpkl(f'{self.plotPath}/perfFunc.pkl',  perfFunc)
+-                    wpkl(f'{self.plotPath}/perfTrain.pkl', perfTrain)
+-                    wpkl(f'{self.plotPath}/perfEval.pkl',  perfEval)
+-
+-                    pl(f'#---------------Evaluation Set {count} End---------------#\n\n\n')
+-                    pl(f'Time: {datetime.datetime.now()}')
++                if completedCollect % self.p['eval_interval_funcs'] == 0 or lastEpisode:
++                    validate(step)
+ 
++                if lastEpisode:
++                    stopReason = f'budget ({completedCollect} collect episodes)'
++                    break
+ 
++        pl(f'Training stopped by the {stopReason}')
+ 
+         rb_observer.close()
+-        self.reverb_server.stop()
+\ No newline at end of file
++        self.reverb_server.stop()
++
++        ## Budget
++        F = self.p['numfuncs_train']
++        budget = {
++            'B'                   : self.p.get('budget_runs'),
++            'initial_collect_runs': initialCollectRuns,
++            'collect_runs'        : self.envCollect.startedRuns - initialCollectRuns,
++            'validation_runs'     : self.envEval.startedRuns,
++            'total_runs'          : self.envCollect.startedRuns + self.envEval.startedRuns,
++            'C'                   : self.p.get('collect_passes'),
++            'n_validations'       : len(perfEval),
++            'completed_collect_episodes': completedCollect,
++            'stopped_by'          : stopReason,
++        }
++        wjson(os.path.join(self.expPath, 'budget.json'), budget)
++        pl(f'Budget: {budget}')
++        if budget['B'] is not None:
++            assert budget['total_runs'] <= budget['B'], budget
++
++        ## Checkpoint selection
++        if os.path.isfile(validationCSV):
++            selected = selectPolicy(validationCSV, validatedPolicyDir)
++            wjson(os.path.join(self.expPath, 'selected_policy.json'), selected)
++            pl(f'Selected policy: {selected}')
+diff --git a/scripts/rl/softActorCritic.py b/scripts/rl/softActorCritic_rewrite.py
+similarity index 83%
+copy from scripts/rl/softActorCritic.py
+copy to scripts/rl/softActorCritic_rewrite.py
+index 79d7fd6..5a070c9 100644
+--- a/scripts/rl/softActorCritic.py
++++ b/scripts/rl/softActorCritic_rewrite.py
 @@ -1,12 +1,9 @@
  # Soft Actor-Critic with the Actor-Learner API for CALYPSO
  
@@ -1537,273 +1806,3 @@ index 79d7fd6..5a070c9 100644
 \ No newline at end of file
 +                    pl(f'Time: {datetime.datetime.now()}')
 \ No newline at end of file
-diff --git a/scripts/rl/softActorCritic.py b/scripts/rl/softActorCritic_og.py
-similarity index 68%
-copy from scripts/rl/softActorCritic.py
-copy to scripts/rl/softActorCritic_og.py
-index 79d7fd6..ec18056 100644
---- a/scripts/rl/softActorCritic.py
-+++ b/scripts/rl/softActorCritic_og.py
-@@ -6,6 +6,7 @@
- import os
- import glob
- import datetime
-+import math
- import reverb
- import pandas as pd
- import tensorflow as tf
-@@ -20,17 +21,18 @@ from tf_agents.replay_buffers import reverb_replay_buffer, reverb_utils
- from tf_agents.train import actor, learner, triggers
- from tf_agents.train.utils import spec_utils, train_utils, strategy_utils
- from tf_agents.utils import common
-+from tf_agents.specs import tensor_spec
- 
- from scripts.const import *
- from scripts.tools.utils import *
-+from scripts.rl.selectPolicy import selectPolicy
- 
- mpl.use('Agg')
--tf.random.set_seed(SEED_TF)
- 
- 
- 
- class softActorCritic:
--    def __init__(self, envCollect, envEval, params, modelPath, plotPath, distributed=True, useTPU=False, useGPU=True):
-+    def __init__(self, envCollect, envEval, params, modelPath, plotPath, expPath=None, distributed=True, useTPU=False, useGPU=True):
-         '''
-         Instantiate the Soft Actor-Critic.
-         '''
-@@ -43,6 +45,7 @@ class softActorCritic:
-         self.p          = params
-         self.modelPath  = modelPath
-         self.plotPath   = plotPath
-+        self.expPath    = expPath if expPath is not None else os.path.dirname(modelPath)
-         if distributed:
-             self.strategy = strategy_utils.get_strategy(tpu=useTPU, use_gpu=useGPU)
-         else:
-@@ -52,7 +55,9 @@ class softActorCritic:
- 
-         ## Agent
-         def createAgent():
--            observation_spec, action_spec, time_step_spec = spec_utils.get_tensor_specs(self.envCollect)
-+            observation_spec, action_spec, _ = spec_utils.get_tensor_specs(self.envCollect)
-+            # get_tensor_specs always makes the reward and discount specs float32; the env's are float64
-+            time_step_spec = tensor_spec.from_spec(self.envCollect.time_step_spec())
- 
-             critic_net = critic_network.CriticNetwork(
-                 input_tensor_spec       = (observation_spec, action_spec),
-@@ -65,8 +70,8 @@ class softActorCritic:
-                 input_tensor_spec         = observation_spec,
-                 output_tensor_spec        = action_spec,
-                 fc_layer_params           = self.p['actor_fc_layer_params'],
--                continuous_projection_net = (tanh_normal_projection_network.TanhNormalProjectionNetwork)
--                # dtype                   = np.float64,
-+                continuous_projection_net = (tanh_normal_projection_network.TanhNormalProjectionNetwork),
-+                dtype                     = tf.float64,
-             )
- 
-             # self.train_step = train_utils.create_train_step()
-@@ -169,7 +174,8 @@ class softActorCritic:
- 
-         self.random_policy = random_py_policy.RandomPyPolicy(
-             time_step_spec = self.envCollect.time_step_spec(),
--            action_spec    = self.envCollect.action_spec()
-+            action_spec    = self.envCollect.action_spec(),
-+            seed           = self.p.get('seed')
-         )
- 
- 
-@@ -189,8 +195,8 @@ class softActorCritic:
-             policy        = self.random_policy,
-             # train_step    = self.train_step,
-             train_step    = self.global_step,
--            steps_per_run = self.p['initial_collect_steps'],
--            observers     = [rb_observer]
-+            episodes_per_run = self.p['initial_collect_episodes'],
-+            observers        = [rb_observer]
-         )
-         initial_collect_actor.run()
- 
-@@ -276,8 +282,9 @@ class softActorCritic:
-         )
-         agentCheckpointer.initialize_or_restore()
- 
--        policyDir   = os.path.join(self.modelPath, 'policies', 'saved_policy')
-+        validatedPolicyDir = os.path.join(self.modelPath, 'policies', 'validated')
-         policySaver = policy_saver.PolicySaver(self.agent.policy)
-+        validationCSV = os.path.join(self.expPath, 'validation_results.csv')
- 
-         self.global_step = tf.compat.v1.train.get_global_step()
- 
-@@ -312,72 +319,117 @@ class softActorCritic:
-             bestTrainGBN = 1
-             bestEvalGBN = 1
- 
--        # self.agent.train_step_counter.assign(0)
-+        def validate(step):
-+            '''
-+            Run one validation pass (the same instances every time), save the
-+            policy and record each episode's raw final global best.
-+            '''
-+            count = len(perfEval)
-+            pl(f'\n\n\n#---------------Evaluation Set {count} Start---------------#')
-+            pl(f'Time: {datetime.datetime.now()}')
-+
-+            # Every validation replays runs 0..F-1: function funcs[r % F], seed base + r.
-+            self.envEval.run = -1
-+            eval_actor.reset()
-+            self.envEval.episodeResults = []
-+            eval_actor.run()
-+            if len(self.envEval.episodeResults) != self.p['num_eval_funcs']:
-+                raise RuntimeError(
-+                    f'Expected {self.p["num_eval_funcs"]} validation episodes, '
-+                    f'got {len(self.envEval.episodeResults)}'
-+                )
-+
-+            policySaver.save(os.path.join(validatedPolicyDir, f'step_{step}'))
-+            rows = pd.DataFrame(self.envEval.episodeResults)
-+            rows.insert(0, 'step', step)
-+            rows[['step', 'function', 'seed', 'f_final']].to_csv(
-+                validationCSV, mode='a', index=False, header=not os.path.isfile(validationCSV)
-+            )
-+
-+            metrics = {}
-+            for metric in eval_actor.metrics:
-+                metrics[metric.name] = metric.result()
-+            perfEval.loc[step] = [self.envEval.cumulative_gbn() / self.p["num_eval_funcs"], metrics["AverageReturn"]]
-+
-+            bufferCheckpointer.save(global_step = self.global_step)
-+            agentCheckpointer.save(global_step = self.global_step)  # self.train_step
-+
-+            pl(', '.join([
-+                f'Step = {step}',
-+                f'TrainGBN = {perfTrain.loc[step, "TrainGBN"]:.6f}' if step in perfTrain.index else 'TrainGBN = n/a',
-+                f'EvalGBN = {perfEval.loc[step, "EvalGBN"]:.6f}',
-+                f'EvalReturn = {perfEval.loc[step, "EvalReturn"]:.6f}',
-+                f'LearningRate = {self.alpha_optimizer._decayed_lr("float32").numpy():.6f}',
-+                f'EvalAverageEpisodeLength = {metrics["AverageEpisodeLength"]:.6f}',
-+            ]) + '\n')
-+
-+            visualize(perfTrain, name='Training')
-+            visualize(perfEval,  name='Evaluation')
-+
-+            wpkl(f'{self.plotPath}/perfFunc.pkl',  perfFunc)
-+            wpkl(f'{self.plotPath}/perfTrain.pkl', perfTrain)
-+            wpkl(f'{self.plotPath}/perfEval.pkl',  perfEval)
-+
-+            pl(f'#---------------Evaluation Set {count} End---------------#\n\n\n')
-+            pl(f'Time: {datetime.datetime.now()}')
-+
-+        # Train until max_collect_episodes collect episodes have completed (the
-+        # budget), or max_iter_steps collect steps (a safety cap), whichever
-+        # comes first. Validate every eval_interval_funcs completed collect
-+        # episodes and after the last one.
-+        initialCollectRuns = self.envCollect.startedRuns
-+        maxCollectEpisodes = self.p.get('max_collect_episodes')
-+        completedCollect = 0
-+        stopReason = 'safety cap --i (max_iter_steps)'
-         for _ in range(self.p['max_iter_steps']):
--            
-+
-             # Training
-             step = agent_learner.train_step_numpy
-             collect_actor.run()
-+
-             loss_info = agent_learner.run(iterations=1)
- 
-             # Logging
-             if self.envCollect.current_time_step().is_last():
-+                completedCollect += 1
-                 perfFunc.loc[step] = [self.envCollect.funcGBN, self.envCollect.funcReward]
-                 perfTrain.loc[step] = perfFunc.iloc[-self.p["numfuncs_train"]:].mean()
--                if len(perfTrain) > self.p['numfuncs_train'] and perfTrain.loc[step, 'TrainGBN'] < bestTrainGBN:
--                    policySaver.save(f'{policyDir}_{step}')
--                    bestTrainGBN = perfTrain.loc[step, 'TrainGBN']
--                    pl(f'Best TrainGBN improved to {bestTrainGBN} at step {step}')
-+
-+                lastEpisode = maxCollectEpisodes is not None and completedCollect >= maxCollectEpisodes
- 
-                 # Evaluation
--                if len(perfTrain) % self.p['eval_interval_funcs'] == 0:
--                    count = len(perfEval)
--                    pl(f'\n\n\n#---------------Evaluation Set {count} Start---------------#')
--                    pl(f'Time: {datetime.datetime.now()}')
--                    
--                    eval_actor.run(),
--                    
--                    metrics = {}
--                    for metric in eval_actor.metrics:
--                        metrics[metric.name] = metric.result()
--                    perfEval.loc[step] = [self.envEval.cumulative_gbn() / self.p["num_eval_funcs"], metrics["AverageReturn"]]
--                    if perfEval.loc[step, 'EvalGBN'] < bestEvalGBN:
--                        policySaver.save(f'{policyDir}_{step}')
--                        bestEvalGBN = perfEval.loc[step, 'EvalGBN']
--                        pl(f'Best EvalGBN improved to {bestEvalGBN} at step {step}')
--
--                    bufferCheckpointer.save(global_step = self.global_step)
--                    agentCheckpointer.save(global_step = self.global_step)  # self.train_step
--
--                    pl(', '.join([
--                        f'Step = {step}',
--                        f'TrainGBN = {perfTrain.loc[step, "TrainGBN"]:.6f}',
--                        f'EvalGBN = {perfEval.loc[step, "EvalGBN"]:.6f}',
--                        f'TrainReturn = {perfTrain.loc[step, "TrainReturn"]:.6f}',
--                        f'EvalReturn = {perfEval.loc[step, "EvalReturn"]:.6f}',
--                        f'LearningRate = {self.alpha_optimizer._decayed_lr("float32").numpy():.6f}',
--                        f'EvalAverageEpisodeLength = {metrics["AverageEpisodeLength"]:.6f}',
--                    ]) + '\n')
--
--                    if len(perfTrain) > self.p["numfuncs_train"]:
--                        pl(', '.join([
--                            f'Best Train Step = {perfTrain.iloc[self.p["numfuncs_train"]:].idxmin()["TrainGBN"]}',
--                            f'Best TrainGBN = {perfTrain.iloc[self.p["numfuncs_train"]:].min()["TrainGBN"]}',
--                            f'Best Eval Step = {perfEval.idxmin()["EvalGBN"]}',
--                            f'Best EvalGBN = {perfEval.min()["EvalGBN"]}'
--                        ]) + '\n')
--                    
--                    visualize(perfTrain, name='Training')
--                    visualize(perfEval,  name='Evaluation')
--                    
--                    wpkl(f'{self.plotPath}/perfFunc.pkl',  perfFunc)
--                    wpkl(f'{self.plotPath}/perfTrain.pkl', perfTrain)
--                    wpkl(f'{self.plotPath}/perfEval.pkl',  perfEval)
--
--                    pl(f'#---------------Evaluation Set {count} End---------------#\n\n\n')
--                    pl(f'Time: {datetime.datetime.now()}')
-+                if completedCollect % self.p['eval_interval_funcs'] == 0 or lastEpisode:
-+                    validate(step)
- 
-+                if lastEpisode:
-+                    stopReason = f'budget ({completedCollect} collect episodes)'
-+                    break
- 
-+        pl(f'Training stopped by the {stopReason}')
- 
-         rb_observer.close()
--        self.reverb_server.stop()
-\ No newline at end of file
-+        self.reverb_server.stop()
-+
-+        ## Budget
-+        F = self.p['numfuncs_train']
-+        budget = {
-+            'B'                   : self.p.get('budget_runs'),
-+            'initial_collect_runs': initialCollectRuns,
-+            'collect_runs'        : self.envCollect.startedRuns - initialCollectRuns,
-+            'validation_runs'     : self.envEval.startedRuns,
-+            'total_runs'          : self.envCollect.startedRuns + self.envEval.startedRuns,
-+            'C'                   : self.p.get('collect_passes'),
-+            'n_validations'       : len(perfEval),
-+            'completed_collect_episodes': completedCollect,
-+            'stopped_by'          : stopReason,
-+        }
-+        wjson(os.path.join(self.expPath, 'budget.json'), budget)
-+        pl(f'Budget: {budget}')
-+        if budget['B'] is not None:
-+            assert budget['total_runs'] <= budget['B'], budget
-+
-+        ## Checkpoint selection
-+        if os.path.isfile(validationCSV):
-+            selected = selectPolicy(validationCSV, validatedPolicyDir)
-+            wjson(os.path.join(self.expPath, 'selected_policy.json'), selected)
-+            pl(f'Selected policy: {selected}')
