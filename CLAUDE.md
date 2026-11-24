@@ -695,8 +695,6 @@ belief-space-guided SA-PSO (`scripts/pso/calypso.py`, run via `scripts.pso.execu
   changes below. Reverb replay buffer, so not deterministic (see "Deterministic trainer").
 - `softActorCritic_det.py` (`det`): a copy of it that differs only in the replay buffer and its sampling
   (`git diff --no-index` between the two shows only that).
-- `softActorCritic_rewrite.py`: the author's earlier rewrite (TFUniformReplayBuffer, no protocol changes, still
-  prefetching). Kept for reference; nothing imports it.
 
 The patch:
 - makes paths in `const.py` relative to the calypso root and creates output dirs;
@@ -800,8 +798,8 @@ The edaptive wrappers (`BS_PSO.run()`, `CalypsoWrapper.train()`) build the CLI, 
 **delete `calypso/data` and `calypso/log`**, then `subprocess.run(..., cwd=calypso_root)`. Results stay in calypso's
 own output dirs, and runs aren't safe to execute concurrently. To change calypso behaviour, edit the patched clone and
 regenerate `scripts/calypso-integration.patch`. New files must be marked intent-to-add first, the binary
-`funcRanges.pkl` is left out (the wrappers overwrite it), and `-C` stores `softActorCritic_rewrite.py` as a copy
-of `softActorCritic.py` (`git apply` handles it):
+`funcRanges.pkl` is left out (the wrappers overwrite it), and `-C` lets git store a new file that is similar
+enough to a modified one as a copy (`git apply` handles it):
 `git -C calypso add -N <new files> && git -C calypso diff -C -- . ':!misc/pkl/funcRanges.pkl' > scripts/calypso-integration.patch`.
 Training also rewrites `misc/pkl/funcRanges.pkl` (and `funcRangesPrev.pkl`) on exit. The env reads it at start and
 needs every function in its index; it affects only the GBN logging (rewards are `relativeReward`). Trainings with
