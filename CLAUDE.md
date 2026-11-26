@@ -65,8 +65,8 @@ edaptive/
 │   │   ├── benchmark_problem.py   # BenchmarkProblem ABC
 │   │   ├── ela_benchmark_suite.py # ~24 hand-written functions + 4 BBOB wrappers; TRAINING_SET
 │   │   ├── bbob.py                # BBOBProblem (COCO cocoex)
-│   │   ├── cec.py                 # CECProblem (opfunu)
-│   │   ├── custom_test_set.py     # evaluation set: BBOB_FIDx_IIDy and CEC_yyyy_FIDx classes
+│   │   ├── cec.py                 # CECProblem (opfunu; loops over rows for batched input)
+│   │   ├── custom_test_set.py     # evaluation set: BBOB_FIDx_IIDy and CEC_yyyy_FIDx classes; EVALUATION_SET
 │   │   └── misc_problems.py       # empty
 │   ├── tuning/
 │   │   └── ifrace.py               # IFRace (elitist iterated F-race, MPI-parallel) + IFRaceSamplingModel
@@ -455,10 +455,10 @@ Adapters currently assume all adapted CPs are continuous.
   GeneralizedEggCrate, Rosenbrock, Pinter2(_OG), Qing, DropWave, BonyadiMichalewicz, Discus, Elliptic) plus
   `BBOB_FID{2,6,16,17}_IID*`, with optional `global_optimum` metadata. `plot_benchmark_3d` is a plotting helper.
   `TRAINING_SET` (tuple of 24 classes, the Lang & Engelbrecht set, non-`_OG` variants) is the one configuration set:
-  `tune.py`'s I/F-race instances and SAC-SAPSO's training and validation functions (`experiments/scripts/train_sac.py`).
-  `execute.py` still has its own lists (Known issue 4).
-- `custom_test_set.py`: the **evaluation** set (BBOB FID/IID combos + CEC 2013/2014/2015/2017 functions via opfunu):
-  one problem per ELA cluster (closest to the cluster centroid, excluding `ela_benchmark_suite.py` problems).
+  `tune.py`'s I/F-race instances, SAC-SAPSO's training and validation functions (`experiments/scripts/train_sac.py`)
+  and `execute.py --problem_set training`.
+- `custom_test_set.py`: the **evaluation** set `EVALUATION_SET` (tuple of 21 classes; BBOB FID/IID combos + CEC
+  2013/2014/2015/2017 functions via opfunu; `execute.py`'s default `--problem_set evaluation`): one problem per ELA cluster (closest to the cluster centroid, excluding `ela_benchmark_suite.py` problems).
   `experiments/problem_selection/select_evaluation_problems.py` makes the selection from `ela_features.csv` in the
   same folder, following
   Cenikj et al. (2022), SELECTOR (GECCO '22): median features over runs (`ic.eps.s` excluded), agglomerative
@@ -466,6 +466,7 @@ Adapters currently assume all adapted CPs are continuous.
   code also hardcodes 12 and 10, picked by inspecting the cosine silhouette scores (which peak at 2). The
   `ela_benchmark_suite.py` problems are listed in the script, so update it if that suite's BBOB problems change.
 - `BBOBProblem` uses `cocoex.Suite("bbob", "", "")` and loops over rows for batched input (slow but correct).
+  `CECProblem` also loops over rows (opfunu's `evaluate` takes one solution).
   It works only for dimensions included in the patched suite: **2, 3, 5, 10, 20, 30, 40, 50, 60**.
   Changing that requires `scripts/update_bbob_dimensions.sh` + rerunning `setup_coco.sh`.
 
@@ -613,7 +614,8 @@ mpirun -n 8 python experiments/scripts/tune.py --solver EDASolver --optimizer PS
     --config experiments/configs/test.json
 python experiments/scripts/tune.py --solver BasicSolver --optimizer PSO --config experiments/configs/basic.json
 
-# Experiments: uses results/tuning_results/<identifier>/best_configuration.pkl if present, else --config
+# Experiments: uses results/tuning_results/<identifier>/best_configuration.pkl if present, else --config (neither: error).
+# --problem_set evaluation (default, EVALUATION_SET) or training (TRAINING_SET)
 mpirun -n 8 python experiments/scripts/execute.py --solver EDASolver --optimizer PSO --adapter BetaEDA \
     --identifier testname --n_x 30 --max_iter 5000 --n_trials 50
 python experiments/scripts/execute.py --solver StabilityGuidedPSO --identifier sg_pso \
@@ -872,11 +874,6 @@ R8b is not a separate step: add each component's unit tests in the step that tou
 
 ## Known issues / things to verify (found by reading the code, not yet confirmed or fixed)
 
-4. `execute.py`: iterates over `tuning_problems` (the `evaluation_problems` list is defined but unused); has a hardcoded
-   debug print `results["CosineMixture_OG"][k] for k in range(0, 50)` (fails if `n_trials < 50`); `config` is undefined
-   when there's neither a tuned pkl nor `--config`.
-5. `CECProblem._evaluate` forwards batched `(N, D)` input straight to opfunu's `evaluate`, which is likely 1-D only.
-   Verify before using CEC problems with PSO.
 6. `UniformRandomAdapter`/`BetaEDA` assume continuous CPs (the multi-valued EDAs support integer and categorical
    ones).
 8. PSO history keys `velocities`/`diversity` are only populated at initialisation.

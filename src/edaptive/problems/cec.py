@@ -26,4 +26,13 @@ class CECProblem(BenchmarkProblem):
         self.upper = np.asarray(self._function.ub)
 
     def _evaluate(self, x):
-        return self._function.evaluate(x)
+        # opfunu evaluates one solution at a time.
+        x = np.asarray(x)
+
+        if x.ndim == 1:
+            return self._function.evaluate(x)
+
+        if x.ndim == 2:
+            return np.asarray([self._function.evaluate(xi) for xi in x])
+
+        raise ValueError(f"Expected a 1D or 2D array, got shape {x.shape}.")

@@ -249,3 +249,30 @@ class CEC_2014_FID19(CECProblem):
             suite=2014,
             function_id=19,
         )
+
+
+# The evaluation set: one problem per ELA cluster, none from ela_benchmark_suite.py
+# (experiments/problem_selection/select_evaluation_problems.py).
+EVALUATION_SET = (
+    BBOB_FID21_IID1,
+    BBOB_FID23_IID1,
+    BBOB_FID23_IID5,
+    BBOB_FID22_IID3,
+    BBOB_FID1_IID3,
+    BBOB_FID18_IID5,
+    BBOB_FID19_IID4,
+    BBOB_FID14_IID2,
+    CEC_2013_FID8,
+    BBOB_FID17_IID5,
+    BBOB_FID1_IID4,
+    BBOB_FID14_IID1,
+    BBOB_FID4_IID1,
+    BBOB_FID12_IID2,
+    CEC_2017_FID8,
+    CEC_2014_FID28,
+    CEC_2013_FID3,
+    BBOB_FID12_IID4,
+    CEC_2015_FID4,
+    BBOB_FID1_IID5,
+    CEC_2014_FID19,
+)

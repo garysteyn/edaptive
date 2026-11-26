@@ -16,50 +16,13 @@ from pathlib import Path
 from mpi4py import MPI
 
 from edaptive.core.config import SolverConfig
-
-# The evaluation set has one problem per ELA cluster and shares no problems with
-# ela_benchmark_suite.
-from edaptive.problems.custom_test_set import (
-    BBOB_FID1_IID3,
-    BBOB_FID1_IID4,
-    BBOB_FID1_IID5,
-    BBOB_FID4_IID1,
-    BBOB_FID12_IID2,
-    BBOB_FID12_IID4,
-    BBOB_FID14_IID1,
-    BBOB_FID14_IID2,
-    BBOB_FID17_IID5,
-    BBOB_FID18_IID5,
-    BBOB_FID19_IID4,
-    BBOB_FID21_IID1,
-    BBOB_FID22_IID3,
-    BBOB_FID23_IID1,
-    BBOB_FID23_IID5,
-    CEC_2013_FID3,
-    CEC_2013_FID8,
-    CEC_2014_FID19,
-    CEC_2014_FID28,
-    CEC_2015_FID4,
-    CEC_2017_FID8,
-)
-from edaptive.problems.ela_benchmark_suite import (
-    Brown,
-    CosineMixture,
-    CosineMixture_OG,
-    Exponential,
-    GeneralizedGiunta,
-    GeneralizedPaviani,
-    GeneralizedPrice2,
-    Mishra01,
-    Mishra07,
-    NeedleEye,
-    Ripple25,
-    Schwefel1,
-    Step3,
-)
+from edaptive.problems.custom_test_set import EVALUATION_SET
+from edaptive.problems.ela_benchmark_suite import TRAINING_SET
 from edaptive.registry import resolve
 from edaptive.utils.experiment_utils import parse_config
 from edaptive.utils.seeding import trial_seed
+
+PROBLEM_SETS = {"evaluation": EVALUATION_SET, "training": TRAINING_SET}
 
 comm = MPI.COMM_WORLD
 
@@ -119,6 +82,14 @@ def parse_args():
         help="Base of the run seeds (see edaptive.utils.seeding.trial_seed).",
     )
 
+    parser.add_argument(
+        "--problem_set",
+        choices=tuple(PROBLEM_SETS),
+        default="evaluation",
+        help="Problems to run: the ELA-selected evaluation set (custom_test_set.py) "
+        "or the training set (ela_benchmark_suite.TRAINING_SET).",
+    )
+
     return parser.parse_args()
 
 
@@ -136,11 +107,6 @@ max_iter = args.max_iter
 
 n_trials = args.n_trials
 
-if args.config:
-    config = args.config
-    with args.config.open("r") as file:
-        config = json.load(file)
-
 tuning_results_path = Path("results/tuning_results") / identifier
 
 config_path = tuning_results_path / "best_configuration.pkl"
@@ -148,58 +114,20 @@ config_path = tuning_results_path / "best_configuration.pkl"
 if config_path.exists():
     with open(config_path, "rb") as file:
         config = SolverConfig.from_dict(pickle.load(file))
+elif args.config:
+    with args.config.open("r") as file:
+        config, _ = parse_config(json.load(file))
 else:
-    config, _ = parse_config(config)
+    raise SystemExit(
+        f"No configuration for '{identifier}': {config_path} does not exist and "
+        "no --config was given."
+    )
 
-tuning_problems = [
-    Schwefel1,
-    Ripple25,
-    Exponential,
-    NeedleEye,
-    Step3,
-    GeneralizedGiunta,
-    GeneralizedPaviani,
-    Brown,
-    CosineMixture_OG,
-    CosineMixture,
-    Mishra07,
-    Mishra01,
-    GeneralizedPrice2,
-    # BBOB_FID2_IID1,
-    # BBOB_FID6_IID1,
-    # BBOB_FID16_IID1,
-    # BBOB_FID17_IID2
-]
-
-evaluation_problems = [
-    BBOB_FID21_IID1,
-    BBOB_FID23_IID1,
-    BBOB_FID23_IID5,
-    BBOB_FID22_IID3,
-    BBOB_FID1_IID3,
-    BBOB_FID18_IID5,
-    BBOB_FID19_IID4,
-    BBOB_FID14_IID2,
-    CEC_2013_FID8,
-    BBOB_FID17_IID5,
-    BBOB_FID1_IID4,
-    BBOB_FID14_IID1,
-    BBOB_FID4_IID1,
-    BBOB_FID12_IID2,
-    CEC_2017_FID8,
-    CEC_2014_FID28,
-    CEC_2013_FID3,
-    BBOB_FID12_IID4,
-    CEC_2015_FID4,
-    BBOB_FID1_IID5,
-    CEC_2014_FID19,
-]
-
-# print(tuned_param_config)
+problems = PROBLEM_SETS[args.problem_set]
 
 local_results = {}
 
-for i, p in enumerate(tuning_problems):
+for i, p in enumerate(problems):
     local_results[p.__name__] = {}
 
     for j in range(n_trials):
@@ -234,7 +162,7 @@ for i, p in enumerate(tuning_problems):
 all_results = comm.gather(local_results, root=0)
 
 if rank == 0:
-    results = {p.__name__: {} for p in tuning_problems}
+    results = {p.__name__: {} for p in problems}
 
     for rank_results in all_results:
         for problem_name, trials in rank_results.items():
@@ -242,8 +170,6 @@ if rank == 0:
 
     for problem_name in results:
         results[problem_name] = dict(sorted(results[problem_name].items()))
-
-    print([results["CosineMixture_OG"][k]["f_best"][-1] for k in range(0, 50)])
 
     output_path = Path("results") / "experiment_results" / f"{identifier}.pkl"
 
