@@ -829,13 +829,18 @@ configuration procedure:
     metrics such as diversity), the `startedRuns` counter, reset_only swarms, and the LAST-step action;
   - configurator (replay add): the numpy stacking of trajectory pairs in `PairObserver`;
   - setup: one action per traced policy and one learner step (first calls).
-  `scratch/sac_equivalent_solver_time.py --runs <training_runs.csv> --timings <execute.py pkl>` (the exported copy
-  `results/sac_training/<exp>/training_runs.csv`, since the wrapper deletes `calypso/data`) reports, per phase
-  and function, calypso's raw solver time next to the edaptive equivalent: Σ over the non-reset_only training
-  runs of edaptive's mean per-run `core_time` for that function without `_load_policy`, from `execute.py
-  --solver SACSAPSO --problem_set training` (n_x 30, 5000 iterations, n_s 30). In the 9-run timing sample calypso's
-  solver time was ≈ 1.18× the equivalent (≈ 1.4× on Rosenbrock/Qing, 0.93× on BBOB_FID17_IID2, where calypso skips
-  infeasible particles' evaluations).
+  `scratch/sac_equivalent_solver_time.py --runs <training_runs.csv> --timings <execute.py pkl> [--times
+  <training_times.json>]` (the exported copies in `results/sac_training/<exp>/`, since the wrapper deletes
+  `calypso/data`; `--times` defaults to the file next to `--runs`) reports, per phase and function, calypso's raw
+  solver time next to the edaptive equivalent: Σ over the non-reset_only training runs of edaptive's mean per-run
+  `core_time` for that function without `_load_policy`, from `execute.py --solver SACSAPSO --problem_set training`
+  (n_x 30, 5000 iterations, n_s 30). It also prints the training's cost per clock (calypso solver, equivalent
+  solver, configurator, total as measured, total with the equivalent solver; setup, io, framework and
+  problem_construction listed as excluded) and writes all tables to `results/sac_training/<exp>/equivalent_cost.json`.
+  In the 9-run timing sample calypso's solver time was ≈ 1.18× the equivalent (≈ 1.4× on Rosenbrock/Qing, 0.93×
+  on BBOB_FID17_IID2, where calypso skips infeasible particles' evaluations). For the det `vc_sac_j50` training
+  (CPU): calypso solver 1502.9 s, equivalent 1083.1 s (1.39×; 1.14–1.53× per function), configurator 3929.0 s,
+  total 5431.9 s measured and 5012.1 s with the equivalent solver.
   The equivalent figure is compared with I/F-race's solver time, so the `execute.py` timing run must use the same
   number of MPI ranks as the I/F-race tunings, on the same machine (per-run times depend on how many processes
   share the CPU). `tuning.log` records it ("Number of MPI processes"): 8 so far (`basic_test`, 2026-11-09). The dev
