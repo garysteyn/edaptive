@@ -422,6 +422,15 @@ PSO velocities and Poli's criterion), not an adapter.
   count: `training_times.json` → `threads.cpu_per_thread` showed 29% of the CPU in threads other than the main
   one, because TensorFlow runs ops on its (single) inter-op thread while the main thread waits. Compare
   configuration costs by CPU time.
+- **Pinning.** All timed runs on this machine are pinned to P-cores. The i7-12700's CPUs 0–15 are its 8 P-cores
+  with 2 hyperthreads each (0/1, 2/3, …), and 16–19 are E-cores.
+  - SAC training: `nohup taskset -c 2 python experiments/scripts/train_sac.py ...` (one P-core thread).
+  - MPI runs (`tune.py`, `execute.py`), 8 ranks, one thread of each P-core:
+    `taskset -c 0,2,4,6,8,10,12,14 mpirun -n 8 --bind-to none python ...`. The ranks are restricted to those
+    CPUs but not bound individually; OpenMPI 5 here rejects `--bind-to core --cpu-set` with this list
+    (not-enough-cpus).
+  - The SAC-SAPSO timing data (`sac_sapso_timing`) was produced this way. The final I/F-race tunings must use
+    the same line, so that their solver times are comparable.
 
 ### SolverConfig (`core/config.py`)
 Frozen dataclass `SolverConfig(identifier, fixed_CPs, adapted_CP_space, adapter_params)`:
@@ -629,22 +638,25 @@ and looked up in `edaptive/registry.py` (unknown names raise an error listing th
 there. The old name `stability_guided_PSO` is still accepted as an alias.
 
 ```bash
-# Tuning (MPI optional)
-mpirun -n 8 python experiments/scripts/tune.py --solver EDASolver --optimizer PSO --adapter BetaEDA \
+# Tuning (MPI optional). Timed runs are pinned to P-cores (see "Timing", Pinning).
+taskset -c 0,2,4,6,8,10,12,14 mpirun -n 8 --bind-to none python experiments/scripts/tune.py \
+    --solver EDASolver --optimizer PSO --adapter BetaEDA \
     --config experiments/configs/test.json
 python experiments/scripts/tune.py --solver BasicSolver --optimizer PSO --config experiments/configs/basic.json
 
 # Experiments: uses results/tuning_results/<identifier>/best_configuration.pkl if present, else --config (neither: error).
 # --problem_set evaluation (default, EVALUATION_SET) or training (TRAINING_SET)
-mpirun -n 8 python experiments/scripts/execute.py --solver EDASolver --optimizer PSO --adapter BetaEDA \
+taskset -c 0,2,4,6,8,10,12,14 mpirun -n 8 --bind-to none python experiments/scripts/execute.py \
+    --solver EDASolver --optimizer PSO --adapter BetaEDA \
     --identifier testname --n_x 30 --max_iter 5000 --n_trials 50
 python experiments/scripts/execute.py --solver StabilityGuidedPSO --identifier sg_pso \
     --config experiments/configs/sg_pso.json
 
 # SAC-SAPSO: train in calypso (deletes calypso/data and calypso/log first), export, run
-python experiments/scripts/train_sac.py
+nohup taskset -c 2 python experiments/scripts/train_sac.py > results/train_sac_det.log 2>&1 &
 (cd calypso && python -m scripts.rl.exportPolicy --exp vc_sac_j50)   # → results/sac_training/vc_sac_j50/
-mpirun -n 8 python experiments/scripts/execute.py --solver SACSAPSO --identifier sac_sapso \
+taskset -c 0,2,4,6,8,10,12,14 mpirun -n 8 --bind-to none python experiments/scripts/execute.py \
+    --solver SACSAPSO --identifier sac_sapso \
     --config experiments/configs/sac_sapso.json --n_x 30 --max_iter 5000 --n_trials 50
 
 # Evaluation-set selection: prints silhouette scores, cluster contents and the selected problems, then a t-SNE plot
@@ -828,7 +840,7 @@ configuration procedure:
   number of MPI ranks as the I/F-race tunings, on the same machine (per-run times depend on how many processes
   share the CPU). `tuning.log` records it ("Number of MPI processes"): 8 so far (`basic_test`, 2026-11-09). The dev
   container's CPU is an i7-12700 (8 P-cores with 2 threads each, 4 E-cores; 20 logical CPUs), so which cores the
-  ranks get also affects per-run times; nothing pins them.
+  ranks get also affects per-run times; both runs are pinned to the same P-core threads (see "Timing", Pinning).
   The checks that the instrumentation leaves det results unchanged (smoke trainings, bit-identical validation
   results and validated policies) and the 9-run timing sample are in
   `results/sac_trainer_comparison/instrumentation_check/` (README there).
