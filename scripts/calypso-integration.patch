@@ -385,20 +385,21 @@ index 2c0e466..c1ef381 100644
  
  
 diff --git a/scripts/rl/calypsoEnv.py b/scripts/rl/calypsoEnv.py
-index 84ef508..b7b4c1a 100644
+index 84ef508..6dfaf1a 100644
 --- a/scripts/rl/calypsoEnv.py
 +++ b/scripts/rl/calypsoEnv.py
-@@ -6,8 +6,8 @@ from tf_agents.environments import py_environment
+@@ -6,8 +6,9 @@ from tf_agents.environments import py_environment
  from scripts.const import *
  from scripts.tools.utils import*
  from scripts.pso.calypso import CALYPSO
 -from scripts.functions import functions
++from scripts.tools.timing import TIMER, zeroTimes
  
 +from copy import deepcopy
  
  
  def sigmoid(x):
-@@ -81,7 +81,8 @@ def relativeReward(old, new):
+@@ -81,7 +82,8 @@ def relativeReward(old, new):
  class calypsoEnv(py_environment.PyEnvironment):
      def __init__(
          self, envName, exp, params, funcs, varsPath, run=-1,
@@ -408,7 +409,7 @@ index 84ef508..b7b4c1a 100644
      ):
          '''
          Instantiate a Calypso RL environment.
-@@ -90,7 +91,7 @@ class calypsoEnv(py_environment.PyEnvironment):
+@@ -90,7 +92,7 @@ class calypsoEnv(py_environment.PyEnvironment):
  
          # Define Environment parameters
          self.envName         = envName
@@ -417,7 +418,7 @@ index 84ef508..b7b4c1a 100644
          self.evalEnv         = evalEnv
          self.funcs           = funcs
          self.run             = run
-@@ -108,6 +109,8 @@ class calypsoEnv(py_environment.PyEnvironment):
+@@ -108,6 +110,8 @@ class calypsoEnv(py_environment.PyEnvironment):
          self.D                = params['D']
          self.j                = params['j']
          self.velocityClamping = params['velocityClamping']
@@ -426,7 +427,7 @@ index 84ef508..b7b4c1a 100644
          self.funcRanges       = lpkl(f'{pklDIR}/funcRanges.pkl')
          self.varsPath         = varsPath
          self.pklPath          = None
-@@ -122,10 +125,16 @@ class calypsoEnv(py_environment.PyEnvironment):
+@@ -122,10 +126,22 @@ class calypsoEnv(py_environment.PyEnvironment):
          self.discount = params['gamma']
  
  
@@ -434,6 +435,12 @@ index 84ef508..b7b4c1a 100644
 +        self.startedRuns    = 0   # episodes that took at least one PSO iteration
 +        self.resets         = 0   # every reset, including those that only build the initial swarm
 +        self.episodeResults = []  # one dict per finished episode: function, seed, f_final
++
++
++        # Timing: one record per reset (training_runs.csv). `phase` is set by the trainer.
++        self.phase      = None
++        self.record     = None
++        self.runRecords = []
 +
 +
          # Define the observation specification
@@ -444,7 +451,7 @@ index 84ef508..b7b4c1a 100644
              minimum = 0,
              maximum = 1,
              name    = 'observation'           # figure out what the rl 'loss' is
-@@ -159,7 +168,7 @@ class calypsoEnv(py_environment.PyEnvironment):
+@@ -159,7 +175,7 @@ class calypsoEnv(py_environment.PyEnvironment):
          # know the limits in anyway.
          arr = np.array(
              [
@@ -453,7 +460,43 @@ index 84ef508..b7b4c1a 100644
                  infeasibleParticles,
                  stableParticles
              ],
-@@ -177,36 +186,48 @@ class calypsoEnv(py_environment.PyEnvironment):
+@@ -169,6 +185,35 @@ class calypsoEnv(py_environment.PyEnvironment):
+ 
+ 
+ 
++    def reset(self):
++        '''
++        PyEnvironment.reset, timed as solver time of a new run record. Also reached
++        from step (after a LAST time step).
++        '''
++        self.record = {
++            'env'    : self.envName,
++            'phase'  : self.phase,
++            'solver' : zeroTimes(),
++            'problem_construction': zeroTimes(),
++            'steps'  : 0,
++        }
++        self.runRecords.append(self.record)
++        with TIMER.bucket('solver', 'env_reset', self.record):
++            timeStep = super().reset()
++        self.record.update(run=self.run, function=self.func, seed=self.seed + self.run)
++        return timeStep
++
++
++
++    def step(self, action):
++        '''
++        PyEnvironment.step, timed as solver time of the current run record.
++        '''
++        with TIMER.bucket('solver', 'env_step', self.record):
++            return super().step(action)
++
++
++
+     def _reset(self):
+         '''
+         Reset the environment before the next episode.
+@@ -177,36 +222,51 @@ class calypsoEnv(py_environment.PyEnvironment):
  
          # Instantiate a calypso object
          self.run += 1
@@ -473,17 +516,24 @@ index 84ef508..b7b4c1a 100644
              self.savePath = f'{self.pklPath}/eval{int(self.run/self.numEvalEpisodes)}' if self.pklPath else None
          
 -        if not self.evalEnv and self.func==self.funcs[0]:
-+        if not self.evalEnv and self.funcClass==self.funcs[0]:
-             self._cumulativeGBN = 0
+-            self._cumulativeGBN = 0
++        with TIMER.bucket('framework', 'cumulative_gbn'):
++            if not self.evalEnv and self.funcClass==self.funcs[0]:
++                self._cumulativeGBN = 0
  
          self.funcReward = 0
-         self.funcGBN     = np.nan
-         self.L_min      = self.funcRanges.loc[self.func, 'low']
-         self.L_delta    = self.funcRanges.loc[self.func, 'delta']
+-        self.funcGBN     = np.nan
+-        self.L_min      = self.funcRanges.loc[self.func, 'low']
+-        self.L_delta    = self.funcRanges.loc[self.func, 'delta']
 -        funcAttr        = getattr(functions, self.func)
 -        loss, lim, self.name = funcAttr()
++        with TIMER.bucket('framework', 'pandas_logging'):
++            self.funcGBN     = np.nan
++            self.L_min      = self.funcRanges.loc[self.func, 'low']
++            self.L_delta    = self.funcRanges.loc[self.func, 'delta']
 +
-+        problem = self.funcClass(self.D)
++        with TIMER.bucket('problem_construction', 'problem', self.record):
++            problem = self.funcClass(self.D)
 +
 +        loss = problem
 +        lim = (problem.lower, problem.upper)
@@ -509,7 +559,7 @@ index 84ef508..b7b4c1a 100644
              velocityClamping = self.velocityClamping,
              rl               = True,
            
-@@ -217,7 +238,7 @@ class calypsoEnv(py_environment.PyEnvironment):
+@@ -217,21 +277,22 @@ class calypsoEnv(py_environment.PyEnvironment):
  
          # Define runtime parameters
          self.i       = 1
@@ -518,7 +568,18 @@ index 84ef508..b7b4c1a 100644
          self.lsbInit = self.lsbPrev.copy()
          vNormed      = np.zeros((self.N,), dtype=self.dtype)
          self.setState(self.i, 0.0, 0.5, vNormed)
-@@ -231,7 +252,7 @@ class calypsoEnv(py_environment.PyEnvironment):
+ 
+         self._episode_ended = False  # TERMINATE after loss stagnation for varying episode lengths
+ 
+-        L_max = np.max(self.calypso.L[0])
+-        if L_max > self.funcRanges.loc[self.func, 'high']:
+-            self.funcRanges.loc[self.func, 'high'] = L_max
+-            pl(f'Updated L_max for {self.func}')
++        with TIMER.bucket('framework', 'pandas_logging'):
++            L_max = np.max(self.calypso.L[0])
++            if L_max > self.funcRanges.loc[self.func, 'high']:
++                self.funcRanges.loc[self.func, 'high'] = L_max
++                pl(f'Updated L_max for {self.func}')
  
  
          # Return
@@ -527,17 +588,18 @@ index 84ef508..b7b4c1a 100644
  
  
  
-@@ -247,6 +268,9 @@ class calypsoEnv(py_environment.PyEnvironment):
+@@ -247,6 +308,10 @@ class calypsoEnv(py_environment.PyEnvironment):
          if self._episode_ended:
              return self.reset()
  
 +        if self.i == 1:
 +            self.startedRuns += 1
++        self.record['steps'] += 1  # SAC steps that ran PSO iterations
 +
  
          # Run J iterations of Calypso
          controlParam = {'w': action[0],  'c1': action[1],  'c2': action[2]}
-@@ -254,10 +278,10 @@ class calypsoEnv(py_environment.PyEnvironment):
+@@ -254,10 +319,10 @@ class calypsoEnv(py_environment.PyEnvironment):
          if self.j.isnumeric():
              j = int(self.j)
          elif self.j=='auto': 
@@ -550,27 +612,44 @@ index 84ef508..b7b4c1a 100644
          for i in range(i_init , i_final):
              infeasibleParticles, stableParticles, L_social_best, v = self.calypso.iter(  # take care of overflow
                  i            = i,
-@@ -296,12 +320,18 @@ class calypsoEnv(py_environment.PyEnvironment):
+@@ -296,38 +361,56 @@ class calypsoEnv(py_environment.PyEnvironment):
  
  
          # Return termination timestep
 -        if self.i == MAXITER_CAL+1:
 +        if self.i == self.max_iter_cal+1:
              self._episode_ended = True
-             self.funcGBN = globalBestNormed(self.lsbCurr, self.funcRanges.loc[self.func, 'low'], self.funcRanges.loc[self.func, 'high'])
+-            self.funcGBN = globalBestNormed(self.lsbCurr, self.funcRanges.loc[self.func, 'low'], self.funcRanges.loc[self.func, 'high'])
++            with TIMER.bucket('framework', 'pandas_logging'):
++                self.funcGBN = globalBestNormed(self.lsbCurr, self.funcRanges.loc[self.func, 'low'], self.funcRanges.loc[self.func, 'high'])
  
              pl(f'\nRun {self.run} -- {self.name} -- funcGBN: {self.funcGBN} -- funcReward: {self.funcReward}')
  
-+            self.episodeResults.append({
-+                'function': self.func,
-+                'seed'    : self.seed + self.run,
-+                'f_final' : float(self.lsbCurr),  # raw final global best of this episode
-+            })
+-            if self.lsbCurr < self.L_min:
+-                self.funcRanges.loc[self.func, 'low'] = self.lsbCurr
+-                pl(f'Updated L_min for {self.func}')
+-            self.funcRanges.loc[self.func, 'delta'] = self.funcRanges.loc[self.func, 'high'] - self.funcRanges.loc[self.func, 'low']
++            with TIMER.bucket('configurator', 'validation_bookkeeping'):
++                self.episodeResults.append({
++                    'function': self.func,
++                    'seed'    : self.seed + self.run,
++                    'f_final' : float(self.lsbCurr),  # raw final global best of this episode
++                })
 +
-             if self.lsbCurr < self.L_min:
-                 self.funcRanges.loc[self.func, 'low'] = self.lsbCurr
-                 pl(f'Updated L_min for {self.func}')
-@@ -314,20 +344,27 @@ class calypsoEnv(py_environment.PyEnvironment):
++            with TIMER.bucket('framework', 'pandas_logging'):
++                if self.lsbCurr < self.L_min:
++                    self.funcRanges.loc[self.func, 'low'] = self.lsbCurr
++                    pl(f'Updated L_min for {self.func}')
++                self.funcRanges.loc[self.func, 'delta'] = self.funcRanges.loc[self.func, 'high'] - self.funcRanges.loc[self.func, 'low']
+             
+             if self.evalEnv:
+-                self.calypso.save()
+-                self._cumulativeGBN += self.funcGBN
++                with TIMER.bucket('io', 'pickle'):
++                    self.calypso.save()
++                with TIMER.bucket('framework', 'cumulative_gbn'):
++                    self._cumulativeGBN += self.funcGBN
+                 wpkl(f'{self.varsPath}/run--eval.pkl', self.run)
              else:
                  wpkl(f'{self.varsPath}/run--collect.pkl', self.run)
              
@@ -607,7 +686,7 @@ index 84ef508..b7b4c1a 100644
  
  
  
-@@ -335,6 +372,27 @@ class calypsoEnv(py_environment.PyEnvironment):
+@@ -335,6 +418,27 @@ class calypsoEnv(py_environment.PyEnvironment):
          return self._action_spec
  
  
@@ -636,10 +715,10 @@ index 84ef508..b7b4c1a 100644
      def observation_spec(self):
          return self._observation_spec
 diff --git a/scripts/rl/calypsoTrainSAC.py b/scripts/rl/calypsoTrainSAC.py
-index b6fb403..2c407a8 100644
+index b6fb403..a1fd5f5 100644
 --- a/scripts/rl/calypsoTrainSAC.py
 +++ b/scripts/rl/calypsoTrainSAC.py
-@@ -7,26 +7,41 @@ which tunes the Calypso control parameters.
+@@ -7,26 +7,46 @@ which tunes the Calypso control parameters.
  
  ## Imports
  import os
@@ -650,6 +729,11 @@ index b6fb403..2c407a8 100644
 +os.environ.setdefault('OPENBLAS_NUM_THREADS', '1')
 +os.environ.setdefault('MKL_NUM_THREADS', '1')
 +os.environ.setdefault('CUDA_VISIBLE_DEVICES', '')
++
++# Training time per bucket (see scripts/tools/timing.py); setup starts here.
++from scripts.tools.timing import (
++    TIMER, BUCKETS, TOTAL_BUCKETS, bucketTotals, partBreakdown, subtractParts, processTimes, threadCPU
++)
 +
  import glob
  import time
@@ -684,7 +768,7 @@ index b6fb403..2c407a8 100644
  # parser.add_argument('--k',     type=int,            help='max_iter_funcsets -- i.t.o whole function sets')
  
  parser.add_argument('--n',     type=int,            help='batch_size & layer_params')
-@@ -48,8 +63,113 @@ parser.add_argument('--text',  type=str,            help='Some text')
+@@ -48,8 +68,110 @@ parser.add_argument('--text',  type=str,            help='Some text')
  parser.add_argument('--vc',    action='store_true', help='Velocity clamping')
  parser.add_argument('--dsoff', action='store_true', help='Turn off distributed strategy parallel processing')
  parser.add_argument('--temp',  action='store_true', help='Perform a temporary run which can be discarded')
@@ -767,9 +851,6 @@ index b6fb403..2c407a8 100644
 +else:
 +    from scripts.rl.softActorCritic import softActorCritic
 +
-+trainingStartWall = time.perf_counter()
-+trainingStartCPU  = time.process_time()
-+
 +seed = SEED if args.seed is None else args.seed
 +
 +tf.keras.utils.set_random_seed(seed)
@@ -799,7 +880,7 @@ index b6fb403..2c407a8 100644
  argsDict = vars(args)
  
  
-@@ -60,6 +180,33 @@ NUMFUNCS_EVAL = len(FUNCTIONS_EVAL)
+@@ -60,6 +182,33 @@ NUMFUNCS_EVAL = len(FUNCTIONS_EVAL)
  
  
  
@@ -833,7 +914,17 @@ index b6fb403..2c407a8 100644
  ## File management
  if args.resume:
      exp = args.resume
-@@ -130,6 +277,12 @@ else:
+@@ -114,7 +263,8 @@ if args.resume:
+ wjson(f'{varsPath}/args--{int(time.time())}.json', argsDict)
+ 
+ # mkdirs(f'{expPath}/scripts')
+-shutil.copytree('scripts/', f'{expPath}/scripts/')
++with TIMER.bucket('io', 'files'):
++    shutil.copytree('scripts/', f'{expPath}/scripts/')
+ # shutil.copyfile(f'{scriptDIR}/pso/calypso.py'            , f'{expPath}/scripts/calypso.py')
+ # shutil.copyfile(f'{scriptDIR}/rl/calypsoEnv.py'          , f'{expPath}/scripts/calypsoEnv.py')
+ # shutil.copyfile(f'{scriptDIR}/rl/softActorCritic.py'     , f'{expPath}/scripts/softActorCritic.py')
+@@ -130,6 +280,12 @@ else:
      pl('####Soft Actor-Critic with the Actor-Learner API for CALYPSO####\n\n\n')
  pl('\n\n\n#---------------Setup---------------#')
  
@@ -846,7 +937,7 @@ index b6fb403..2c407a8 100644
  
  
  ## Calypso Environment Hyperparameters
-@@ -137,11 +290,13 @@ if args.resume:
+@@ -137,11 +293,13 @@ if args.resume:
      envParams = ljson(glob.glob(f'{varsPath}/envParams*')[0])
  else:
      envParams = {
@@ -862,7 +953,7 @@ index b6fb403..2c407a8 100644
      }
      wjson(f'{varsPath}/envParams--{int(time.time())}.json', envParams)
  
-@@ -151,7 +306,7 @@ else:
+@@ -151,7 +309,7 @@ else:
  if args.j.isnumeric():
      j = int(args.j)
      pl(f'j: {j}')
@@ -871,7 +962,7 @@ index b6fb403..2c407a8 100644
      pl(f'SAC steps per Function: {stepsPerFunc}')
      pl(f'Functions per Training Set: {NUMFUNCS_TRAIN}')
      pl(f'Training Sets per Training: {args.i / NUMFUNCS_TRAIN / stepsPerFunc}')
-@@ -161,7 +316,7 @@ elif args.j=='auto':
+@@ -161,7 +319,7 @@ elif args.j=='auto':
      pl('CHECK "j" in calypsoTrainSac.py and "MAXITER / x" in calypsoEnv.py!!!')
      j = 250  # might have to adjust this, it affects the size of buffers & iters, also because it learns to use more steps
      pl(f'Estimated j: {j}')
@@ -880,7 +971,7 @@ index b6fb403..2c407a8 100644
      pl(f'Estimated SAC steps per Function: {stepsPerFunc}')
      pl(f'Functions per Training Function Set: {NUMFUNCS_TRAIN}')
      pl(f'Estimated Training Sets per Training: {args.i / NUMFUNCS_TRAIN / stepsPerFunc}')
-@@ -189,14 +344,17 @@ sacParams = {
+@@ -189,14 +347,17 @@ sacParams = {
      
      # 'initial_collect_funcsets'       :   (1                * args.ics * 1           ),
      # 'initial_collect_funcs'          : fi(NUMFUNCS_TRAIN   * args.ics * 1           ),
@@ -900,7 +991,7 @@ index b6fb403..2c407a8 100644
      # 'eval_interval_steps'            : fi(NUMFUNCS_TRAIN   * args.ei  * stepsPerFunc),
  
      # 'num_eval_funcsets'              :   (1                * args.nef * 1           ),
-@@ -233,10 +391,17 @@ sacParams = {
+@@ -233,10 +394,17 @@ sacParams = {
      'funcs_train'                    : FUNCTIONS_TRAIN,
      'numfuncs_train'                 : NUMFUNCS_TRAIN,
      'funcs_eval'                     : FUNCTIONS_EVAL,
@@ -920,7 +1011,7 @@ index b6fb403..2c407a8 100644
  
  
  ## Environment
-@@ -257,7 +422,8 @@ envEval = calypsoEnv(
+@@ -257,7 +425,8 @@ envEval = calypsoEnv(
      pklPath         = pklPath,
      numEvalEpisodes = sacParams['num_eval_funcs'],
      funcs           = FUNCTIONS_EVAL,
@@ -930,7 +1021,7 @@ index b6fb403..2c407a8 100644
  )
  
  
-@@ -273,6 +439,7 @@ sacAgent = softActorCritic(
+@@ -273,6 +442,7 @@ sacAgent = softActorCritic(
      params      = sacParams,
      modelPath   = modelPath,
      plotPath    = plotPath,
@@ -938,25 +1029,80 @@ index b6fb403..2c407a8 100644
      distributed = distributed  # check that the GPU is actually being used
  )
  
-@@ -281,6 +448,12 @@ sacAgent = softActorCritic(
- ## Train
- sacAgent.fit(resume=args.resume)
- 
-+wjson(f'{expPath}/training_times.json', {
-+    'wall': time.perf_counter() - trainingStartWall,
-+    'cpu' : time.process_time() - trainingStartCPU,
-+    'threads': threads,
-+})
-+
+@@ -284,5 +454,63 @@ sacAgent.fit(resume=args.resume)
  
  
  ## Cleanup
+-shutil.copy(f'{pklDIR}/funcRanges.pkl', f'{pklDIR}/funcRangesPrev.pkl')
+-wpkl(f'{pklDIR}/funcRanges.pkl', envCollect.funcRanges)
+\ No newline at end of file
++with TIMER.bucket('io', 'pickle'):
++    shutil.copy(f'{pklDIR}/funcRanges.pkl', f'{pklDIR}/funcRangesPrev.pkl')
++wpkl(f'{pklDIR}/funcRanges.pkl', envCollect.funcRanges)
++
++
++
++## Training time
++# One row per reset: its solver and problem-construction time. A reset that never
++# took a step (an Actor's constructor or reset, or the reset after an Actor's last
++# episode) is phase reset_only.
++with TIMER.bucket('io', 'csv'):
++    import pandas as pd
++    runRows = []
++    for record in envCollect.runRecords + envEval.runRecords:
++        runRows.append({
++            'env'     : record['env'],
++            'run'     : record.get('run'),
++            'function': record.get('function'),
++            'seed'    : record.get('seed'),
++            'phase'   : record['phase'] if record['steps'] > 0 else 'reset_only',
++            'steps'   : record['steps'],
++            'solver_wall': record['solver']['wall'],
++            'solver_cpu' : record['solver']['cpu'],
++            'problem_construction_wall': record['problem_construction']['wall'],
++            'problem_construction_cpu' : record['problem_construction']['cpu'],
++        })
++    pd.DataFrame(runRows).to_csv(f'{expPath}/training_runs.csv', index=False)
++
++# Intervals end with each validation; the last one holds what follows the last
++# validation (budget, policy selection, cleanup).
++end = TIMER.snapshot()
++process = processTimes()
++intervalEnds = getattr(sacAgent, 'intervalEnds', []) + [(None, end)]
++intervals = []
++previous = {}
++for index, (step, snapshot) in enumerate(intervalEnds, start=1):
++    intervals.append({'interval': index, 'validation_step': step} | bucketTotals(subtractParts(snapshot, previous)))
++    previous = snapshot
++
++total = bucketTotals(end)
++accounted = {
++    clock: sum(total[name][clock] for name in ('total', 'setup', 'io', 'framework', 'problem_construction'))
++    for clock in ('wall', 'cpu')
++}
++trainingTimes = {
++    'trainer'  : args.trainer,
++    'instrumentation': 'full' if args.trainer == 'det' else 'env, policy and io only: everything else is configurator',
++    'intervals': intervals,
++    'total'    : total,
++    'breakdown': partBreakdown(end),
++    'process'  : {
++        'wall'     : process['wall'],
++        'cpu'      : process['cpu'],
++        'accounted': accounted,  # setup + io + framework + problem_construction + total
++        'gap'      : {clock: process[clock] - accounted[clock] for clock in ('wall', 'cpu')},
++    },
++    'threads'   : threads | {'cpu_per_thread': threadCPU()},
++}
++wjson(f'{expPath}/training_times.json', trainingTimes)
++pl(f"Training time (total = solver + configurator): {total['total']}, process: {trainingTimes['process']}")
+\ No newline at end of file
 diff --git a/scripts/rl/exportPolicy.py b/scripts/rl/exportPolicy.py
 new file mode 100644
-index 0000000..de27c0c
+index 0000000..2f14db5
 --- /dev/null
 +++ b/scripts/rl/exportPolicy.py
-@@ -0,0 +1,243 @@
+@@ -0,0 +1,246 @@
 +'''
 +Exports a validated SAC policy to a numpy file for edaptive's SACSAPSO solver.
 +
@@ -965,9 +1111,10 @@ index 0000000..de27c0c
 +Loads data/<experiment>/model/policies/validated/step_<step> (default step: from
 +selected_policy.json), writes <dir>/policy.npz (default <dir>:
 +../results/sac_training/<experiment>/, inside edaptive's results/) and copies
-+selected_policy.json, budget.json, training_times.json and validation_results.csv
-+there, as well as the exported SavedModel (as <dir>/saved_policy/), since the
-+training wrapper deletes calypso/data on its next run.
++selected_policy.json, budget.json, training_times.json, training_runs.csv and
++validation_results.csv there (those that exist), as well as the exported SavedModel
++(as <dir>/saved_policy/), since the training wrapper deletes calypso/data on its next
++run.
 +
 +Checks, failing loudly:
 +1. the saved variables have the assumed names and shapes (2 hidden Dense layers,
@@ -1012,7 +1159,9 @@ index 0000000..de27c0c
 +N_KS_SAMPLES = 5000
 +KS_FAMILY_ALPHA = 1e-3
 +
-+COPIED_FILES = ('selected_policy.json', 'budget.json', 'training_times.json', 'validation_results.csv')
++COPIED_FILES = (
++    'selected_policy.json', 'budget.json', 'training_times.json', 'training_runs.csv', 'validation_results.csv'
++)
 +
 +
 +def latest_json(path, prefix):
@@ -1537,10 +1686,10 @@ index 79d7fd6..ec18056 100644
 +            pl(f'Selected policy: {selected}')
 diff --git a/scripts/rl/softActorCritic_det.py b/scripts/rl/softActorCritic_det.py
 new file mode 100644
-index 0000000..5cb6c45
+index 0000000..61df54e
 --- /dev/null
 +++ b/scripts/rl/softActorCritic_det.py
-@@ -0,0 +1,516 @@
+@@ -0,0 +1,575 @@
 +# Soft Actor-Critic with the Actor-Learner API for CALYPSO
 +'''
 +Deterministic variant of softActorCritic.py: identical except for the replay
@@ -1590,6 +1739,7 @@ index 0000000..5cb6c45
 +from scripts.const import *
 +from scripts.tools.utils import *
 +from scripts.rl.selectPolicy import selectPolicy
++from scripts.tools.timing import TIMER, TimedCallable, timeFirstCallAsSetup, timePolicyAction
 +
 +mpl.use('Agg')
 +
@@ -1609,15 +1759,16 @@ index 0000000..5cb6c45
 +        self.previous = None
 +
 +    def __call__(self, trajectory):
-+        if self.previous is not None:
-+            item = tf.nest.map_structure(
-+                lambda previous, current: np.stack([previous, current])[np.newaxis],  # [1 (batch), 2 (time), ...]
-+                self.previous, trajectory
-+            )
-+            self.replayBuffer.add_batch(item)
-+        self.previous = trajectory
-+        if trajectory.is_boundary():
-+            self.previous = None
++        with TIMER.bucket('configurator', 'replay_add'):
++            if self.previous is not None:
++                item = tf.nest.map_structure(
++                    lambda previous, current: np.stack([previous, current])[np.newaxis],  # [1 (batch), 2 (time), ...]
++                    self.previous, trajectory
++                )
++                self.replayBuffer.add_batch(item)
++            self.previous = trajectory
++            if trajectory.is_boundary():
++                self.previous = None
 +
 +
 +def pairSpec(trajectorySpec):
@@ -1642,6 +1793,21 @@ index 0000000..5cb6c45
 +# background thread (MirroredStrategy, the default per-replica buffer), so a batch
 +# could miss the latest transitions, depending on thread timing.
 +EXPERIENCE_DATASET_OPTIONS = tf.distribute.InputOptions(experimental_per_replica_buffer_size=0)
++
++
++def timeActor(actor):
++    '''
++    Times an Actor's work outside the env and the policy: its metric observers as
++    framework, its summary writes as io (PairObserver times itself). Wraps the
++    observer list in place, which the Actor shares with its driver.
++    '''
++    assert actor._driver.observers is actor._observers
++    actor._observers[:] = [
++        observer if isinstance(observer, PairObserver) else TimedCallable(observer, 'framework', 'metrics')
++        for observer in actor._observers
++    ]
++    actor.write_metric_summaries = TIMER.timed(actor.write_metric_summaries, 'io', 'summaries')
++    return actor
 +
 +
 +def seededDataset(replayBuffer, batchSize, seed):
@@ -1808,6 +1974,11 @@ index 0000000..5cb6c45
 +            seed           = self.p.get('seed')
 +        )
 +
++        # The driver's action calls are solver time; a tf.function's first call (tracing) is setup.
++        timePolicyAction(self.random_policy,  self.envCollect, traced=False)
++        timePolicyAction(self.collect_policy, self.envCollect, traced=True)
++        timePolicyAction(self.eval_policy,    self.envEval,    traced=True)
++
 +
 +
 +        ## Actors
@@ -1815,6 +1986,7 @@ index 0000000..5cb6c45
 +
 +        pl('\n\n\n#---------------Initial Collect---------------#')
 +        pl(f'Time: {datetime.datetime.now()}')
++        self.envCollect.phase = 'initial_collect'
 +        initial_collect_actor = actor.Actor(
 +            env           = self.envCollect,
 +            policy        = self.random_policy,
@@ -1823,12 +1995,15 @@ index 0000000..5cb6c45
 +            episodes_per_run = self.p['initial_collect_episodes'],
 +            observers        = [rb_observer]
 +        )
-+        initial_collect_actor.run()
++        timeActor(initial_collect_actor)
++        with TIMER.bucket('framework', 'driver'):
++            initial_collect_actor.run()
 +
 +        env_step_metric = py_metrics.EnvironmentSteps()
 +
 +        collect_summary_dir = os.path.join(self.modelPath, learner.TRAIN_DIR)
 +
++        self.envCollect.phase = 'collect'
 +        collect_actor = actor.Actor(  # creates model/train/events.out.tfevents...
 +            env           = self.envCollect,
 +            policy        = self.collect_policy,
@@ -1839,9 +2014,11 @@ index 0000000..5cb6c45
 +            summary_dir   = collect_summary_dir,
 +            observers     = [rb_observer, env_step_metric]
 +        )
++        timeActor(collect_actor)
 +
 +        eval_summary_dir = os.path.join(self.modelPath, 'eval')
 +
++        self.envEval.phase = 'validation'
 +        eval_actor = actor.Actor(  # creates model/eval/events.out.tfevents...
 +            env              = self.envEval,
 +            policy           = self.eval_policy,
@@ -1851,6 +2028,7 @@ index 0000000..5cb6c45
 +            metrics          = actor.eval_metrics(self.p['num_eval_funcs']),
 +            summary_dir      = eval_summary_dir
 +        )
++        timeActor(eval_actor)
 +
 +
 +
@@ -1858,20 +2036,23 @@ index 0000000..5cb6c45
 +        pl('\n\n\n#---------------Policy Creation---------------#')
 +        pl(f'Time: {datetime.datetime.now()}')
 +        saved_model_dir = os.path.join(self.modelPath, learner.POLICY_SAVED_MODEL_DIR)
-+        learning_triggers = [                  # Triggers to save the agent's policy checkpoints.
-+            triggers.PolicySavedModelTrigger(  # creates model/policies/collect_policy|greedy_policy|policy
++        with TIMER.bucket('io', 'policy_saved_model_trigger'):  # its constructor saves the initial policies
++            policySavedModelTrigger = triggers.PolicySavedModelTrigger(  # creates model/policies/collect_policy|greedy_policy|policy
 +                saved_model_dir = saved_model_dir,
 +                agent           = self.agent,
 +                # train_step      = self.train_step,
 +                train_step      = self.global_step,
 +                interval        = self.p['policy_save_interval_steps']
-+            ),
++            )
++        learning_triggers = [                  # Triggers to save the agent's policy checkpoints.
++            policySavedModelTrigger,
 +            triggers.StepPerSecondLogTrigger(
 +                # train_step = self.train_step,
 +                train_step = self.global_step,
 +                interval   = self.p['log_trigger_interval']
 +            )
 +        ]
++        learning_triggers = [TimedCallable(trigger, 'io', 'triggers') for trigger in learning_triggers]
 +
 +        pl('\n\n\nThe agent already restores the checkpoint!!!\n\n\n')
 +        agent_learner = learner.Learner(
@@ -1884,6 +2065,8 @@ index 0000000..5cb6c45
 +            triggers              = learning_triggers,
 +            strategy              = self.strategy
 +        )
++        # The first call traces the training step (setup).
++        agent_learner.run = timeFirstCallAsSetup(agent_learner.run, 'configurator', 'learner')
 +
 +
 +
@@ -1945,52 +2128,70 @@ index 0000000..5cb6c45
 +            bestTrainGBN = 1
 +            bestEvalGBN = 1
 +
++        self.intervalEnds = []  # (validation step, TIMER snapshot) at the end of each validation
++
 +        def validate(step):
 +            '''
 +            Run one validation pass (the same instances every time), save the
 +            policy and record each episode's raw final global best.
 +            '''
++            with TIMER.bucket('configurator', 'validation_bookkeeping'):
++                validatePass(step)
++            self.intervalEnds.append((int(step), TIMER.snapshot()))
++
++        def validatePass(step):
 +            count = len(perfEval)
 +            pl(f'\n\n\n#---------------Evaluation Set {count} Start---------------#')
 +            pl(f'Time: {datetime.datetime.now()}')
 +
 +            # Every validation replays runs 0..F-1: function funcs[r % F], seed base + r.
 +            self.envEval.run = -1
-+            eval_actor.reset()
++            with TIMER.bucket('framework', 'driver'):
++                eval_actor.reset()
 +            self.envEval.episodeResults = []
-+            eval_actor.run()
++            with TIMER.bucket('framework', 'driver'):
++                eval_actor.run()
 +            if len(self.envEval.episodeResults) != self.p['num_eval_funcs']:
 +                raise RuntimeError(
 +                    f'Expected {self.p["num_eval_funcs"]} validation episodes, '
 +                    f'got {len(self.envEval.episodeResults)}'
 +                )
 +
-+            policySaver.save(os.path.join(validatedPolicyDir, f'step_{step}'))
-+            rows = pd.DataFrame(self.envEval.episodeResults)
-+            rows.insert(0, 'step', step)
-+            rows[['step', 'function', 'seed', 'f_final']].to_csv(
-+                validationCSV, mode='a', index=False, header=not os.path.isfile(validationCSV)
-+            )
++            with TIMER.bucket('io', 'policy_saver'):
++                policySaver.save(os.path.join(validatedPolicyDir, f'step_{step}'))
++            with TIMER.bucket('io', 'csv'):
++                rows = pd.DataFrame(self.envEval.episodeResults)
++                rows.insert(0, 'step', step)
++                rows[['step', 'function', 'seed', 'f_final']].to_csv(
++                    validationCSV, mode='a', index=False, header=not os.path.isfile(validationCSV)
++                )
 +
-+            metrics = {}
-+            for metric in eval_actor.metrics:
-+                metrics[metric.name] = metric.result()
-+            perfEval.loc[step] = [self.envEval.cumulative_gbn() / self.p["num_eval_funcs"], metrics["AverageReturn"]]
++            with TIMER.bucket('framework', 'metrics'):
++                metrics = {}
++                for metric in eval_actor.metrics:
++                    metrics[metric.name] = metric.result()
++            with TIMER.bucket('framework', 'cumulative_gbn'):
++                cumulativeGBN = self.envEval.cumulative_gbn()
++            with TIMER.bucket('framework', 'pandas_logging'):
++                perfEval.loc[step] = [cumulativeGBN / self.p["num_eval_funcs"], metrics["AverageReturn"]]
 +
-+            bufferCheckpointer.save(global_step = self.global_step)
-+            agentCheckpointer.save(global_step = self.global_step)  # self.train_step
++            with TIMER.bucket('io', 'checkpoints'):
++                bufferCheckpointer.save(global_step = self.global_step)
++                agentCheckpointer.save(global_step = self.global_step)  # self.train_step
 +
-+            pl(', '.join([
-+                f'Step = {step}',
-+                f'TrainGBN = {perfTrain.loc[step, "TrainGBN"]:.6f}' if step in perfTrain.index else 'TrainGBN = n/a',
-+                f'EvalGBN = {perfEval.loc[step, "EvalGBN"]:.6f}',
-+                f'EvalReturn = {perfEval.loc[step, "EvalReturn"]:.6f}',
-+                f'LearningRate = {self.alpha_optimizer._decayed_lr("float32").numpy():.6f}',
-+                f'EvalAverageEpisodeLength = {metrics["AverageEpisodeLength"]:.6f}',
-+            ]) + '\n')
++            with TIMER.bucket('io', 'log'):
++                pl(', '.join([
++                    f'Step = {step}',
++                    f'TrainGBN = {perfTrain.loc[step, "TrainGBN"]:.6f}' if step in perfTrain.index else 'TrainGBN = n/a',
++                    f'EvalGBN = {perfEval.loc[step, "EvalGBN"]:.6f}',
++                    f'EvalReturn = {perfEval.loc[step, "EvalReturn"]:.6f}',
++                    f'LearningRate = {self.alpha_optimizer._decayed_lr("float32").numpy():.6f}',
++                    f'EvalAverageEpisodeLength = {metrics["AverageEpisodeLength"]:.6f}',
++                ]) + '\n')
 +
-+            visualize(perfTrain, name='Training')
-+            visualize(perfEval,  name='Evaluation')
++            with TIMER.bucket('io', 'plots'):
++                visualize(perfTrain, name='Training')
++                visualize(perfEval,  name='Evaluation')
 +
 +            wpkl(f'{self.plotPath}/perfFunc.pkl',  perfFunc)
 +            wpkl(f'{self.plotPath}/perfTrain.pkl', perfTrain)
@@ -2007,19 +2208,24 @@ index 0000000..5cb6c45
 +        maxCollectEpisodes = self.p.get('max_collect_episodes')
 +        completedCollect = 0
 +        stopReason = 'safety cap --i (max_iter_steps)'
++        TIMER.setBase('configurator')  # setup ends here; the training loop is SAC's own work
 +        for _ in range(self.p['max_iter_steps']):
 +
 +            # Training
 +            step = agent_learner.train_step_numpy
-+            collect_actor.run()
++            with TIMER.bucket('framework', 'driver'):
++                collect_actor.run()
 +
 +            loss_info = agent_learner.run(iterations=1)
 +
 +            # Logging
-+            if self.envCollect.current_time_step().is_last():
++            with TIMER.bucket('framework', 'driver'):
++                episodeEnded = self.envCollect.current_time_step().is_last()
++            if episodeEnded:
 +                completedCollect += 1
-+                perfFunc.loc[step] = [self.envCollect.funcGBN, self.envCollect.funcReward]
-+                perfTrain.loc[step] = perfFunc.iloc[-self.p["numfuncs_train"]:].mean()
++                with TIMER.bucket('framework', 'pandas_logging'):
++                    perfFunc.loc[step] = [self.envCollect.funcGBN, self.envCollect.funcReward]
++                    perfTrain.loc[step] = perfFunc.iloc[-self.p["numfuncs_train"]:].mean()
 +
 +                lastEpisode = maxCollectEpisodes is not None and completedCollect >= maxCollectEpisodes
 +
@@ -2035,6 +2241,7 @@ index 0000000..5cb6c45
 +
 +
 +        ## Budget
++        TIMER.setBase('configurator', 'budget')
 +        F = self.p['numfuncs_train']
 +        budget = {
 +            'B'                   : self.p.get('budget_runs'),
@@ -2053,6 +2260,7 @@ index 0000000..5cb6c45
 +            assert budget['total_runs'] <= budget['B'], budget
 +
 +        ## Checkpoint selection
++        TIMER.setBase('configurator', 'select_policy')
 +        if os.path.isfile(validationCSV):
 +            selected = selectPolicy(validationCSV, validatedPolicyDir)
 +            wjson(os.path.join(self.expPath, 'selected_policy.json'), selected)
@@ -2114,3 +2322,278 @@ index 0000000..23caf0b
 +        warnings.append('TensorFlow sees a GPU: CPU time does not cover all compute')
 +    settings['warnings'] = warnings
 +    return settings
+diff --git a/scripts/tools/timing.py b/scripts/tools/timing.py
+new file mode 100644
+index 0000000..87d31d0
+--- /dev/null
++++ b/scripts/tools/timing.py
+@@ -0,0 +1,227 @@
++'''
++Wall-clock and CPU time of SAC training, per bucket, measured like edaptive's
++I/F-race tuning time (edaptive/tuning/ifrace.py, tuning_times.json).
++
++Buckets (exclusive: entering a bucket pauses the enclosing one, so no time is
++counted twice):
++- solver: the PSO runs. The env's resets (initial swarm) and steps (calypso.iter,
++  observation, reward) and the policy's action calls.
++- configurator: SAC's own work. Learner steps (including the replay sample, which
++  the learner draws inside its graph), replay adds, validation and budget
++  bookkeeping, policy selection, the training loop itself.
++- setup: everything before the first episode (imports, TF and agent construction)
++  and the graph tracing of each tf.function's first call.
++- io: logging, plots, pickles, checkpoints, PolicySaver, CSV and JSON writes.
++- framework: tf-agents driver glue (the step loop, Trajectory building, step-type
++  checks), the Actor's metric observers, cumulative_gbn and the pandas logging
++  bookkeeping (GBN, funcRanges, perfFunc/perfTrain/perfEval).
++- problem_construction: building the benchmark problem in each reset.
++
++total = solver + configurator. setup, io, framework and problem_construction are
++reported but not part of total: a standalone implementation of the method would not
++need them (as edaptive's run loop and problem construction are outside core_time).
++
++Every bucket also has parts (`part`), which only break the bucket down.
++Time spent in a bucket can also be charged to a run record (`record`), a dict with
++'solver' and 'problem_construction' entries: the per-run rows of training_runs.csv.
++'''
++
++import os
++import resource
++from contextlib import contextmanager
++from copy import deepcopy
++from time import perf_counter, process_time
++
++
++BUCKETS = ('solver', 'configurator', 'setup', 'io', 'framework', 'problem_construction')
++TOTAL_BUCKETS = ('solver', 'configurator')
++CLOCKS = ('wall', 'cpu')
++
++
++def zeroTimes():
++    return {clock: 0.0 for clock in CLOCKS}
++
++
++def addTimes(a, b):
++    return {clock: a[clock] + b[clock] for clock in CLOCKS}
++
++
++def subtractTimes(a, b):
++    return {clock: a[clock] - b[clock] for clock in CLOCKS}
++
++
++class BucketTimer:
++    '''
++    A stack of (bucket, part, record) entries. Time between two clock readings is
++    charged to the entry on top of the stack. The bottom entry is the base bucket:
++    `setup` at first, changed with `setBase`.
++    '''
++
++    def __init__(self):
++        self.parts = {}  # (bucket, part) -> times
++        self.stack = [('setup', 'other', None)]
++        self.lastWall = perf_counter()
++        self.lastCPU = process_time()
++
++    def _charge(self):
++        wall, cpu = perf_counter(), process_time()
++        bucket, part, record = self.stack[-1]
++        times = self.parts.setdefault((bucket, part), zeroTimes())
++        times['wall'] += wall - self.lastWall
++        times['cpu'] += cpu - self.lastCPU
++        if record is not None and bucket in record:
++            record[bucket]['wall'] += wall - self.lastWall
++            record[bucket]['cpu'] += cpu - self.lastCPU
++        self.lastWall, self.lastCPU = wall, cpu
++
++    @contextmanager
++    def bucket(self, bucket, part='other', record=None):
++        assert bucket in BUCKETS, bucket
++        self._charge()
++        self.stack.append((bucket, part, record))
++        try:
++            yield
++        finally:
++            self._charge()
++            self.stack.pop()
++
++    def setBase(self, bucket, part='other'):
++        assert bucket in BUCKETS, bucket
++        assert len(self.stack) == 1, f'setBase inside {self.stack[1:]}'
++        self._charge()
++        self.stack[0] = (bucket, part, None)
++
++    def timed(self, function, bucket, part='other', record=None):
++        '''`function` with each call timed in `bucket`.'''
++        def call(*args, **kwargs):
++            with self.bucket(bucket, part, record):
++                return function(*args, **kwargs)
++        return call
++
++    def snapshot(self):
++        '''Accumulated times per (bucket, part), up to now.'''
++        self._charge()
++        return deepcopy(self.parts)
++
++
++TIMER = BucketTimer()
++
++
++class TimedCallable:
++    '''
++    Forwards calls (and attribute access) to `target`, timing each call in
++    `bucket`: for objects called as `target(...)`, such as observers and triggers.
++    '''
++
++    def __init__(self, target, bucket, part):
++        self._target = target
++        self._bucket = bucket
++        self._part = part
++
++    def __call__(self, *args, **kwargs):
++        with TIMER.bucket(self._bucket, self._part):
++            return self._target(*args, **kwargs)
++
++    def __getattr__(self, name):
++        return getattr(self._target, name)
++
++
++def timeFirstCallAsSetup(function, bucket, part, record=None):
++    '''
++    `function` with its first call timed as setup (graph tracing of a tf.function)
++    and every later call in `bucket`. `record` may be a callable returning the run
++    record to charge.
++    '''
++    state = {'first': True}
++
++    def call(*args, **kwargs):
++        if state['first']:
++            state['first'] = False
++            with TIMER.bucket('setup', 'tracing'):
++                return function(*args, **kwargs)
++        with TIMER.bucket(bucket, part, record() if callable(record) else record):
++            return function(*args, **kwargs)
++    return call
++
++
++def timePolicyAction(policy, env, traced):
++    '''
++    Times `policy.action` as solver time of `env`'s current run record (an instance
++    attribute shadows the method, which the driver calls). With `traced` (a
++    PyTFEagerPolicy with use_tf_function), the first call is setup.
++    '''
++    action = policy.action
++    if traced:
++        policy.action = timeFirstCallAsSetup(action, 'solver', 'policy_action', record=lambda: env.record)
++    else:
++        def call(*args, **kwargs):
++            with TIMER.bucket('solver', 'policy_action', env.record):
++                return action(*args, **kwargs)
++        policy.action = call
++
++
++## Reports
++def bucketTotals(parts):
++    '''Times per bucket, plus total = solver + configurator.'''
++    totals = {bucket: zeroTimes() for bucket in BUCKETS}
++    for (bucket, _), times in parts.items():
++        totals[bucket] = addTimes(totals[bucket], times)
++    totals['total'] = addTimes(totals['solver'], totals['configurator'])
++    return totals
++
++
++def partBreakdown(parts):
++    '''{bucket: {part: times}}.'''
++    breakdown = {bucket: {} for bucket in BUCKETS}
++    for (bucket, part), times in sorted(parts.items()):
++        breakdown[bucket][part] = times
++    return breakdown
++
++
++def subtractParts(end, start):
++    return {key: subtractTimes(times, start.get(key, zeroTimes())) for key, times in end.items()}
++
++
++def processTimes():
++    '''
++    Wall time since this process started (/proc/self/stat start time) and its CPU
++    time (getrusage: user + system of all its threads, since exec).
++    '''
++    ticks = os.sysconf('SC_CLK_TCK')
++    with open('/proc/self/stat') as f:
++        startTicks = int(f.read().rsplit(')', 1)[1].split()[19])
++    with open('/proc/stat') as f:
++        bootTime = next(int(line.split()[1]) for line in f if line.startswith('btime'))
++    with open('/proc/uptime') as f:
++        uptime = float(f.read().split()[0])
++    usage = resource.getrusage(resource.RUSAGE_SELF)
++    return {
++        'wall': uptime - startTicks / ticks,
++        'cpu' : usage.ru_utime + usage.ru_stime,
++        'start_time': bootTime + startTicks / ticks,
++    }
++
++
++def threadCPU():
++    '''
++    CPU seconds per thread of this process (/proc/self/task), and the share of the
++    process's CPU used by threads other than the main one.
++    '''
++    ticks = os.sysconf('SC_CLK_TCK')
++    pid = os.getpid()
++    perThread = {}
++    for tid in os.listdir('/proc/self/task'):
++        try:
++            with open(f'/proc/self/task/{tid}/stat') as f:
++                fields = f.read().rsplit(')', 1)[1].split()
++        except FileNotFoundError:  # the thread ended meanwhile
++            continue
++        perThread[int(tid)] = (int(fields[11]) + int(fields[12])) / ticks  # utime + stime
++    total = sum(perThread.values())
++    other = total - perThread.get(pid, 0.0)
++    return {
++        'n_threads'          : len(perThread),
++        'main_thread_cpu'    : perThread.get(pid, 0.0),
++        'other_threads_cpu'  : other,
++        'other_threads_share': other / total if total else 0.0,
++    }
+diff --git a/scripts/tools/utils.py b/scripts/tools/utils.py
+index fb47ff2..2cf6c44 100644
+--- a/scripts/tools/utils.py
++++ b/scripts/tools/utils.py
+@@ -6,6 +6,7 @@ import logging
+ from pathlib import Path
+ from multiprocessing import Process
+ from scripts.const import *
++from scripts.tools.timing import TIMER as _TIMER  # logging and writes are timed as io
+ 
+ 
+ def iterMetrics(dir_, f, metric):
+@@ -88,8 +89,9 @@ def pl(text):
+     Print & Log a text string.
+     '''
+ 
+-    print(text)
+-    logging.info(text)
++    with _TIMER.bucket('io', 'log'):
++        print(text)
++        logging.info(text)
+ 
+ 
+ def delFile(path):
+@@ -109,7 +111,7 @@ def lpkl(path):
+ 
+ 
+ def wpkl(path, data):
+-    with open(path, 'wb') as f:
++    with _TIMER.bucket('io', 'pickle'), open(path, 'wb') as f:
+         pickle.dump(data, f, protocol=5)
+ 
+ 
+@@ -121,7 +123,7 @@ def ljson(path):
+ 
+ 
+ def wjson(path, data):
+-    with open(path, 'w') as f:
++    with _TIMER.bucket('io', 'json'), open(path, 'w') as f:
+         json.dump(data, f, indent=4)
+ 
+     

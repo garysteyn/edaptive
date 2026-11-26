@@ -96,6 +96,8 @@ edaptive/
 │                             # policy noise at every decision, calypso vs SACSAPSO;
 │                             # sac_sapso_seed_bases.py: SACSAPSO's policy noise and mean actions per seed base
 │                             # (old shared-seed scheme on purpose: reproduces the c_1/c_2-shift diagnosis);
+│                             # sac_equivalent_solver_time.py: SAC training's solver time in edaptive's
+│                             # cost model (see "SAC training time");
 │                             # sac_replay_buffer_check.py, sac_trainer_comparison.py: original vs det SAC
 │                             # trainer (see "Deterministic trainer")
 ├── tests/                    # pytest (`testpaths` set in pyproject.toml); see "Tests"
@@ -411,13 +413,15 @@ PSO velocities and Poli's criterion), not an adapter.
   intra-/inter-op thread pools to 1 right after `import tensorflow`, before any op (setting a pool raises once an
   op has run). `scripts/tools/threads.py: threadSettings` records the TF pools, the OMP/OpenBLAS/MKL variables,
   the native pools threadpoolctl sees, the usable CPUs and whether TF sees a GPU (in `training_times.json` as
-  `threads`), and logs a warning for every thread setting that isn't 1 and for a visible GPU. Use no more ranks than physical cores, or wall times include
-  waiting; CPU time is robust to that.
+  `threads`), and logs a warning for every thread setting that isn't 1 and for a visible GPU. Use no
+  more ranks than physical cores, or wall times include waiting; CPU time is robust to that.
 - SAC training with `--trainer original` is not strictly serial even so: tf-agents' replay pipeline (reverb
   server, gRPC, `tf.data` prefetch) runs alongside collection, so its CPU time is about 1.25–1.4× its wall time.
-  `--trainer det` samples synchronously and is serial (CPU/wall 1.00 at the reduced scale of
-  `scratch/sac_trainer_comparison.py`, where it used about 360 s CPU against the original's about 500 s at equal
-  wall time). Compare configuration costs by CPU time.
+  `--trainer det` (the default) samples synchronously and is serial: CPU/wall 0.998 for the whole process at full
+  size (3 functions × 3 phases) and ≈ 1.00 in every bucket. The check is CPU/wall, not the thread
+  count: `training_times.json` → `threads.cpu_per_thread` showed 29% of the CPU in threads other than the main
+  one, because TensorFlow runs ops on its (single) inter-op thread while the main thread waits. Compare
+  configuration costs by CPU time.
 
 ### SolverConfig (`core/config.py`)
 Frozen dataclass `SolverConfig(identifier, fixed_CPs, adapted_CP_space, adapter_params)`:
@@ -752,13 +756,69 @@ configuration procedure:
 - Outputs in `data/<exp>/`: `validation_results.csv`, `selected_policy.json` (`step, path, mean_rank, n_checkpoints,
   n_instances`), `budget.json` (`B, initial_collect_runs, collect_runs, validation_runs, total_runs, C,
   n_validations`, plus `completed_collect_episodes`, `stopped_by`; asserts `total_runs ≤ B`), `training_times.json`
-  (wall `perf_counter` / CPU `process_time` of the script from after the TF import, and `threads`, see "Timing").
+  and `training_runs.csv` (see "SAC training time").
 - `CalypsoWrapper(..., budget_runs=None, eval_seed_offset=None, trainer="det")` passes them through.
   `experiments/scripts/train_sac.py` holds the agreed settings (`TRAINING_SET`, `B = 2000`, seed 123, `det`;
   experiment name `vc_sac_j50`). It passes no `--dsoff`, so training uses tf-agents' distribution strategy.
-- Measured on the dev container, single-threaded as in "Timing" (3 full-size functions incl. BBOB, no `--dsoff`):
-  ≈ 0.9 s per initial-collect episode, ≈ 5 s per collect episode (incl. 100 learner steps at `n = 256`), ≈ 1.4 s per
-  validation episode, so ≈ 2.5 h wall for the 1968 runs.
+- Measured on the dev container with `det`, single-threaded (Rosenbrock, Qing, BBOB_FID17_IID2, 30-D, 5000
+  iterations, no `--dsoff`; all buckets): ≈ 1.0 s per initial-collect episode, ≈ 3.5 s per collect episode (100
+  learner steps at `n = 256`, ≈ 24 ms each), ≈ 0.9 s per validation episode, so ≈ 1.7 h wall for the 1968 runs
+  (120 + 1680 + 168 episodes), of which ≈ 1.6 h is total (solver + configurator). Those 3 functions are a third
+  BBOB (the training set: 4 of 24), and the others' evaluation costs differ, so this is an estimate.
+- **SAC training time** (`scripts/tools/timing.py`, the det trainer). Same rule as I/F-race's tuning time:
+  `total` counts only the work a minimal standalone implementation of the method would do. One `BucketTimer`
+  (`TIMER`) keeps a stack of buckets, so entering a bucket pauses the enclosing one and no time is counted twice;
+  the base bucket is `setup` until the training loop starts and `configurator` after that. Buckets:
+  - `solver`: `calypsoEnv.reset`/`step` (overridden, so automatic resets are covered: initial swarm,
+    `calypso.iter`, observation, reward) and the policy's `action` calls (`timePolicyAction`);
+  - `configurator`: learner steps (with the replay sample, drawn inside the learner's graph), `PairObserver`
+    adds, validation and budget bookkeeping, `selectPolicy`, the training loop;
+  - `setup`: from the import of `scripts.tools.timing` (top of `calypsoTrainSAC`) to the training loop, including
+    TF/agent/actor/learner construction, but not the initial-collect episodes; also the first call of the collect
+    policy, the eval policy and `Learner.run` (graph tracing; this moves one action each and one learner step);
+  - `io`: `pl`, `wpkl`, `wjson` (timed in `scripts/tools/utils.py`), `calypso.save`, Actor summaries, learner
+    triggers and the `PolicySavedModelTrigger` constructor (it saves the initial policies), `PolicySaver`,
+    checkpoints, the CSV, plots, the `scripts/` copy and the `funcRanges` save (moved before the report);
+  - `framework`: tf-agents driver glue (`Actor.run`/`reset` outside env and policy, step-type checks), the
+    Actor's metric observers, `cumulative_gbn` and the pandas logging bookkeeping (GBN, `funcRanges`, `perf*`);
+  - `problem_construction`: `funcClass(D)` in each reset (also reset_only ones).
+
+  `total = solver + configurator`; setup, io, framework and problem_construction are reported but not in total.
+  `training_times.json`: `intervals` (one per validation, ending with it, plus a last one for budget, selection
+  and cleanup; each with wall/cpu of every bucket and `total`), `total` (same keys, whole run), `breakdown`
+  (`{bucket: {part: times}}`), `process` (the process's own wall since its start (`/proc/self/stat`) and CPU
+  (`getrusage`), `accounted` = setup + io + framework + problem_construction + total, and `gap`), `threads`
+  (`threadSettings` plus `cpu_per_thread`), `trainer`, `instrumentation`. The gap is ≈ 15 ms (interpreter start
+  before the timer and the final JSON write). `training_runs.csv`: one row per reset (`env, run, function, seed,
+  phase, steps, solver_{wall,cpu}, problem_construction_{wall,cpu}`); phase is `initial_collect`, `collect`,
+  `validation`, or `reset_only` for a reset that ran no PSO iteration (each Actor's constructor reset, the reset
+  after an Actor's last episode, `eval_actor.reset()`). A run's solver time includes its policy actions, including
+  the action on its LAST time step, whose step only resets. With `--trainer original` only the env, the policy
+  and io are instrumented (everything else lands in configurator; `instrumentation` says so).
+  Plumbing that can't be separated from the fundamental work, and where it lands:
+  - configurator (learner): `MirroredStrategy` overhead, the distributed dataset and the in-graph learner
+    summaries (every 1000 steps);
+  - solver: numpy↔tensor conversion and nest handling in `PyTFEagerPolicy.action`, tf-agents'
+    `PyEnvironment.step`/`reset` wrapper, calypso's run-loop overhead (history lists `P`/`V`/`L`, and
+    `storeMetrics`, which computes the observation's infeasible/stable proportions together with logging-only
+    metrics such as diversity), the `startedRuns` counter, reset_only swarms, and the LAST-step action;
+  - configurator (replay add): the numpy stacking of trajectory pairs in `PairObserver`;
+  - setup: one action per traced policy and one learner step (first calls).
+  `scratch/sac_equivalent_solver_time.py --runs <training_runs.csv> --timings <execute.py pkl>` (the exported copy
+  `results/sac_training/<exp>/training_runs.csv`, since the wrapper deletes `calypso/data`) reports, per phase
+  and function, calypso's raw solver time next to the edaptive equivalent: Σ over the non-reset_only training
+  runs of edaptive's mean per-run `core_time` for that function without `_load_policy`, from `execute.py
+  --solver SACSAPSO --problem_set training` (n_x 30, 5000 iterations, n_s 30). In the 9-run timing sample calypso's
+  solver time was ≈ 1.18× the equivalent (≈ 1.4× on Rosenbrock/Qing, 0.93× on BBOB_FID17_IID2, where calypso skips
+  infeasible particles' evaluations).
+  The equivalent figure is compared with I/F-race's solver time, so the `execute.py` timing run must use the same
+  number of MPI ranks as the I/F-race tunings, on the same machine (per-run times depend on how many processes
+  share the CPU). `tuning.log` records it ("Number of MPI processes"): 8 so far (`basic_test`, 2026-11-09). The dev
+  container's CPU is an i7-12700 (8 P-cores with 2 threads each, 4 E-cores; 20 logical CPUs), so which cores the
+  ranks get also affects per-run times; nothing pins them.
+  The checks that the instrumentation leaves det results unchanged (smoke trainings, bit-identical validation
+  results and validated policies) and the 9-run timing sample are in
+  `results/sac_trainer_comparison/instrumentation_check/` (README there).
 - **Deterministic trainer** (`--trainer det`). The original is non-deterministic: Reverb's `Uniform` selector
   uses its own unseeded RNG, and which items exist when a batch is drawn depends on thread timing (asynchronous
   item writes, Reverb in-flight samples, `.prefetch(50)`, and the `MirroredStrategy`'s per-replica prefetch
@@ -791,7 +851,8 @@ configuration procedure:
   `selected_policy.json`, default `<dir>` = `../results/sac_training/<exp>/` in edaptive's gitignored `results/`):
   writes `policy.npz` (format in "SACSAPSO", `policy_type "stochastic"`, `dtype` from the saved actor's variables
   and the observation of its `action` signatures, which must agree), copies `selected_policy.json`,
-  `budget.json`, `training_times.json`, `validation_results.csv` and the exported SavedModel (as `saved_policy/`),
+  `budget.json`, `training_times.json`, `training_runs.csv`, `validation_results.csv` (those that exist) and the
+  exported SavedModel (as `saved_policy/`),
   and writes `export_checks.json`. It fails loudly
   unless (1) the saved actor variables have the assumed names/shapes (2 hidden Dense + projection), (2) the numpy
   forward pass matches the rebuilt tf-agents network within 1e-5 on 1000 random observations, and (3) per-dimension
@@ -870,6 +931,12 @@ see "Deterministic trainer").
   equivalence check. The `original` run is backed up in `results/backups/vc_sac_j50_original_trainer/`
   (`calypso_data/`, `calypso_log/`, `calypso_misc_pkl/` and `results_sac_training/`).
 
+**Cost tables**.
+- [ ] I/F-race's `tuning_times.json`: rename `tuner` to `configurator` and report `io` (the existing
+  `_logging_time`) and `setup`, so it has the same columns as SAC's `training_times.json`. Its `setup` and the
+  parts outside both buckets (see "Tuning"/"Timing": run-loop overhead, solver and problem construction, MPI
+  glue, the final pickle/JSON/plot) need defining with the same rule as SAC's buckets.
+
 **R8b Unit tests** (pytest, `tests/` mirroring `src/edaptive/`; R8a, the characterisation tests, is done).
 - [ ] (b) Unit tests: `Parameter`/`ParameterSpace` validation; `parse_config`; `BenchmarkProblem` batching and
   NaN/inf mapping; PSO shapes, feasibility-gated pbest/gbest and the stability criterion; `BetaEDA` (uniform init,
@@ -884,7 +951,12 @@ see "Deterministic trainer").
 8. PSO history keys `velocities`/`diversity` are only populated at initialisation.
 9. Empty placeholder: `problems/misc_problems.py`.
 10. Git: branches `main` and `elitist-ifrace` (also on origin).
-15. calypso skips evaluating infeasible particles (no effect on trajectories; calypso runs aren't timed).
+15. calypso skips evaluating infeasible particles (no effect on trajectories). Its solver time in
+    `training_runs.csv` therefore reflects fewer evaluations than edaptive's; `sac_equivalent_solver_time.py` uses
+    edaptive's cost model.
+16. `BBOBProblem` builds a full `cocoex.Suite` per instance (≈ 0.61 s at 30-D, against µs for the hand-written
+    problems). Neither method's configuration cost counts it (I/F-race constructs problems outside `core_time`;
+    SAC training reports it as `problem_construction`), but it slows every BBOB run.
 14. **Revisit: what an adapter does when fewer particles are feasible than it wants elites.** PSO has no position
     boundary handling, so often only a few particles are inside the bounds (with `n_s = 30`, `n_x = 10`: about 3–5
     under r-UMDA, 14–26 under r-PBIL). The adapters only rank feasible particles. Three strategies:
