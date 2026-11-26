@@ -636,10 +636,10 @@ index 84ef508..b7b4c1a 100644
      def observation_spec(self):
          return self._observation_spec
 diff --git a/scripts/rl/calypsoTrainSAC.py b/scripts/rl/calypsoTrainSAC.py
-index b6fb403..091e3bd 100644
+index b6fb403..2c407a8 100644
 --- a/scripts/rl/calypsoTrainSAC.py
 +++ b/scripts/rl/calypsoTrainSAC.py
-@@ -7,26 +7,31 @@ which tunes the Calypso control parameters.
+@@ -7,26 +7,41 @@ which tunes the Calypso control parameters.
  
  ## Imports
  import os
@@ -657,14 +657,20 @@ index b6fb403..091e3bd 100644
  import shutil
  import logging
  import argparse
--import tensorflow as tf
-+import importlib
+ import tensorflow as tf
  
--from scripts.const import *
--from scripts.tools.utils import *
--from scripts.rl.calypsoEnv import calypsoEnv
++# TensorFlow's own thread pools ignore OMP_NUM_THREADS.
++tf.config.threading.set_intra_op_parallelism_threads(1)
++tf.config.threading.set_inter_op_parallelism_threads(1)
++tf.keras.backend.set_floatx('float64')  # networks, specs and losses in float64, like the PSO
++
+ from scripts.const import *
+ from scripts.tools.utils import *
+ from scripts.rl.calypsoEnv import calypsoEnv
 -from scripts.rl.softActorCritic import softActorCritic
-+from scripts.const import *  # pathlib only: nothing here starts numpy or TensorFlow
++from scripts.tools.threads import threadSettings
++
++import importlib
  
 -tf.random.set_seed(SEED_TF)
  
@@ -678,7 +684,7 @@ index b6fb403..091e3bd 100644
  # parser.add_argument('--k',     type=int,            help='max_iter_funcsets -- i.t.o whole function sets')
  
  parser.add_argument('--n',     type=int,            help='batch_size & layer_params')
-@@ -48,8 +53,134 @@ parser.add_argument('--text',  type=str,            help='Some text')
+@@ -48,8 +63,113 @@ parser.add_argument('--text',  type=str,            help='Some text')
  parser.add_argument('--vc',    action='store_true', help='Velocity clamping')
  parser.add_argument('--dsoff', action='store_true', help='Turn off distributed strategy parallel processing')
  parser.add_argument('--temp',  action='store_true', help='Perform a temporary run which can be discarded')
@@ -737,13 +743,6 @@ index b6fb403..091e3bd 100644
 +)
 +
 +parser.add_argument(
-+    '--threads',
-+    type=int,
-+    default=1,
-+    help="Threads in each of TensorFlow's intra- and inter-op thread pools"
-+)
-+
-+parser.add_argument(
 +    '--seed',
 +    type=int,
 +    default=None,
@@ -762,20 +761,6 @@ index b6fb403..091e3bd 100644
 +
  args = parser.parse_args()
 -fi(args.ei/args.psi)  # check that the policy is saved at least before every evaluation interval
-+if args.threads < 1:
-+    raise ValueError(f'--threads must be at least 1, got {args.threads}')
-+
-+import tensorflow as tf
-+
-+# TensorFlow's own thread pools ignore OMP_NUM_THREADS. Setting them raises a
-+# RuntimeError once TensorFlow has run an op, so this also checks that none has.
-+tf.config.threading.set_intra_op_parallelism_threads(args.threads)
-+tf.config.threading.set_inter_op_parallelism_threads(args.threads)
-+tf.keras.backend.set_floatx('float64')  # networks, specs and losses in float64, like the PSO
-+
-+from scripts.tools.utils import *
-+from scripts.rl.calypsoEnv import calypsoEnv
-+from scripts.tools.threads import threadSettings
 +
 +if args.trainer == 'det':
 +    from scripts.rl.softActorCritic_det import softActorCritic
@@ -814,7 +799,7 @@ index b6fb403..091e3bd 100644
  argsDict = vars(args)
  
  
-@@ -60,6 +191,33 @@ NUMFUNCS_EVAL = len(FUNCTIONS_EVAL)
+@@ -60,6 +180,33 @@ NUMFUNCS_EVAL = len(FUNCTIONS_EVAL)
  
  
  
@@ -848,11 +833,11 @@ index b6fb403..091e3bd 100644
  ## File management
  if args.resume:
      exp = args.resume
-@@ -130,6 +288,12 @@ else:
+@@ -130,6 +277,12 @@ else:
      pl('####Soft Actor-Critic with the Actor-Learner API for CALYPSO####\n\n\n')
  pl('\n\n\n#---------------Setup---------------#')
  
-+threads = threadSettings(args.threads)
++threads = threadSettings()
 +pl(f'Threads: {threads}')
 +for warning in threads['warnings']:
 +    logging.warning(warning)
@@ -861,7 +846,7 @@ index b6fb403..091e3bd 100644
  
  
  ## Calypso Environment Hyperparameters
-@@ -137,11 +301,13 @@ if args.resume:
+@@ -137,11 +290,13 @@ if args.resume:
      envParams = ljson(glob.glob(f'{varsPath}/envParams*')[0])
  else:
      envParams = {
@@ -877,7 +862,7 @@ index b6fb403..091e3bd 100644
      }
      wjson(f'{varsPath}/envParams--{int(time.time())}.json', envParams)
  
-@@ -151,7 +317,7 @@ else:
+@@ -151,7 +306,7 @@ else:
  if args.j.isnumeric():
      j = int(args.j)
      pl(f'j: {j}')
@@ -886,7 +871,7 @@ index b6fb403..091e3bd 100644
      pl(f'SAC steps per Function: {stepsPerFunc}')
      pl(f'Functions per Training Set: {NUMFUNCS_TRAIN}')
      pl(f'Training Sets per Training: {args.i / NUMFUNCS_TRAIN / stepsPerFunc}')
-@@ -161,7 +327,7 @@ elif args.j=='auto':
+@@ -161,7 +316,7 @@ elif args.j=='auto':
      pl('CHECK "j" in calypsoTrainSac.py and "MAXITER / x" in calypsoEnv.py!!!')
      j = 250  # might have to adjust this, it affects the size of buffers & iters, also because it learns to use more steps
      pl(f'Estimated j: {j}')
@@ -895,7 +880,7 @@ index b6fb403..091e3bd 100644
      pl(f'Estimated SAC steps per Function: {stepsPerFunc}')
      pl(f'Functions per Training Function Set: {NUMFUNCS_TRAIN}')
      pl(f'Estimated Training Sets per Training: {args.i / NUMFUNCS_TRAIN / stepsPerFunc}')
-@@ -189,14 +355,17 @@ sacParams = {
+@@ -189,14 +344,17 @@ sacParams = {
      
      # 'initial_collect_funcsets'       :   (1                * args.ics * 1           ),
      # 'initial_collect_funcs'          : fi(NUMFUNCS_TRAIN   * args.ics * 1           ),
@@ -915,7 +900,7 @@ index b6fb403..091e3bd 100644
      # 'eval_interval_steps'            : fi(NUMFUNCS_TRAIN   * args.ei  * stepsPerFunc),
  
      # 'num_eval_funcsets'              :   (1                * args.nef * 1           ),
-@@ -233,10 +402,17 @@ sacParams = {
+@@ -233,10 +391,17 @@ sacParams = {
      'funcs_train'                    : FUNCTIONS_TRAIN,
      'numfuncs_train'                 : NUMFUNCS_TRAIN,
      'funcs_eval'                     : FUNCTIONS_EVAL,
@@ -935,7 +920,7 @@ index b6fb403..091e3bd 100644
  
  
  ## Environment
-@@ -257,7 +433,8 @@ envEval = calypsoEnv(
+@@ -257,7 +422,8 @@ envEval = calypsoEnv(
      pklPath         = pklPath,
      numEvalEpisodes = sacParams['num_eval_funcs'],
      funcs           = FUNCTIONS_EVAL,
@@ -945,7 +930,7 @@ index b6fb403..091e3bd 100644
  )
  
  
-@@ -273,6 +450,7 @@ sacAgent = softActorCritic(
+@@ -273,6 +439,7 @@ sacAgent = softActorCritic(
      params      = sacParams,
      modelPath   = modelPath,
      plotPath    = plotPath,
@@ -953,7 +938,7 @@ index b6fb403..091e3bd 100644
      distributed = distributed  # check that the GPU is actually being used
  )
  
-@@ -281,6 +459,12 @@ sacAgent = softActorCritic(
+@@ -281,6 +448,12 @@ sacAgent = softActorCritic(
  ## Train
  sacAgent.fit(resume=args.resume)
  
@@ -2074,12 +2059,14 @@ index 0000000..5cb6c45
 +            pl(f'Selected policy: {selected}')
 diff --git a/scripts/tools/threads.py b/scripts/tools/threads.py
 new file mode 100644
-index 0000000..4d09114
+index 0000000..23caf0b
 --- /dev/null
 +++ b/scripts/tools/threads.py
 @@ -0,0 +1,51 @@
 +'''
-+The thread settings actually in effect in this process.
++The thread settings actually in effect in this process. Training must be
++single-threaded: calypsoTrainSAC sets TensorFlow's pools and the OMP/OpenBLAS/MKL
++variables to 1.
 +'''
 +
 +import os
@@ -2091,15 +2078,14 @@ index 0000000..4d09114
 +BLAS_ENV_VARS = ('OMP_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'MKL_NUM_THREADS')
 +
 +
-+def threadSettings(requested):
++def threadSettings():
 +    '''
-+    TensorFlow's thread pools, the BLAS/OpenMP thread variables and the thread
-+    counts of the native thread pools loaded so far (threadpoolctl), the usable
-+    CPUs and whether TensorFlow sees a GPU. `warnings` lists every setting that
-+    differs from `requested` threads.
++    TensorFlow's thread pools, the OMP/OpenBLAS/MKL variables, the thread counts of
++    the native thread pools loaded so far (threadpoolctl), the usable CPUs and
++    whether TensorFlow sees a GPU. `warnings` lists every thread setting that is not
++    1, and a visible GPU.
 +    '''
 +    settings = {
-+        'requested'           : requested,
 +        'tf_intra_op'         : tf.config.threading.get_intra_op_parallelism_threads(),
 +        'tf_inter_op'         : tf.config.threading.get_inter_op_parallelism_threads(),
 +        'env'                 : {name: os.environ.get(name) for name in BLAS_ENV_VARS},
@@ -2114,16 +2100,15 @@ index 0000000..4d09114
 +
 +    warnings = []
 +    for name in ('tf_intra_op', 'tf_inter_op'):
-+        if settings[name] != requested:
-+            warnings.append(f'{name} = {settings[name]}, not --threads {requested}')
++        if settings[name] != 1:
++            warnings.append(f'{name} = {settings[name]}, not 1')
 +    for name, value in settings['env'].items():
-+        if value != str(requested):
-+            warnings.append(f'{name} = {value}, not --threads {requested}')
++        if value != '1':
++            warnings.append(f'{name} = {value}, not 1')
 +    for pool in settings['native_pools']:
-+        if pool['num_threads'] != requested:
++        if pool['num_threads'] != 1:
 +            warnings.append(
-+                f"{pool['internal_api']} ({pool['filepath']}) uses {pool['num_threads']} threads, "
-+                f'not --threads {requested}'
++                f"{pool['internal_api']} ({pool['filepath']}) uses {pool['num_threads']} threads, not 1"
 +            )
 +    if settings['gpu_visible']:
 +        warnings.append('TensorFlow sees a GPU: CPU time does not cover all compute')

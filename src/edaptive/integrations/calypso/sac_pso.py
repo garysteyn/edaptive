@@ -30,7 +30,6 @@ class CalypsoWrapper:
         budget_runs=None,
         eval_seed_offset=None,
         trainer="det",
-        threads=1,
     ):
         self.dimensions = dimensions
         self.N = N
@@ -62,10 +61,8 @@ class CalypsoWrapper:
         self.budget_runs = budget_runs
         self.eval_seed_offset = eval_seed_offset
 
-        # SAC trainer ("det": deterministic replay sampling; "original": Reverb) and
-        # the number of threads in each of TensorFlow's thread pools.
+        # SAC trainer ("det": deterministic replay sampling; "original": Reverb).
         self.trainer = trainer
-        self.threads = threads
 
     def _clear_previous_run(self, calypso_root):
         for directory_name in ("data", "log"):
@@ -113,7 +110,6 @@ class CalypsoWrapper:
             "budget-runs": self.budget_runs,
             "eval-seed-offset": self.eval_seed_offset,
             "trainer": self.trainer,
-            "threads": self.threads,
         }
         print(parameters)
         for name, value in parameters.items():

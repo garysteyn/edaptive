@@ -407,12 +407,11 @@ PSO velocities and Poli's criterion), not an adapter.
 - Runs execute in parallel (MPI ranks) and per-run times are summed afterwards, so each process must be
   single-threaded: `execute.py`, `tune.py` and `train_sac.py` (and calypso's `calypsoTrainSAC`) set
   `OMP_NUM_THREADS`, `OPENBLAS_NUM_THREADS` and `MKL_NUM_THREADS` to 1 and `CUDA_VISIBLE_DEVICES=""` (CPU only, so
-  CPU time covers all compute) before numpy is imported; a shell value wins. `calypsoTrainSAC --threads`
-  (default 1) sets TensorFlow's intra-/inter-op thread pools; it parses its arguments before importing TensorFlow,
-  and setting a pool raises once an op has run, so the setting is known to precede every TF op. `--threads` sets
-  only the TF pools: `scripts/tools/threads.py: threadSettings` records the TF pools, the
-  OMP/OpenBLAS/MKL variables, the native pools threadpoolctl sees, the usable CPUs and whether TF sees a GPU (in
-  `training_times.json` as `threads`), and logs a warning for every value that differs from `--threads`. Use no more ranks than physical cores, or wall times include
+  CPU time covers all compute) before numpy is imported; a shell value wins. `calypsoTrainSAC` sets TensorFlow's
+  intra-/inter-op thread pools to 1 right after `import tensorflow`, before any op (setting a pool raises once an
+  op has run). `scripts/tools/threads.py: threadSettings` records the TF pools, the OMP/OpenBLAS/MKL variables,
+  the native pools threadpoolctl sees, the usable CPUs and whether TF sees a GPU (in `training_times.json` as
+  `threads`), and logs a warning for every thread setting that isn't 1 and for a visible GPU. Use no more ranks than physical cores, or wall times include
   waiting; CPU time is robust to that.
 - SAC training with `--trainer original` is not strictly serial even so: tf-agents' replay pipeline (reverb
   server, gRPC, `tf.data` prefetch) runs alongside collection, so its CPU time is about 1.25–1.4× its wall time.
@@ -754,9 +753,9 @@ configuration procedure:
   n_instances`), `budget.json` (`B, initial_collect_runs, collect_runs, validation_runs, total_runs, C,
   n_validations`, plus `completed_collect_episodes`, `stopped_by`; asserts `total_runs ≤ B`), `training_times.json`
   (wall `perf_counter` / CPU `process_time` of the script from after the TF import, and `threads`, see "Timing").
-- `CalypsoWrapper(..., budget_runs=None, eval_seed_offset=None, trainer="det", threads=1)` passes them through.
-  `experiments/scripts/train_sac.py` holds the agreed settings (`TRAINING_SET`, `B = 2000`, seed 123, `det`, one
-  thread; experiment name `vc_sac_j50`). It passes no `--dsoff`, so training uses tf-agents' distribution strategy.
+- `CalypsoWrapper(..., budget_runs=None, eval_seed_offset=None, trainer="det")` passes them through.
+  `experiments/scripts/train_sac.py` holds the agreed settings (`TRAINING_SET`, `B = 2000`, seed 123, `det`;
+  experiment name `vc_sac_j50`). It passes no `--dsoff`, so training uses tf-agents' distribution strategy.
 - Measured on the dev container, single-threaded as in "Timing" (3 full-size functions incl. BBOB, no `--dsoff`):
   ≈ 0.9 s per initial-collect episode, ≈ 5 s per collect episode (incl. 100 learner steps at `n = 256`), ≈ 1.4 s per
   validation episode, so ≈ 2.5 h wall for the 1968 runs.
