@@ -1,7 +1,8 @@
 """Train SAC-SAPSO in calypso: the configuration procedure of the SAC-SAPSO baseline.
 
 The authors' original-repo hyperparameters, the shared training set and a budget of
-2000 PSO runs (as I/F-race's B). Run from the repo root in the TF venv:
+2000 PSO runs (as I/F-race's B), with the deterministic trainer (--trainer det) and
+one thread per TensorFlow thread pool. Run from the repo root in the TF venv:
 
     python experiments/scripts/train_sac.py
 
@@ -48,6 +49,8 @@ def main():
         seed=123,
         budget_runs=2000,
         eval_seed_offset=1_000_000,
+        trainer="det",
+        threads=1,
     )
     wrapper.train()
 
