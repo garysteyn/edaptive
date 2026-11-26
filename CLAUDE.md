@@ -536,13 +536,26 @@ best configuration on every rank. `L` and `n_min` default to `floor(2 + log2(N_p
   - The other ranks sit in `_worker_loop` until `_stop_workers` sends `None`. This happens in a `finally` block,
     so an exception on rank 0 doesn't deadlock the workers.
   - Cached elite results never go to the workers.
-- **Tuning time** (`tuning_times`), wall and CPU per race and in total, each as `solver`, `tuner` and `total`:
+- **Tuning time** (`tuning_times`), wall and CPU per race and in total, each as `solver`, `configurator`, `setup`,
+  `io` and `total` (the columns of SAC's `training_times.json`, which also has `framework` and
+  `problem_construction`; see "SAC training time"):
   - `solver` = Σ `core_time` over the runs executed in the race, summed over all ranks (cached elite results add 0).
-  - `tuner` = rank 0's elapsed race time minus its time inside `_evaluate` (solver runs and MPI) and inside
-    logging. That leaves sampling, tests, elimination, elite selection and bookkeeping. `self._log` is wrapped in
-    `_TimedCalls`, which times every logger call, message formatting included.
-  - `total` = `solver + tuner`. Lines go to `tuning.log`; everything to `tuning_times.json`. Serial and
-    `mpirun -n 2` give the same `solver` sums (per-process times are summed, not elapsed).
+  - `configurator` = rank 0's elapsed race time minus its time inside `_evaluate` (solver runs and MPI) and inside
+    logging. That leaves sampling, tests, elimination, elite selection and bookkeeping.
+  - `io` = rank 0's logging (`_logging_time`): `self._log` is wrapped in `_TimedCalls`, which times every logger
+    call, message formatting included; the logger's construction (log directory and files) is timed too.
+  - `setup` = rank 0's time in `tune` before the first race, minus its logging: resetting the state, the `L` and
+    `n_min` defaults, the RNG (well under 1 ms). It and that span's io are charged to race 1; later races have
+    `setup` 0. Imports, MPI start-up and building the config are before `tune` and in no bucket.
+  - `total` = `solver + configurator` (setup and io are reported but not in total). Lines go to `tuning.log`;
+    everything to `tuning_times.json`. Serial and `mpirun -n 2` give the same `solver` sums (per-process times
+    are summed, not elapsed).
+  - In no bucket: inside `_evaluate`, everything but the runs' `core_time` (solver and problem construction, the
+    run loop, MPI communication and waiting); the logging after each race's end snapshot (its time and summary
+    lines); after the last race the final log lines, `best_configuration.pkl`, `tuning_times.json`, the plot,
+    `_stop_workers` and the final broadcast.
+  - Files written before the rename (`results/tuning_results/basic_test/tuning_times.json`, `tuning.log`) have
+    `tuner` instead of `configurator` and no `setup`/`io`; they are left as they are.
 - **Logging** lives entirely in `_TuningLogger`, with one method per event and nothing on ranks other than 0.
   - Each run gets uniquely named loggers, and their handlers are closed at the end.
   - Per-run solver results go to the module logger at DEBUG level.
@@ -930,12 +943,6 @@ see "Deterministic trainer").
 - [ ] Retrain the deployed policy (`vc_sac_j50`, trained with `original`) with `det`, export it and rerun the
   equivalence check. The `original` run is backed up in `results/backups/vc_sac_j50_original_trainer/`
   (`calypso_data/`, `calypso_log/`, `calypso_misc_pkl/` and `results_sac_training/`).
-
-**Cost tables**.
-- [ ] I/F-race's `tuning_times.json`: rename `tuner` to `configurator` and report `io` (the existing
-  `_logging_time`) and `setup`, so it has the same columns as SAC's `training_times.json`. Its `setup` and the
-  parts outside both buckets (see "Tuning"/"Timing": run-loop overhead, solver and problem construction, MPI
-  glue, the final pickle/JSON/plot) need defining with the same rule as SAC's buckets.
 
 **R8b Unit tests** (pytest, `tests/` mirroring `src/edaptive/`; R8a, the characterisation tests, is done).
 - [ ] (b) Unit tests: `Parameter`/`ParameterSpace` validation; `parse_config`; `BenchmarkProblem` batching and

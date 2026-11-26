@@ -68,6 +68,13 @@ def _round_real(param, value, digits):
     return min(max(round(value, decimals), param.lower), param.upper)
 
 
+TIME_PARTS = ("solver", "configurator", "setup", "io", "total")
+
+
+def _zero_times():
+    return {clock: 0.0 for clock in CLOCKS}
+
+
 def _clock_readings():
     return {"wall": perf_counter(), "cpu": process_time()}
 
@@ -510,6 +517,8 @@ class IFRace:
         self._solver_time = _Stopwatch()
         self._evaluate_time = _Stopwatch()
         self._logging_time = _Stopwatch()
+        # setup and io before the first race, added to the first race's times.
+        self._pre_race_times = {"setup": _zero_times(), "io": _zero_times()}
         self._tuning_times = {"races": [], "total": None}
 
     # ------------------------------------------------------------------ state
@@ -550,7 +559,8 @@ class IFRace:
     @property
     def tuning_times(self):
         """Wall and CPU time per race and in total, each split into ``solver``,
-        ``tuner`` and ``total`` (see ``_record_race_time``)."""
+        ``configurator``, ``setup``, ``io`` and ``total`` (see
+        ``_record_race_time``)."""
         return copy.deepcopy(self._tuning_times)
 
     # -------------------------------------------------------------- algorithm
@@ -565,6 +575,7 @@ class IFRace:
         rnd_seed=0,
     ):
         """Run elitist I/F-race and return the best configuration (on every rank)."""
+        tune_start = _clock_readings()
         self._solver_type = solver_type
         self._optimizer_type = optimizer_type
         self._adapter_type = adapter_type
@@ -581,11 +592,12 @@ class IFRace:
         if self._rank == 0:
             self._rng = np.random.default_rng(rnd_seed)
             output_directory = self.results_directory / config_template.identifier
-            self._log = _TimedCalls(
-                _TuningLogger(output_directory / "logs"), self._logging_time
-            )
+            with self._logging_time.measure():
+                logger = _TuningLogger(output_directory / "logs")
+            self._log = _TimedCalls(logger, self._logging_time)
             try:
                 self._log.tuning_started(self, rnd_seed)
+                self._record_setup_time(tune_start)
                 self._iterated_racing()
                 # Save results before plotting, so a plotting failure can't lose them.
                 self._save_best_configuration(output_directory)
@@ -659,6 +671,15 @@ class IFRace:
         self._log.tuning_finished(self._best_configuration, B_used)
         self._record_total_time()
 
+    def _record_setup_time(self, tune_start):
+        """Store rank 0's time in ``tune`` before the first race (since the clock
+        reading ``tune_start``): ``io`` is its logging (creating the log files, the
+        start lines) and ``setup`` the rest (resetting the state, the ``L`` and
+        ``n_min`` defaults, the RNG). Both are added to the first race's times."""
+        io = self._logging_time.snapshot()
+        elapsed = _subtract_times(_clock_readings(), tune_start)
+        self._pre_race_times = {"setup": _subtract_times(elapsed, io), "io": io}
+
     def _race_time_snapshot(self):
         return {
             "clock": _clock_readings(),
@@ -671,10 +692,18 @@ class IFRace:
         """Store the time of race ``l`` (since the snapshot ``start``).
 
         ``solver``: the core time of every solver run executed in the race, summed
-        over all ranks (cached elite results cost nothing). ``tuner``: rank 0's own
-        work (sampling, statistical tests, elimination, elite selection), i.e. its
-        elapsed time minus the time inside ``_evaluate`` and inside logging.
-        ``total``: their sum.
+        over all ranks (cached elite results cost nothing). ``configurator``: rank
+        0's own work (sampling, statistical tests, elimination, elite selection),
+        i.e. its elapsed time minus the time inside ``_evaluate`` and inside logging.
+        ``io``: rank 0's logging. ``setup``: zero, except in the first race, which
+        also gets the setup and io before it (``_record_setup_time``). ``total``:
+        ``solver + configurator``.
+
+        Outside every part: inside ``_evaluate``, everything but the solvers' core
+        time (solver and problem construction, the run loop, MPI communication and
+        waiting); the logging after each race's end (its time and summary lines);
+        and after the last race the final log lines, ``best_configuration.pkl``,
+        ``tuning_times.json``, the plot, stopping the workers and the broadcast.
         """
         end = self._race_time_snapshot()
 
@@ -682,25 +711,30 @@ class IFRace:
             return _subtract_times(end[key], start[key])
 
         solver = change("solver")
-        tuner = _subtract_times(
+        configurator = _subtract_times(
             change("clock"), _add_times(change("evaluate"), change("logging"))
+        )
+        pre_race, self._pre_race_times = (
+            self._pre_race_times,
+            {"setup": _zero_times(), "io": _zero_times()},
         )
         times = {
             "race": l,
             "solver": solver,
-            "tuner": tuner,
-            "total": _add_times(solver, tuner),
+            "configurator": configurator,
+            "setup": pre_race["setup"],
+            "io": _add_times(change("logging"), pre_race["io"]),
+            "total": _add_times(solver, configurator),
         }
         self._tuning_times["races"].append(times)
         self._log.race_time(times)
 
     def _record_total_time(self):
-        races = self._tuning_times["races"]
+        # The pre-race times are still pending if no race was recorded.
+        parts = [*self._tuning_times["races"], self._pre_race_times]
         total = {
-            part: _add_times(*(race[part] for race in races))
-            if races
-            else {clock: 0.0 for clock in CLOCKS}
-            for part in ("solver", "tuner", "total")
+            part: _add_times(*(times[part] for times in parts if part in times))
+            for part in TIME_PARTS
         }
         self._tuning_times["total"] = total
         self._log.tuning_time(total)
@@ -1103,7 +1137,7 @@ def plot_race_history(race_history, n_min, path):
 def _format_times(times):
     return "; ".join(
         f"{part} wall={times[part]['wall']:.3f}s cpu={times[part]['cpu']:.3f}s"
-        for part in ("solver", "tuner", "total")
+        for part in TIME_PARTS
     )
 
 

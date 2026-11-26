@@ -270,7 +270,7 @@ class _FakeConfig:
 RUN_TIMINGS = {"optimizer": {"iterate": {"wall": 1.0, "cpu": 0.5}}, "adapter": {}}
 
 
-def test_tuning_times_sum_solver_runs_and_tuner_work(monkeypatch, tmp_path):
+def test_tuning_times_sum_solver_runs_and_configurator_work(monkeypatch, tmp_path):
     tuner = make_tuner(B=120, results_directory=tmp_path)
     executed = []
 
@@ -288,17 +288,21 @@ def test_tuning_times_sum_solver_runs_and_tuner_work(monkeypatch, tmp_path):
     assert [race["race"] for race in races] == list(range(1, len(races) + 1))
     assert len(races) >= 2
     for race in races:
-        assert race["tuner"]["wall"] >= 0.0
+        assert race["configurator"]["wall"] >= 0.0
+        assert race["io"]["wall"] > 0.0
         for clock in ("wall", "cpu"):
             assert race["total"][clock] == pytest.approx(
-                race["solver"][clock] + race["tuner"][clock]
+                race["solver"][clock] + race["configurator"][clock]
             )
+    # Setup happens before the first race and is charged to it.
+    assert races[0]["setup"]["wall"] > 0.0
+    assert all(race["setup"] == {"wall": 0.0, "cpu": 0.0} for race in races[1:])
 
     # Only executed runs count; cached elite results add nothing.
     solver_wall = sum(race["solver"]["wall"] for race in races)
     assert solver_wall == pytest.approx(len(executed) * 1.0)
     assert times["total"]["solver"]["cpu"] == pytest.approx(len(executed) * 0.5)
-    for part in ("solver", "tuner", "total"):
+    for part in ("solver", "configurator", "setup", "io", "total"):
         assert times["total"][part]["wall"] == pytest.approx(
             sum(race[part]["wall"] for race in races)
         )
@@ -310,7 +314,7 @@ def test_tuning_times_sum_solver_runs_and_tuner_work(monkeypatch, tmp_path):
     assert "Tuning time: solver wall=" in log
 
 
-def test_tuner_time_excludes_logging(monkeypatch, tmp_path):
+def test_configurator_time_excludes_logging(monkeypatch, tmp_path):
     tuner = make_tuner(B=60, results_directory=tmp_path)
     monkeypatch.setattr(
         tuner, "_run_solver", lambda c, instance, seed: (c["x"], RUN_TIMINGS)
@@ -323,9 +327,11 @@ def test_tuner_time_excludes_logging(monkeypatch, tmp_path):
     tuner.tune(
         _FakeSolver, _FakeSolver, None, _FakeConfig(), ParameterSpace([CONTINUOUS])
     )
-    # Every race logs far more than 50 lines (> 50 ms) but does little else.
+    # Every race logs far more than 50 lines (> 50 ms) but does little else: the
+    # logging is io, not configurator time.
     for race in tuner.tuning_times["races"]:
-        assert race["tuner"]["wall"] < 0.05
+        assert race["configurator"]["wall"] < 0.05
+        assert race["io"]["wall"] > 0.05
 
 
 # --- sampling model -------------------------------------------------------------
