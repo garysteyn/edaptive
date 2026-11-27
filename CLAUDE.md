@@ -101,6 +101,7 @@ edaptive/
 │                             # cost model (see "SAC training time");
 │                             # sac_replay_buffer_check.py, sac_trainer_comparison.py: original vs det SAC
 │                             # trainer (see "Deterministic trainer")
+│                             # bs_sapso_equivalence.py: CALYPSO vs BSSAPSO (see "BSSAPSO")
 ├── tests/                    # pytest (`testpaths` set in pyproject.toml); see "Tests"
 │   ├── conftest.py           # forces the Agg matplotlib backend
 │   ├── core/                 # unit tests: adaptable-CP mapping, SolverConfig/parse_config
@@ -468,6 +469,26 @@ particle, uniformly and independently, from a box (the belief space), refitted t
   `update_freq` 201, `improvement`, nothing tuned). Both fix `n_e` 30, `n_e_min` 2 (calypso's `execute.py`
   passes `Ne = (Ne, 2)`), `n_s` 30 and `V_max_fraction` 1.0 (calypso's `--vc` clips to `±(upper − lower)`), with no
   stability guiding. Each carries a top-level `"comment"` with the `p + 1` conversion (`parse_config` ignores it).
+- `scratch/bs_sapso_equivalence.py` builds calypso's `CALYPSO` directly (not via `execute.py`/`BS_PSO`, which share
+  one seed list across functions and delete calypso's output dirs). Its keyword arguments are evaluated from
+  `execute.py`'s own AST (the side-effect-free top of the script run with the configuration's argv, then each keyword
+  of its `CALYPSO(...)` call; only `savePath = False` and `seed` are set by the script) and asserted against
+  hand-written values for `vc_fixed200_improve30`. 6 training functions (Rosenbrock, Qing, GeneralizedEggCrate,
+  Brown, BBOB_FID17_IID2, Step3), 30 seeds each via `trial_seed(name, 30, s, base=--seed-base)` (default 6 000 000)
+  on both sides, 30-D, 5000 steps; improvement and elitist at `update_freq` 201 and 21. Exact checks per seed (update
+  steps, box-change steps, particles selected per update, up to the earlier collapse): calypso's observed values
+  (its per-iteration box, and a wrapper around `setBeliefSpace`) against those derived from BSSAPSO's history as above; two-sided MWU with both
+  medians on the final gbest, each CP's bounds at steps 250/1000/2500/4999 and the collapse step, Holm over all;
+  share of raw p < 0.05 and a KS test of the raw p-values; for elitist the share of updates with
+  `n_feasible < n_e`. Writes `results/bs_sapso_equivalence/equivalence.json`. Run with
+  `nohup taskset -c 0,2,4,6 python scratch/bs_sapso_equivalence.py --workers 4 > results/bs_sapso_equivalence/run.log 2>&1 &`
+  (≈ 540 MB per worker: calypso keeps every iteration's positions and velocities).
+  Result (seed base 6 000 000): the exact checks matched in 720/720 runs; 606 MWU tests, none significant after
+  Holm (smallest Holm p 0.14), 5.1% of raw p < 0.05, KS of raw p vs uniform p = 0.14. Every `update_freq = 21`
+  elitist run collapsed on both sides, none of the others. Elitist updates had `n_feasible < n_e` in about
+  27% of updates at `update_freq` 201 and 17–23% at 21, alike on both sides. BBOB_FID17_IID2's final gbest median
+  was slightly higher (worse) for BSSAPSO in all four configurations (raw p 0.020–0.090); they share seeds, so
+  this is about one weak signal, not four.
 
 ### Timing (`utils/timing.py`)
 - `@timed` accumulates `self._timings[method] = {"wall": s, "cpu": s}` per call (`perf_counter` and the
