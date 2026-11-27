@@ -11,6 +11,7 @@ from edaptive.problems.ela_benchmark_suite import Rosenbrock
 from edaptive.registry import SOLVERS
 from edaptive.solvers.basic_solver import BasicSolver
 from edaptive.solvers.eda_solver import EDASolver
+from edaptive.solvers.pso.bs_sapso import BSSAPSO
 from edaptive.solvers.pso.sac_sapso import SACSAPSO
 from edaptive.solvers.pso.sg_pso import StabilityGuidedPSO
 from edaptive.solvers.pso.tvac_pso import TVACPSO
@@ -62,6 +63,20 @@ CASES = {
     ),
     StabilityGuidedPSO: (None, None, SolverConfig(fixed_CPs={"n_s": 6})),
     TVACPSO: (None, None, SolverConfig(fixed_CPs={"n_s": 6})),
+    BSSAPSO: (
+        None,
+        None,
+        SolverConfig(
+            fixed_CPs={"n_s": 6, "V_max_fraction": 1.0},
+            adapted_CP_space=ADAPTED,
+            adapter_params={
+                "update_freq": 2,
+                "selection": "elitist",
+                "n_e": 6,
+                "n_e_min": 2,
+            },
+        ),
+    ),
     SACSAPSO: (
         None,
         None,
@@ -125,6 +140,8 @@ def test_hardwired_types_accept_none_or_their_own(
         (StabilityGuidedPSO, None, BetaEDA, "takes no adapter"),
         (TVACPSO, OtherOptimizer, None, "always uses PSO"),
         (TVACPSO, None, BetaEDA, "takes no adapter"),
+        (BSSAPSO, OtherOptimizer, None, "always uses PSO"),
+        (BSSAPSO, None, BetaEDA, "takes no adapter"),
         (UniformRandomSolver, PSO, BetaEDA, "always uses UniformRandomAdapter"),
         (BasicSolver, PSO, BetaEDA, "takes no adapter"),
         (EDASolver, PSO, None, "needs an adapter_type"),

@@ -1,0 +1,57 @@
+{
+  "identifier": "bs_sapso_published",
+  "comment": "BSSAPSO, the paper's vc_fixed200_improve30: p = 200 is update_freq = 201 (update_freq = p + 1).",
+  "adapter": {
+    "update_freq": {
+      "tuned": false,
+      "type": "integer",
+      "value": 201
+    },
+    "selection": {
+      "tuned": false,
+      "type": "categorical",
+      "value": "improvement"
+    },
+    "n_e": {
+      "tuned": false,
+      "type": "integer",
+      "value": 30
+    },
+    "n_e_min": {
+      "tuned": false,
+      "type": "integer",
+      "value": 2
+    }
+  },
+  "optimizer": {
+    "fixed": {
+      "n_s": {
+        "tuned": false,
+        "type": "integer",
+        "value": 30
+      },
+      "V_max_fraction": {
+        "tuned": false,
+        "type": "continuous",
+        "value": 1.0
+      }
+    },
+    "adapted": {
+      "w": {
+        "type": "continuous",
+        "lower": 0,
+        "upper": 1
+      },
+      "c_1": {
+        "type": "continuous",
+        "lower": 0,
+        "upper": 4
+      },
+      "c_2": {
+        "type": "continuous",
+        "lower": 0,
+        "upper": 4
+      }
+    }
+  }
+}

@@ -32,6 +32,7 @@ from edaptive.problems.ela_benchmark_suite import (
 )
 from edaptive.solvers.basic_solver import BasicSolver
 from edaptive.solvers.eda_solver import EDASolver
+from edaptive.solvers.pso.bs_sapso import BSSAPSO
 from edaptive.solvers.pso.sac_sapso import SACSAPSO
 from edaptive.solvers.pso.sg_pso import StabilityGuidedPSO
 from edaptive.solvers.pso.tvac_pso import TVACPSO
@@ -126,6 +127,24 @@ def _emna_config(elite_weighting="None", update_freq=1, elite_signal="fitness"):
             | _fixed("elite_signal", elite_signal, "categorical")
         ),
         "optimizer": {"fixed": _fixed("n_s", N_S, "integer"), "adapted": _ADAPTED},
+    }
+
+
+def _bs_sapso_config(selection):
+    # update_freq 6 is the paper's p = 5.
+    return {
+        "identifier": "char_bs_sapso",
+        "adapter": (
+            _fixed("update_freq", 6, "integer")
+            | _fixed("selection", selection, "categorical")
+            | _fixed("n_e", N_S, "integer")
+            | _fixed("n_e_min", 2, "integer")
+        ),
+        "optimizer": {
+            "fixed": _fixed("n_s", N_S, "integer")
+            | _fixed("V_max_fraction", 1.0, "continuous"),
+            "adapted": _ADAPTED,
+        },
     }
 
 
@@ -250,6 +269,8 @@ SOLVER_CASES = {
         EMNAAdaptive,
         _emna_config(update_freq=5, elite_signal="improvement"),
     ),
+    "bs_sapso_elitist": (BSSAPSO, None, _bs_sapso_config("elitist")),
+    "bs_sapso_improvement": (BSSAPSO, None, _bs_sapso_config("improvement")),
 }
 
 
@@ -293,6 +314,11 @@ def run_solver(solver_type, adapter_type, config, problem_type, seed):
         out["adapter_Sigma"] = adapter.Sigma.tolist()
     if isinstance(adapter, EMNAAdaptive):
         out["adapter_archive_size"] = len(adapter.archive_scores)
+    if isinstance(solver, BSSAPSO):
+        belief_space = history["belief_space"]
+        out["belief_lbs"] = belief_space["belief_lbs"].tolist()
+        out["belief_ubs"] = belief_space["belief_ubs"].tolist()
+        out["n_feasible"] = belief_space["n_feasible"].tolist()
     if isinstance(solver, SACSAPSO):
         out["sac_action"] = _floats(solver.action)
     return out

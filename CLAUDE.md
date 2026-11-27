@@ -60,7 +60,8 @@ edaptive/
 │   │   └── pso/
 │   │       ├── sg_pso.py     # StabilityGuidedPSO: PSO-specific adaptation implemented as a solver
 │   │       ├── tvac_pso.py   # TVACPSO: Ratnaweera et al. (2004) PSO-TVAC (linear w/c_1/c_2 schedules)
-│   │       └── sac_sapso.py  # SACSAPSO: trained SAC policy sets w/c_1/c_2 (numpy policy file format + forward pass)
+│   │       ├── sac_sapso.py  # SACSAPSO: trained SAC policy sets w/c_1/c_2 (numpy policy file format + forward pass)
+│   │       └── bs_sapso.py   # BSSAPSO: von Eschwege & Engelbrecht (2024) belief-space SAPSO (calypso's BS-SAPSO)
 │   ├── problems/
 │   │   ├── benchmark_problem.py   # BenchmarkProblem ABC
 │   │   ├── ela_benchmark_suite.py # ~24 hand-written functions + 4 BBOB wrappers; TRAINING_SET
@@ -105,7 +106,8 @@ edaptive/
 │   ├── core/                 # unit tests: adaptable-CP mapping, SolverConfig/parse_config
 │   ├── optimizers/           # unit tests: PSO evaluation order, histories, feasibility-gated bests
 │   ├── adapters/             # unit tests: BetaEDA elite selection; multi-valued EDA model and updates; elite weights
-│   ├── solvers/              # unit tests: subset / reordered "adapted" spaces, construction, timings, SACSAPSO
+│   ├── solvers/              # unit tests: subset / reordered "adapted" spaces, construction, timings, SACSAPSO,
+│   │                         # BSSAPSO (schedule vs calypso's rule, selection, collapse off-by-one)
 │   ├── fixtures/             # sac_sapso_policy.npz (small fixed random policy) + make_sac_sapso_policy.py
 │   ├── utils/                # unit tests: @timed, core_time, trial_seed
 │   ├── tuning/               # unit tests of IFRace pieces; mpirun -n 2 vs serial reference
@@ -316,7 +318,7 @@ learning rate `eta`, minimum standard deviation `sigma_min`, and rank-based elit
 - Type validation via class attributes: `fixed_optimizer_type` / `fixed_adapter_type` (the solver always uses that
   type; callers may pass `None` or the same type) and `uses_adapter`. Mismatches raise `ValueError`:
   `BasicSolver` takes no adapter, `EDASolver` needs one, `UniformRandomSolver` fixes `UniformRandomAdapter`,
-  `StabilityGuidedPSO`, `TVACPSO` and `SACSAPSO` fix `PSO` and take no adapter.
+  `StabilityGuidedPSO`, `TVACPSO`, `SACSAPSO` and `BSSAPSO` fix `PSO` and take no adapter.
 - Construction (and RNG consumption) order: **one** `rng = np.random.default_rng(rnd_seed)` shared by adapter,
   solver and optimizer → `_build_adapter()` (`CP_space=config.adapted_CP_space`, `**config.adapter_params`, `rng`)
   → `initial_adapted_CPs()` (hook; default: `adapter.sample(n_s)` by name, `{}` without an adapter) →
@@ -395,6 +397,78 @@ PSO velocities and Poli's criterion), not an adapter.
   note on the TF seeding). No exact agreement
   is expected (calypso draws from numpy's global RNG).
 
+### BSSAPSO (`solvers/pso/bs_sapso.py`)
+BS-SAPSO, von Eschwege & Engelbrecht (2024), Swarm Intelligence 18:31–78 (a local copy may be at
+`../papers/Eschwege_BS_PSO.pdf`). calypso's `scripts/pso/calypso.py` (`setTrigger`, `setBeliefSpace`,
+`setControlParam`) is the reference and wins where it differs from the paper. A PSO baseline, so a solver like the
+other literature PSOs, not an adapter. The CPs of `config.adapted_CP_space` (continuous only) are sampled per
+particle, uniformly and independently, from a box (the belief space), refitted to the min/max of a selected group's CPs.
+- **Settings come from `config.adapter_params`**: exactly `update_freq`, `selection`, `n_e`, `n_e_min`
+  (else `ValueError` listing missing/unexpected keys). Also raise: `selection ∉ {"elitist", "improvement"}` (calypso's
+  `random`, `rank`, `roulette`, `tournament`, `improveMag` aren't implemented), `update_freq < 1`,
+  `n_e_min < 2`, `n_e < n_e_min`, non-integers among these, no adapted space, non-continuous CPs. Only
+  calypso's `"fixed"` trigger exists (no `always`/`stagnate`). `EPSILON = 1e-9` is a class constant.
+- **`update_freq = p + 1`, where `p` is the paper's / calypso's interval.** The box is updated after step `t` when
+  `(t+1) % update_freq == 0`, so update `k` (1-based) comes after step `k·update_freq − 1`. calypso updates in iteration `i = t + 1` when `i − last_update > p` (`last_update`
+  starts at 0), i.e. at `i = p+1, 2(p+1), …`; the two rules give the same steps (a unit test compares them). So the
+  published `p = 200` is `update_freq = 201`, not 200.
+- `selection`: `"elitist"` / `"improvement"` are the paper's elitist / improve. Elitist takes the `n_e` lowest
+  masked fitnesses, then `n_e −= 1` down to `n_e_min`, so update `k` selects `max(n_e − (k − 1), n_e_min)`
+  (at most `n_s`). Improvement takes the `n_e` lowest
+  one-iteration changes `f_t − f_{t−1}` (`one_iteration_change`; NaN from inf − inf and −inf from infeasible →
+  feasible become +inf; a feasible ±`max_float` change overflows to ±inf and −inf is reset to +inf too, as in
+  calypso), and `n_e` stays fixed (the paper says it decreases; the code doesn't). This is **not** BetaEDA's
+  window-based `elite_signal = "improvement"`.
+- Timeline: the box starts at the CP bounds, and the initial CPs are sampled from it in `initial_adapted_CPs`
+  (before the PSO is built). After every step `t` (calypso updates after the move, evaluation and pbest/gbest
+  update of its iteration `t + 1`):
+  1. once the belief space has collapsed, nothing happens for the rest of the run (no update, no resampling);
+  2. masked fitness `masked_f_X` = `f_X` inside the problem bounds (inclusive), `+inf` outside (calypso doesn't
+     evaluate infeasible particles), kept as the next step's `previous_masked_f_X` (the initial swarm's at
+     construction);
+  3. collapse: if the box's raw widths summed over the CPs are `< EPSILON`, the belief space has collapsed
+     (private `_collapse_step = t`). That sum mixes CPs with different ranges (`w` in [0, 1], `c_1`/`c_2` in [0, 4]), as in
+     calypso. It tests the belief space's bounds, not swarm convergence;
+  4. if `(t+1) % update_freq == 0`: select from the CPs in use (those that produced `f_t`), set the box to their
+     min/max, resample all particles' CPs; they are used from step `t + 1`.
+  The update that collapses the box still resamples once, in the collapsed box; the collapse is detected after the
+  next step (last update step + 1, = calypso's `bsConverged − 1`), and the CPs never change after that. A run
+  that collapses records fewer updates than its schedule has (`max_iterations // update_freq`); with `n` recorded
+  updates the collapse was detected after step `n·update_freq`.
+- Ties: `kind="stable"` (lowest index first). calypso uses numpy's default unstable sort; particle indices are
+  exchangeable, so the selected group's distribution is the same. Ties occur among infeasible particles (all
+  `+inf`) and, on plateau functions (Step3, NeedleEye), among equal finite values.
+- Selection (calypso's behaviour, kept on purpose; don't change it):
+  - Mechanism: rank all particles, infeasible ones last (all tied at `+inf`), always take `n_e`.
+  - Consequences: how far a particle lies outside the bounds plays no part. When fewer than `n_e` are
+    feasible, elitist takes every feasible particle regardless of fitness and fills the rest with an arbitrary set of
+    infeasible ones (numpy's tie order in calypso, lowest index here), so selection reflects feasibility, not
+    quality. With `n_e = n_s` every particle is selected: improvement at `n_e = n_s` (the published
+    `improve30`) never uses fitness (the box is just the range of the current samples, and with a shared seed it is
+    identical on every problem), and elitist's first update is fitness-blind too. Elitist's `n_e` drops by one
+    per update only: with `update_freq = 201` a 5000-step run has 24 updates and never selects fewer than 7.
+  - Contrast (Known issue 14): BetaEDA, the multi-valued EDAs and the EMNA adapters rank feasible particles only
+    and, when fewer than they want are feasible, select only those (strategy B). BSSAPSO uses a variant of strategy
+    C (infeasible particles tied rather than ordered by score), so infeasible particles' CPs can enter the box; C
+    was the worst strategy for r-UMDA and r-PBIL there.
+- RNG order: the initial CPs' `rng.random((n_s, n_CPs))` → PSO init → after each update one
+  `rng.random((n_s, n_CPs))`. Same draws as the earlier `EDASolver` + adapter implementation, whose
+  characterisation outputs it reproduces bit for bit.
+- No public state beyond the settings (`update_freq`, `selection`, `n_e_min`, `CP_names`, `n_CPs`). The run's record
+  is `history["belief_space"]` (it reaches `execute.py`'s pickles): per update only `belief_lbs`, `belief_ubs`
+  (rows in `adapted_CP_space` order) and `n_feasible`. It lives in `optimizer.history` from construction (lists,
+  appended per update) and `run` turns it into arrays (`(n_updates, n_CPs)`, `(n_updates,)`). Everything else is
+  derived: update `k` after step `k·update_freq − 1`; particles selected `max(n_e − (k − 1), n_e_min)` (elitist) or
+  `n_e` (improvement); the box in force at step `t` is that of the last update `k ≤ t // update_freq` (the CP
+  bounds before the first); the collapse from the update count. Recording it is not timed.
+- Timed: `_get_required_data` (overridden: it reads a fixed list, there is no adapter), `_select` (masking, collapse
+  check, schedule, selection), `_update_belief_space`, `_sample`, `_set_adapted_CPs`.
+- Configs: `bs_sapso.json` (tuned: `update_freq ∈ [21, 501]` integer, log scale, i.e. `p ∈ [20, 500]`;
+  `selection ∈ {elitist, improvement}`) and `bs_sapso_published.json` (the paper's `vc_fixed200_improve30`:
+  `update_freq` 201, `improvement`, nothing tuned). Both fix `n_e` 30, `n_e_min` 2 (calypso's `execute.py`
+  passes `Ne = (Ne, 2)`), `n_s` 30 and `V_max_fraction` 1.0 (calypso's `--vc` clips to `±(upper − lower)`), with no
+  stability guiding. Each carries a top-level `"comment"` with the `p + 1` conversion (`parse_config` ignores it).
+
 ### Timing (`utils/timing.py`)
 - `@timed` accumulates `self._timings[method] = {"wall": s, "cpu": s}` per call (`perf_counter` and the
   process's `process_time`). `BaseOptimizer`, `BaseAdapter` and `BaseSolver` each own a `_timings` dict. Only
@@ -403,7 +477,7 @@ PSO velocities and Poli's criterion), not an adapter.
   Timed: optimizer `initialize`/`iterate`; adapter `initialize`/`check_update`/`update`/`sample`, plus `start`
   for EDA adapters (where implemented); solver `_get_required_data`/`_set_adapted_CPs`, plus `sample_adapted_CPs` in
   `StabilityGuidedPSO`, `scheduled_CPs` in `TVACPSO`, `_load_policy`/`_swarm_data`/`_observation`/`_policy_action` in
-  `SACSAPSO`. Measured cost of the interaction helpers: about 3.5 µs per iteration, roughly 2% of
+  `SACSAPSO`, `_select`/`_update_belief_space`/`_sample` in `BSSAPSO`. Measured cost of the interaction helpers: about 3.5 µs per iteration, roughly 2% of
   core time (`n_s=n_x=30`, BetaEDA).
 - `core_time(timings)` → `{"wall": total, "cpu": total}` over all components.
 - Runs execute in parallel (MPI ranks) and per-run times are summed afterwards, so each process must be
@@ -629,7 +703,8 @@ CP via `Parameter.from_config`, so integer and categorical (`classes`) adapted C
 `n_values` 10, `elite_weighting` `"None"`, tunes `mu ∈ [1, 30]`), `r_pbil.json` (RPBIL, same, also tunes `rho ∈ [1e-3, 1]` on a log scale),
 `r_cga.json` (RcGA, tunes `K ∈ [1, 1000]` on a log scale instead of `mu`), `emna_global.json` and
 `emna_adaptive.json` (EMNAGlobal / EMNAAdaptive, tune `eta ∈ [1e-3, 1]` and `sigma_min ∈ [1e-3, 0.1]` on log scales and
-`n_elites ∈ [2, 30]`). `test2.json` is stale (uses `kappa_max` and categorical `n_elites`, which `BetaEDA` doesn't accept).
+`n_elites ∈ [2, 30]`), `bs_sapso.json` and `bs_sapso_published.json` (`BSSAPSO`; settings in the
+`"adapter"` section, `update_freq` = the paper's `p + 1`; see "BSSAPSO"). `test2.json` is stale (uses `kappa_max` and categorical `n_elites`, which `BetaEDA` doesn't accept).
 
 ## Running things
 
@@ -702,10 +777,11 @@ grows these). `tests/tuning/test_ifrace_mpi.py` runs both tuning cases under `mp
   `elite_signal="improvement"`; RUMDA with `"log-rank"` and RPBIL with `"rank"` elite weighting; `EDASolver`+`EMNAGlobal` (`eta=0.3`,
   `sigma_min=0.01`, `n_elites=5`): plain, with `"log-rank"` weighting, and with `update_freq=5` +
   `elite_signal="improvement"`; `EDASolver`+`EMNAAdaptive` (same parameters): plain, with `"rank"` weighting,
-  and with `update_freq=5` + `elite_signal="improvement"`) on Rosenbrock and GeneralizedEggCrate
+  and with `update_freq=5` + `elite_signal="improvement"`; `BSSAPSO` (`update_freq=6`, i.e. `p = 5`,
+  `n_e=10`, `n_e_min=2`, `V_max_fraction=1.0`), elitist and improvement) on Rosenbrock and GeneralizedEggCrate
   (`n_x=5`, `n_s=10`, 100 iterations). Pins the `f_best`/`prop_feasible`/`prop_stable` histories, final `X` and
   `adaptable_CPs`, BetaEDA's `a`/`b` (and `R`), the multi-valued EDAs' `p`, the EMNA adapters' `mu`/`Sigma` (and EMNAAdaptive's archive
-  size), and SACSAPSO's last action.
+  size), BSSAPSO's `history["belief_space"]` arrays, and SACSAPSO's last action.
 - Same seed reproduces; different seeds differ; no solver touches numpy's global RNG (its state is unchanged,
   and reseeding it doesn't change results).
 - Two small seeded `IFRace.tune` runs (BasicSolver tuning w/c_1/c_2; EDASolver+BetaEDA tuning eta/rho_min/n_elites
@@ -930,7 +1006,7 @@ Decisions already made:
 - **Naming:** use descriptive words. `n_x` means the problem dimension only.
 - **Plurals:** a name is plural wherever it refers to more than one thing. That covers arrays of values (`CPs`,
   `elite_CPs`, `CP_lbs`) and counts (`n_CPs`, `n_elites`). A qualifier stays singular (`CP_space`,
-  `adaptable_CP_names`). Exceptions are literature symbols: `n_s`, `n_x`, and the irace paper's `N_param`,
+  `adaptable_CP_names`). Exceptions are literature symbols: `n_s`, `n_x`, BS-SAPSO's `n_e`/`n_e_min`, and the irace paper's `N_param`,
   `N_elite`, `N_new`, `N_l`.
 - **PEP 8:** enforce it with ruff, but keep literature notation (`X`, `Y_hat`, `B`, `L`, `T_first`, …) by exempting
   the naming rules.
@@ -983,17 +1059,21 @@ see "Deterministic trainer").
     SAC training reports it as `problem_construction`), but it slows every BBOB run.
 14. **Revisit: what an adapter does when fewer particles are feasible than it wants elites.** PSO has no position
     boundary handling, so often only a few particles are inside the bounds (with `n_s = 30`, `n_x = 10`: about 3–5
-    under r-UMDA, 14–26 under r-PBIL). The adapters only rank feasible particles. Three strategies:
+    under r-UMDA, 14–26 under r-PBIL). The adapters only rank feasible particles (the `BSSAPSO` solver doesn't; see C).
+    Three strategies:
     - **A, skip:** no update unless at least `mu` (`n_elites`) particles are feasible. Keeps the selection size
       fixed, as the EDA papers assume (it sets the update step and, for r-UMDA, the genetic-drift bound), but large
       `mu` switches the adapter off: with `mu ≥ 15` r-UMDA updated in about 0% of iterations.
-    - **B, shrink (current: `BetaEDA`, `RUMDA`, `RPBIL`; `RcGA` needs 2 anyway):** select all feasible particles
+    - **B, shrink (current: `BetaEDA`, `RUMDA`, `RPBIL`, the EMNA adapters; `RcGA` needs 2 anyway):** select all feasible particles
       when fewer than `mu` are feasible. `BetaEDA` updates when at least 2 are feasible (its variance and copula
       fits need 2); `RUMDA`/`RPBIL` when at least 1 is (their update is defined for one elite). Never stalls, but
       the effective selection size, and so the step size, varies between updates. Whenever `≤ mu` particles are
       feasible, selection uses feasibility only, not fitness.
     - **C, feasible first:** rank all particles, feasible ones first (each group by score), and always take `mu`
       (Deb's feasibility rule). Fixed `mu` and `λ = n_s`, but infeasible particles' CPs become elites.
+      `BSSAPSO` is the exception: it uses a variant of C, with all infeasible particles tied at `+inf` (by
+      index, not by score). That is calypso's behaviour, a property of the BS-SAPSO baseline rather than our
+      choice, so it stays (see "BSSAPSO").
 
     A seeded comparison for r-UMDA and r-PBIL (B with at least `min(2, mu)` feasible; 26 ELA problems, `n_x = 10`, `n_s = 30`, 1000 iterations,
     `n_values = 10`, `rho = 0.1`, `mu ∈ {2, 5, 10, 20}`, 15 seeds, fitness signal, `update_freq = 1`):

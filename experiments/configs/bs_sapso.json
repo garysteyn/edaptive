@@ -1,0 +1,62 @@
+{
+  "identifier": "bs_sapso",
+  "comment": "BSSAPSO. update_freq = the paper's p + 1: [21, 501] is p in [20, 500].",
+  "adapter": {
+    "update_freq": {
+      "tuned": true,
+      "type": "integer",
+      "lower": 21,
+      "upper": 501,
+      "log_scale_tuning": true
+    },
+    "selection": {
+      "tuned": true,
+      "type": "categorical",
+      "classes": [
+        "elitist",
+        "improvement"
+      ]
+    },
+    "n_e": {
+      "tuned": false,
+      "type": "integer",
+      "value": 30
+    },
+    "n_e_min": {
+      "tuned": false,
+      "type": "integer",
+      "value": 2
+    }
+  },
+  "optimizer": {
+    "fixed": {
+      "n_s": {
+        "tuned": false,
+        "type": "integer",
+        "value": 30
+      },
+      "V_max_fraction": {
+        "tuned": false,
+        "type": "continuous",
+        "value": 1.0
+      }
+    },
+    "adapted": {
+      "w": {
+        "type": "continuous",
+        "lower": 0,
+        "upper": 1
+      },
+      "c_1": {
+        "type": "continuous",
+        "lower": 0,
+        "upper": 4
+      },
+      "c_2": {
+        "type": "continuous",
+        "lower": 0,
+        "upper": 4
+      }
+    }
+  }
+}
