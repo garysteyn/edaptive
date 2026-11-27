@@ -102,6 +102,8 @@ edaptive/
 │                             # sac_replay_buffer_check.py, sac_trainer_comparison.py: original vs det SAC
 │                             # trainer (see "Deterministic trainer")
 │                             # bs_sapso_equivalence.py: CALYPSO vs BSSAPSO (see "BSSAPSO")
+│                             # bs_sapso_bbob_trajectories.py, bs_sapso_bbob_seed_bases.py, bs_sapso_replay.py,
+│                             # bs_sapso_generator_check.py: the BBOB_FID17_IID2 diagnostics (Known issue 17)
 ├── tests/                    # pytest (`testpaths` set in pyproject.toml); see "Tests"
 │   ├── conftest.py           # forces the Agg matplotlib backend
 │   ├── core/                 # unit tests: adaptable-CP mapping, SolverConfig/parse_config
@@ -489,6 +491,13 @@ particle, uniformly and independently, from a box (the belief space), refitted t
   27% of updates at `update_freq` 201 and 17–23% at 21, alike on both sides. BBOB_FID17_IID2's final gbest median
   was slightly higher (worse) for BSSAPSO in all four configurations (raw p 0.020–0.090); they share seeds, so
   this is about one weak signal, not four.
+  A second run at seed base 7 000 000 (`results/bs_sapso_equivalence_seed7000000/`): exact checks 720/720, smallest
+  Holm p 0.063, 4.0% raw p < 0.05; KS p 0.002, from p-values clumping in the middle (correlated tests), not from
+  an excess of small ones. Exact replay: BSSAPSO driven by calypso's own draws (MT19937, same order, calypso's
+  arithmetic for the initial positions; a stand-in generator, BSSAPSO unchanged) reproduces calypso's gbest at all
+  5001 iterations and its final positions with improvement (Rosenbrock, BBOB_FID17_IID2, 3 seeds each). Elitist
+  diverges first right after the 3rd–5th update, where fewer than `n_s` are selected and the tie order among
+  infeasible particles differs (stable here, unstable in calypso), as documented. See Known issue 17.
 
 ### Timing (`utils/timing.py`)
 - `@timed` accumulates `self._timings[method] = {"wall": s, "cpu": s}` per call (`perf_counter` and the
@@ -1078,6 +1087,17 @@ see "Deterministic trainer").
 16. `BBOBProblem` builds a full `cocoex.Suite` per instance (≈ 0.61 s at 30-D, against µs for the hand-written
     problems). Neither method's configuration cost counts it (I/F-race constructs problems outside `core_time`;
     SAC training reports it as `problem_construction`), but it slows every BBOB run.
+17. **BBOB_FID17_IID2 shift between BSSAPSO and calypso: treated as chance (investigation closed).** In the
+    equivalence checks BSSAPSO's final gbest median was slightly above calypso's (improvement, `update_freq` 201;
+    6 seed bases, 180 runs per side: 24.46 vs 24.01, p = 0.0003, biased by the two bases that raised it; the 4
+    others alone: 24.38 vs 24.12, p = 0.047). Checks: the problem is built and evaluated identically on both sides;
+    the PSO core with fixed CPs agrees (p = 0.62); with calypso's own draws BSSAPSO's improvement runs are
+    bit-identical to calypso's. A generator check fixed in advance (`scratch/bs_sapso_generator_check.py`; seed bases
+    12–15 million, 500 runs per arm; rule: generator effect if BSSAPSO-MT19937 vs BSSAPSO-PCG64 has p < 0.01)
+    gave medians calypso 24.28, BSSAPSO-MT19937 24.27, BSSAPSO-PCG64 24.17; p = 0.74, 0.24 and 0.40 (deciding
+    pair). No generator effect, and no shift in fresh seeds. Scripts: `scratch/bs_sapso_bbob_trajectories.py`,
+    `bs_sapso_bbob_seed_bases.py`, `bs_sapso_replay.py`, `bs_sapso_generator_check.py`; outputs in
+    `results/bs_sapso_equivalence_seed7000000/`.
 14. **Revisit: what an adapter does when fewer particles are feasible than it wants elites.** PSO has no position
     boundary handling, so often only a few particles are inside the bounds (with `n_s = 30`, `n_x = 10`: about 3–5
     under r-UMDA, 14–26 under r-PBIL). The adapters only rank feasible particles (the `BSSAPSO` solver doesn't; see C).
