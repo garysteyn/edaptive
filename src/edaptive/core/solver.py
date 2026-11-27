@@ -24,8 +24,8 @@ class BaseSolver:
 
     ``run`` returns the timings of the optimizer, the adapter and the solver itself
     (see ``edaptive.utils.timing``). Solvers exchange data with the optimizer
-    through ``_get_required_data`` and ``_set_adapted_CPs`` so that this
-    interaction is timed too.
+    through ``_get_required_data`` (the attributes named by ``required_data``) and
+    ``_set_adapted_CPs`` so that this interaction is timed too.
     """
 
     fixed_optimizer_type = None
@@ -116,10 +116,18 @@ class BaseSolver:
             )
         )
 
+    def required_data(self):
+        """Names of the optimizer attributes ``_get_required_data`` reads: by
+        default the adapter's ``required_data()``, none without an adapter.
+        Solvers that read optimizer state themselves override it."""
+        if self.adapter is None:
+            return []
+        return self.adapter.required_data()
+
     @timed
     def _get_required_data(self):
-        """The optimizer attributes named by the adapter's ``required_data()``."""
-        return self.optimizer.get_required_data(self.adapter.required_data())
+        """The optimizer attributes named by ``required_data()``."""
+        return self.optimizer.get_required_data(self.required_data())
 
     @timed
     def _set_adapted_CPs(self, names, values):

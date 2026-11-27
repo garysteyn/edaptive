@@ -55,15 +55,7 @@ class MultivariateNormalEDA(EDAAdapter):
     MAX_REJECTION_ROUNDS = 1000
 
     def required_data(self):
-        return [
-            "problem_lb",
-            "problem_ub",
-            "t",
-            "X",
-            "f_X",
-            "adaptable_CPs",
-            "adaptable_CP_names",
-        ]
+        return ["t", "feasible", "f_X", "adaptable_CPs", "adaptable_CP_names"]
 
     def initialize_model(
         self,
@@ -149,13 +141,9 @@ class MultivariateNormalEDA(EDAAdapter):
         return np.concatenate(accepted, axis=0)
 
     @timed
-    def check_update(
-        self, problem_lb, problem_ub, t, X, f_X, adaptable_CPs, adaptable_CP_names
-    ):
+    def check_update(self, t, feasible, f_X, adaptable_CPs, adaptable_CP_names):
         if (t + 1) % self.update_freq != 0:
             return None
-
-        feasible = np.all((X >= problem_lb) & (X <= problem_ub), axis=1)
 
         if np.count_nonzero(feasible) < 2:
             return None

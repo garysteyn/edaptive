@@ -60,6 +60,9 @@ def set_state(solver, f_X, CPs=None, outside=()):
     X = np.zeros((solver.n_s, 2))
     X[list(outside)] = OUTSIDE
     solver.optimizer.X = X
+    solver.optimizer.feasible = np.all(
+        (X >= solver.optimizer.problem_lb) & (X <= solver.optimizer.problem_ub), axis=1
+    )
     solver.optimizer.f_X = np.asarray(f_X, dtype=float)
     if CPs is not None:
         solver.optimizer.set_adaptable_CPs(NAMES, np.asarray(CPs, dtype=float))
@@ -308,6 +311,7 @@ def test_timings():
     assert history["timings"]["adapter"] == {}
     assert set(history["timings"]["solver"]) == {
         "_get_required_data",
+        "_initial_masked_fitness",
         "_select",
         "_update_belief_space",
         "_sample",

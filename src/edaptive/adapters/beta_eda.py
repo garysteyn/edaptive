@@ -36,15 +36,7 @@ class BetaEDA(EDAAdapter):
     COPULA_MARGIN = 1e-12
 
     def required_data(self):
-        return [
-            "problem_lb",
-            "problem_ub",
-            "t",
-            "X",
-            "f_X",
-            "adaptable_CPs",
-            "adaptable_CP_names",
-        ]
+        return ["t", "feasible", "f_X", "adaptable_CPs", "adaptable_CP_names"]
 
     @timed
     def initialize(
@@ -111,13 +103,9 @@ class BetaEDA(EDAAdapter):
         return self.CP_lbs + samples * (self.CP_ubs - self.CP_lbs)
 
     @timed
-    def check_update(
-        self, problem_lb, problem_ub, t, X, f_X, adaptable_CPs, adaptable_CP_names
-    ):
+    def check_update(self, t, feasible, f_X, adaptable_CPs, adaptable_CP_names):
         if (t + 1) % self.update_freq != 0:
             return None
-
-        feasible = np.all((X >= problem_lb) & (X <= problem_ub), axis=1)
 
         if np.count_nonzero(feasible) < 2:
             return None

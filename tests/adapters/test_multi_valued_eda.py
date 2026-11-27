@@ -68,12 +68,12 @@ def make_cga(K=10.0, n_values=5, seed=0):
 
 
 def data(f_X, adaptable_CPs, t=0, X=None):
-    n = len(f_X)
+    """Optimizer data; ``feasible`` is the PSO's mask for positions ``X`` in the
+    bounds [0, 1]^2."""
+    X = np.full((len(f_X), 2), 0.5) if X is None else X
     return {
-        "problem_lb": np.zeros(2),
-        "problem_ub": np.ones(2),
         "t": t,
-        "X": np.full((n, 2), 0.5) if X is None else X,
+        "feasible": np.all((X >= 0) & (X <= 1), axis=1),
         "f_X": np.asarray(f_X, dtype=float),
         "adaptable_CPs": np.asarray(adaptable_CPs, dtype=float),
         "adaptable_CP_names": CP_NAMES,

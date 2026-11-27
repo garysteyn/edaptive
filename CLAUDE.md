@@ -153,8 +153,8 @@ Three roles, connected by keyword-argument dictionaries:
 - **Contract:** after `step(t)`, `f_X` is the fitness of `X`, and `X` was produced by the current
   `adaptable_CPs`.
 - `get_required_data(names)` returns `{name: getattr(self, name)}`. This is how adapters pull state from the optimizer
-  generically, so attribute names on optimizers form an implicit interface (`problem_lb`, `problem_ub`, `t`, `X`,
-  `f_X`, `adaptable_CPs`, `adaptable_CP_names` for BetaEDA).
+  generically, so attribute names on optimizers form an implicit interface (`t`, `feasible`, `f_X`,
+  `adaptable_CPs`, `adaptable_CP_names` for BetaEDA, the multi-valued EDAs and the EMNA adapters).
 
 ### PSO (`optimizers/pso.py`)
 - `adaptable_CP_names = ("w", "c_1", "c_2")`. `initialize(problem, rng, n_s, w, c_1, c_2, V_max_fraction=None)`: each of
@@ -166,6 +166,11 @@ Three roles, connected by keyword-argument dictionaries:
   `iterate()` order: **update V → clamp V → X += V → evaluate X → update pbest/gbest (feasible particles only)**
   (`_update_bests`). The position trajectory and RNG draws are the same as with Engelbrecht's
   evaluate-first order; only the bookkeeping moves. A run of `T` steps evaluates `(T + 1)·n_s` positions.
+- `feasible` (bool, `(n_s,)`): which particles of the current `X` lie inside the problem bounds (inclusive).
+  `_update_bests` sets it (so inside the timed `initialize`/`iterate`) and `update_history` reuses it for
+  `prop_feasible`. It is a new array each time, never modified in place, so a reference to an earlier mask stays
+  valid (SACSAPSO relies on this). It is the only feasibility computation: adapters and solvers read it instead
+  of comparing `X` with the bounds. Code that sets `X` directly (tests) must set `feasible` too.
 - Velocity clamping: with `V_max_fraction` set (must be > 0), each component of `V` is clipped to `±V_max`,
   `V_max = V_max_fraction·(upper − lower)` per dimension (computed once in `initialize`); `None` = no clamping.
   No position boundary handling. Infeasible particles are evaluated but can't become pbest/gbest.
@@ -206,8 +211,8 @@ Three roles, connected by keyword-argument dictionaries:
 - Numerical safeguards are class constants, not hyperparameters: `UNIT_MARGIN = 1e-6` (scaled elites kept in
   `[m, 1-m]`), `RHO_MAX = 1 - 1e-8` (keeps `kappa > 0`), `CHOLESKY_JITTER = 1e-10`, `COPULA_MARGIN = 1e-12`
   (copula uniforms kept in `[m, 1-m]` so `norm.ppf` is finite).
-- `check_update`: only every `update_freq` iterations (`(t+1) % update_freq == 0`); filters to particles whose
-  `X` is inside problem bounds; needs ≥ 2 feasible; selects its own columns with `select_own_CPs`;
+- `check_update`: only every `update_freq` iterations (`(t+1) % update_freq == 0`); filters to the PSO's
+  `feasible` particles (inside the problem bounds); needs ≥ 2 feasible; selects its own columns with `select_own_CPs`;
   elites = CPs of the `n_elites` feasible particles with the lowest score. `elite_signal` (invalid values raise
   `ValueError`) sets the score:
   - `"fitness"`: `f_X`;
@@ -332,6 +337,9 @@ learning rate `eta`, minimum standard deviation `sigma_min`, and rank-based elit
   `history["timings"]` and returns `(min(history["f_best"]), history)`. `adapt(t)` is a no-op hook by default.
 - Solvers exchange data with the optimizer through the timed helpers `_get_required_data()` and
   `_set_adapted_CPs(names, values)`, so this interaction lands in the solver's own timings.
+  `_get_required_data()` reads the optimizer attributes named by the solver's `required_data()`: by default the
+  adapter's `required_data()`, `[]` without an adapter. Adapter-free solvers that read optimizer state
+  (`SACSAPSO`, `BSSAPSO`) override `required_data()`.
 - `BasicSolver`: no overrides; all CPs come from `fixed_CPs` (which must include w, c_1, c_2).
 - `EDASolver.__init__` then calls `adapter.start(**_get_required_data())` (uses no RNG).
   `EDASolver.adapt`: `check_update` → if elites: `update`, resample the adapted CPs of **all** `n_s` particles
@@ -375,13 +383,17 @@ PSO velocities and Poli's criterion), not an adapter.
 - Timeline (calypso's `calypsoEnv`/`CALYPSO.iter`): the first action comes from the reset observation
   `[1/max_iterations, 0, 0.5, 0, …, 0]` and is used from step 0. After step `t` with `(t+1) % nt == 0` and
   `t+1 < max_iterations` (never after the last iteration) the observation (float64, length `n_s + 3`) is
-  `[(t+2)/max_iterations, infeasible proportion of the positions before step t's move (remembered from the previous
-  adapt call, or the initial swarm), Poli-stable proportion of the action in force (0 or 1),
+  `[(t+2)/max_iterations, infeasible proportion of the positions before step t's move (`mean(~feasible)` of the
+  PSO's mask remembered, by reference, from the previous adapt call or the initial swarm; computed in
+  `_observation`, so only at decisions), Poli-stable proportion of the action in force (0 or 1),
   tanh(mean_j |V_ij| / (ub_j − lb_j)) per particle with V after step t (NaN mean → 1)]`, and the new action is used
   from step `t+1`.
 - RNG order: stochastic first action (in `initial_adapted_CPs`, before the PSO is built) → PSO init → after each
   decision step's PSO draws, one `standard_normal(3)`.
-- Timed: `_load_policy`, `_swarm_data` (every iteration), `_observation`, `_policy_action`, `_set_adapted_CPs`.
+- `required_data()` = `feasible`, `V`, `problem_lb`, `problem_ub` (the bounds normalise `V`).
+- Timed: `_load_policy`, `_get_required_data` (every iteration), `_observation`, `_policy_action`, `_shared_CPs`
+  (the action tiled to `(n_s, 3)`), `_set_adapted_CPs`. Results written before `_get_required_data` replaced it
+  have the key `_swarm_data` instead (e.g. `results/experiment_results/sac_sapso_timing.pkl`).
 - Config `experiments/configs/sac_sapso.json` (`nt` 50, `max_iterations` 5000, `n_s` 30, `V_max_fraction` 1.0 =
   calypso's `--vc`, `policy_path` `results/sac_training/vc_sac_j50/policy.npz`).
 - `scratch/sac_sapso_equivalence.py --exp <exp> [--seeds 30]` runs calypso's env with the saved TF
@@ -426,9 +438,9 @@ particle, uniformly and independently, from a box (the belief space), refitted t
   (before the PSO is built). After every step `t` (calypso updates after the move, evaluation and pbest/gbest
   update of its iteration `t + 1`):
   1. once the belief space has collapsed, nothing happens for the rest of the run (no update, no resampling);
-  2. masked fitness `masked_f_X` = `f_X` inside the problem bounds (inclusive), `+inf` outside (calypso doesn't
-     evaluate infeasible particles), kept as the next step's `previous_masked_f_X` (the initial swarm's at
-     construction);
+  2. masked fitness `masked_f_X` = `f_X` where the PSO's `feasible` is true (inside the problem bounds,
+     inclusive), `+inf` elsewhere (calypso doesn't evaluate infeasible particles), kept as the next step's
+     `previous_masked_f_X` (the initial swarm's at construction, via the timed `_initial_masked_fitness`);
   3. collapse: if the box's raw widths summed over the CPs are `< EPSILON`, the belief space has collapsed
      (private `_collapse_step = t`). That sum mixes CPs with different ranges (`w` in [0, 1], `c_1`/`c_2` in [0, 4]), as in
      calypso. It tests the belief space's bounds, not swarm convergence;
@@ -464,8 +476,9 @@ particle, uniformly and independently, from a box (the belief space), refitted t
   derived: update `k` after step `k·update_freq − 1`; particles selected `max(n_e − (k − 1), n_e_min)` (elitist) or
   `n_e` (improvement); the box in force at step `t` is that of the last update `k ≤ t // update_freq` (the CP
   bounds before the first); the collapse from the update count. Recording it is not timed.
-- Timed: `_get_required_data` (overridden: it reads a fixed list, there is no adapter), `_select` (masking, collapse
-  check, schedule, selection), `_update_belief_space`, `_sample`, `_set_adapted_CPs`.
+- `required_data()` = `feasible`, `f_X`, `adaptable_CPs`, `adaptable_CP_names` (there is no adapter).
+- Timed: `_get_required_data`, `_initial_masked_fitness`, `_select` (masking, collapse check, schedule,
+  selection), `_update_belief_space`, `_sample`, `_set_adapted_CPs`.
 - Configs: `bs_sapso.json` (tuned: `update_freq ∈ [21, 501]` integer, log scale, i.e. `p ∈ [20, 500]`;
   `selection ∈ {elitist, improvement}`) and `bs_sapso_published.json` (the paper's `vc_fixed200_improve30`:
   `update_freq` 201, `improvement`, nothing tuned). Both fix `n_e` 30, `n_e_min` 2 (calypso's `execute.py`
@@ -506,8 +519,8 @@ particle, uniformly and independently, from a box (the belief space), refitted t
 - `history["timings"]` = `{"optimizer": {...}, "adapter": {...}, "solver": {...}}` (adapter `{}` without one).
   Timed: optimizer `initialize`/`iterate`; adapter `initialize`/`check_update`/`update`/`sample`, plus `start`
   for EDA adapters (where implemented); solver `_get_required_data`/`_set_adapted_CPs`, plus `sample_adapted_CPs` in
-  `StabilityGuidedPSO`, `scheduled_CPs` in `TVACPSO`, `_load_policy`/`_swarm_data`/`_observation`/`_policy_action` in
-  `SACSAPSO`, `_select`/`_update_belief_space`/`_sample` in `BSSAPSO`. Measured cost of the interaction helpers: about 3.5 µs per iteration, roughly 2% of
+  `StabilityGuidedPSO`, `scheduled_CPs` in `TVACPSO`, `_load_policy`/`_observation`/`_policy_action`/`_shared_CPs` in
+  `SACSAPSO`, `_initial_masked_fitness`/`_select`/`_update_belief_space`/`_sample` in `BSSAPSO`. Measured cost of the interaction helpers: about 3.5 µs per iteration, roughly 2% of
   core time (`n_s=n_x=30`, BetaEDA).
 - `core_time(timings)` → `{"wall": total, "cpu": total}` over all components.
 - Runs execute in parallel (MPI ranks) and per-run times are summed afterwards, so each process must be

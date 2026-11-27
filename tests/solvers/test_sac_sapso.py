@@ -93,18 +93,28 @@ def test_reset_observation():
     )
 
 
+def move_to(optimizer, X):
+    """Set the positions and, as the PSO does, their feasibility mask."""
+    optimizer.X = X
+    optimizer.feasible = np.all(
+        (X >= optimizer.problem_lb) & (X <= optimizer.problem_ub), axis=1
+    )
+
+
 def test_infeasible_proportion_lags_one_step():
     solver = build()
     observations = record_decisions(solver)
     optimizer = solver.optimizer
 
     # Initial swarm is inside the bounds; now move 3 of 10 particles outside.
-    assert solver._infeasible_proportion == 0.0
-    optimizer.X[:3] = optimizer.problem_ub + 1.0
+    assert np.all(solver._feasible_before_move)
+    X = optimizer.X.copy()
+    X[:3] = optimizer.problem_ub + 1.0
+    move_to(optimizer, X)
     solver.adapt(NT - 1)  # decision: sees the positions before this step's move
     assert observations[-1][1] == 0.0
 
-    optimizer.X[:] = optimizer.problem_ub - 1e-3  # all feasible again
+    move_to(optimizer, np.tile(optimizer.problem_ub - 1e-3, (N_S, 1)))  # feasible
     solver.adapt(2 * NT - 1)
     assert observations[-1][1] == np.float64(0.3)
     solver.adapt(2 * NT)  # no decision, but records 0.0
@@ -316,9 +326,10 @@ def test_policy_interaction_is_timed():
     timed = history["timings"]["solver"]
     for name in (
         "_load_policy",
-        "_swarm_data",
+        "_get_required_data",
         "_observation",
         "_policy_action",
+        "_shared_CPs",
         "_set_adapted_CPs",
     ):
         assert name in timed

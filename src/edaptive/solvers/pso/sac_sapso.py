@@ -144,9 +144,10 @@ def reset_observation(n_s, max_iterations):
     return observation
 
 
-def infeasible_proportion(X, problem_lb, problem_ub):
-    """Proportion of particles outside the bounds in any dimension."""
-    return np.mean(np.any((X < problem_lb) | (X > problem_ub), axis=1))
+def infeasible_proportion(feasible):
+    """Proportion of particles outside the bounds (``feasible`` is the PSO's
+    mask)."""
+    return np.mean(~feasible)
 
 
 class SACSAPSO(BaseSolver):
@@ -177,8 +178,9 @@ class SACSAPSO(BaseSolver):
     built), then the PSO's initialisation; afterwards each decision's
     ``standard_normal(3)`` follows the draws of the step that precedes it.
 
-    Timed: ``_load_policy``, ``_swarm_data``, ``_observation``,
-    ``_policy_action`` and ``_set_adapted_CPs``, so the forward pass counts
+    Timed: ``_load_policy``, ``_get_required_data``, ``_observation`` (which
+    also computes the infeasible proportion), ``_policy_action``, ``_shared_CPs``
+    and ``_set_adapted_CPs``, so the observation and the forward pass count
     toward the runtime.
     """
 
@@ -198,11 +200,8 @@ class SACSAPSO(BaseSolver):
             config=config,
             rnd_seed=rnd_seed,
         )
-        data = self._swarm_data()
-        # Positions before the next move: those of the initial swarm.
-        self._infeasible_proportion = infeasible_proportion(
-            data["X"], data["problem_lb"], data["problem_ub"]
-        )
+        # Feasibility of the positions before the next move: the initial swarm's.
+        self._feasible_before_move = self._get_required_data()["feasible"]
 
     @classmethod
     def _validated_settings(cls, adapter_params):
@@ -256,33 +255,29 @@ class SACSAPSO(BaseSolver):
         return super().run(max_iterations)
 
     def adapt(self, t):
-        data = self._swarm_data()
-        before_move = self._infeasible_proportion
-        self._infeasible_proportion = infeasible_proportion(
-            data["X"], data["problem_lb"], data["problem_ub"]
-        )
+        data = self._get_required_data()
+        # The PSO makes a new mask each step, so keeping a reference is enough.
+        feasible_before_move = self._feasible_before_move
+        self._feasible_before_move = data["feasible"]
         if (t + 1) % self.nt != 0 or t + 1 >= self.max_iterations:
             return
-        observation = self._observation(t, before_move, data)
+        observation = self._observation(t, feasible_before_move, data)
         self.action = self._policy_action(observation)
-        self._set_adapted_CPs(
-            self.adapted_CP_names, np.tile(self.action.astype(float), (self.n_s, 1))
-        )
+        self._set_adapted_CPs(self.adapted_CP_names, self._shared_CPs(self.action))
+
+    def required_data(self):
+        return ("feasible", "V", "problem_lb", "problem_ub")
 
     @timed
     def _load_policy(self, path):
         return load_policy(path)
 
     @timed
-    def _swarm_data(self):
-        return self.optimizer.get_required_data(("X", "V", "problem_lb", "problem_ub"))
-
-    @timed
-    def _observation(self, t, infeasible_before_move, data):
+    def _observation(self, t, feasible_before_move, data):
         return build_observation(
             t,
             self.max_iterations,
-            infeasible_before_move,
+            infeasible_proportion(feasible_before_move),
             self.action,
             data["V"],
             data["problem_lb"],
@@ -292,3 +287,8 @@ class SACSAPSO(BaseSolver):
     @timed
     def _policy_action(self, observation):
         return policy_action(self.policy, observation, self.rng)
+
+    @timed
+    def _shared_CPs(self, action):
+        """``action`` as every particle's ``(w, c_1, c_2)``, shape ``(n_s, 3)``."""
+        return np.tile(action.astype(float), (self.n_s, 1))

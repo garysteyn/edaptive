@@ -39,12 +39,12 @@ def make_adapter(
 
 
 def data(f_X, t=0, X=None):
-    """Optimizer data for N_S particles whose CPs are (i, i, i) for particle i."""
+    """Optimizer data for N_S particles whose CPs are (i, i, i) for particle i.
+    ``feasible`` is the PSO's mask for positions ``X`` in the bounds [0, 1]^2."""
+    X = np.full((N_S, 2), 0.5) if X is None else X
     return {
-        "problem_lb": np.zeros(2),
-        "problem_ub": np.ones(2),
         "t": t,
-        "X": np.full((N_S, 2), 0.5) if X is None else X,
+        "feasible": np.all((X >= 0) & (X <= 1), axis=1),
         "f_X": np.asarray(f_X, dtype=float),
         "adaptable_CPs": np.repeat(np.arange(N_S, dtype=float)[:, None], 3, axis=1),
         "adaptable_CP_names": CP_NAMES,

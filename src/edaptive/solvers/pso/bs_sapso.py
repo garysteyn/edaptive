@@ -16,12 +16,10 @@ from edaptive.optimizers.pso import PSO
 from edaptive.utils.timing import timed
 
 
-def masked_fitness(X, f_X, problem_lb, problem_ub):
-    """``f_X`` of particles inside the problem bounds (inclusive), ``+inf`` for
-    the others (calypso does not evaluate infeasible particles), and the
-    feasibility mask."""
-    feasible = np.all((X >= problem_lb) & (X <= problem_ub), axis=1)
-    return np.where(feasible, f_X, np.inf), feasible
+def masked_fitness(f_X, feasible):
+    """``f_X`` of feasible particles (inside the problem bounds, inclusive) and
+    ``+inf`` for the others (calypso does not evaluate infeasible particles)."""
+    return np.where(feasible, f_X, np.inf)
 
 
 def one_iteration_change(masked_f_X, previous_masked_f_X):
@@ -118,8 +116,8 @@ class BSSAPSO(BaseSolver):
     ``(n_updates, n_CPs)`` and ``(n_updates,)``) after ``run``. Recording it is not
     timed.
 
-    Timed: ``_get_required_data``, ``_select``, ``_update_belief_space``,
-    ``_sample`` and ``_set_adapted_CPs``.
+    Timed: ``_get_required_data``, ``_initial_masked_fitness``, ``_select``,
+    ``_update_belief_space``, ``_sample`` and ``_set_adapted_CPs``.
     """
 
     fixed_optimizer_type = PSO
@@ -130,14 +128,7 @@ class BSSAPSO(BaseSolver):
 
     setting_names = ("update_freq", "selection", "n_e", "n_e_min")
     selections = ("elitist", "improvement")
-    required_data_names = (
-        "problem_lb",
-        "problem_ub",
-        "X",
-        "f_X",
-        "adaptable_CPs",
-        "adaptable_CP_names",
-    )
+    required_data_names = ("feasible", "f_X", "adaptable_CPs", "adaptable_CP_names")
 
     def __init__(
         self, optimizer_type=None, adapter_type=None, *, problem, config, rnd_seed=0
@@ -175,9 +166,8 @@ class BSSAPSO(BaseSolver):
         self._history = {"belief_lbs": [], "belief_ubs": [], "n_feasible": []}
         self.optimizer.history["belief_space"] = self._history
 
-        data = self._get_required_data()
-        self._previous_masked_f_X, _ = masked_fitness(
-            data["X"], data["f_X"], data["problem_lb"], data["problem_ub"]
+        self._previous_masked_f_X = self._initial_masked_fitness(
+            self._get_required_data()
         )
 
     @classmethod
@@ -239,18 +229,20 @@ class BSSAPSO(BaseSolver):
         self._history["belief_ubs"].append(self._belief_ubs.copy())
         self._history["n_feasible"].append(n_feasible)
 
+    def required_data(self):
+        return self.required_data_names
+
     @timed
-    def _get_required_data(self):
-        return self.optimizer.get_required_data(self.required_data_names)
+    def _initial_masked_fitness(self, data):
+        """The initial swarm's masked fitness, the first step's ``f_{t-1}``."""
+        return masked_fitness(data["f_X"], data["feasible"])
 
     @timed
     def _select(self, t, data):
         """Steps 2-4 of the timeline up to the selection: the selected particles'
         CPs (best first) and the number of feasible particles if the box is
         updated after step ``t``, else ``(None, None)``."""
-        masked_f_X, feasible = masked_fitness(
-            data["X"], data["f_X"], data["problem_lb"], data["problem_ub"]
-        )
+        masked_f_X = masked_fitness(data["f_X"], data["feasible"])
         previous_masked_f_X = self._previous_masked_f_X
         self._previous_masked_f_X = masked_f_X
 
@@ -276,7 +268,7 @@ class BSSAPSO(BaseSolver):
 
         columns = [data["adaptable_CP_names"].index(name) for name in self.CP_names]
         return data["adaptable_CPs"][selected][:, columns], int(
-            np.count_nonzero(feasible)
+            np.count_nonzero(data["feasible"])
         )
 
     @timed

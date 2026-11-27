@@ -60,6 +60,27 @@ def test_X_is_produced_by_current_CPs():
     np.testing.assert_allclose(pso.X - X_before, [[0.0] * 2, [0.05] * 2, [0.1] * 2])
 
 
+def test_feasible_marks_the_current_X_inside_the_bounds():
+    pso = make_pso(problem=Sum(dimensions=2), n_s=8, w=1.0, c_1=2.0, c_2=2.0)
+
+    def expected():
+        return np.all((pso.X >= 0) & (pso.X <= 1), axis=1)
+
+    np.testing.assert_array_equal(pso.feasible, expected())
+    seen = set()
+    for t in range(20):
+        previous = pso.feasible
+        previous_copy = previous.copy()
+        pso.step(t)
+        np.testing.assert_array_equal(pso.feasible, expected())
+        assert pso.history["prop_feasible"][-1] == np.mean(expected())
+        # A new mask each step; the earlier one is left as it was.
+        assert pso.feasible is not previous
+        np.testing.assert_array_equal(previous, previous_copy)
+        seen.update(pso.feasible.tolist())
+    assert seen == {True, False}
+
+
 def test_infeasible_particles_never_become_bests():
     pso = make_pso(problem=Sum(dimensions=2), n_s=3, w=1.0, c_1=0.0, c_2=0.0)
     f_Y_hat_before = pso.f_Y_hat

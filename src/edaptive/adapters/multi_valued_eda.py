@@ -49,15 +49,7 @@ class MultiValuedEDA(EDAAdapter):
     min_feasible = 2
 
     def required_data(self):
-        return [
-            "problem_lb",
-            "problem_ub",
-            "t",
-            "X",
-            "f_X",
-            "adaptable_CPs",
-            "adaptable_CP_names",
-        ]
+        return ["t", "feasible", "f_X", "adaptable_CPs", "adaptable_CP_names"]
 
     def initialize_model(self, n_values, update_freq, elite_signal, rng):
         """Set up the values, the uniform frequency matrix and the borders.
@@ -196,13 +188,9 @@ class MultiValuedEDA(EDAAdapter):
         return self.values[np.arange(self.n_CPs), indices]
 
     @timed
-    def check_update(
-        self, problem_lb, problem_ub, t, X, f_X, adaptable_CPs, adaptable_CP_names
-    ):
+    def check_update(self, t, feasible, f_X, adaptable_CPs, adaptable_CP_names):
         if (t + 1) % self.update_freq != 0:
             return None
-
-        feasible = np.all((X >= problem_lb) & (X <= problem_ub), axis=1)
 
         if np.count_nonzero(feasible) < self.min_feasible:
             return None

@@ -88,11 +88,16 @@ class PSO(BaseOptimizer):
         self.update_history()
 
     def _update_bests(self):
-        """Update personal and global bests from ``X``/``f_X``. Only particles
-        inside the problem bounds can become a best."""
-        valid = np.all(
+        """Set ``feasible`` for ``X`` and update personal and global bests from
+        ``X``/``f_X``. Only particles inside the problem bounds can become a best.
+
+        ``feasible`` (bool, ``(n_s,)``) marks the particles of ``X`` inside the
+        problem bounds (inclusive). It is a new array each time, never modified in
+        place, so a reference to an earlier mask stays valid."""
+        self.feasible = np.all(
             (self.X >= self.problem.lower) & (self.X <= self.problem.upper), axis=1
         )
+        valid = self.feasible
 
         # Particles that improve their personal best
         improved = valid & (self.f_X < self.f_Y)
@@ -142,11 +147,8 @@ class PSO(BaseOptimizer):
         self._update_bests()
 
     def update_history(self):
-        feasible = np.all(
-            (self.X >= self.problem.lower) & (self.X <= self.problem.upper), axis=1
-        )
         self.history["f_best"].append(self.f_Y_hat)
-        self.history["prop_feasible"].append(feasible.sum() / self.n_s)
+        self.history["prop_feasible"].append(self.feasible.sum() / self.n_s)
         self.history["prop_stable"].append(
             stable_particle_proportion(
                 w=self._adaptable_CPs[:, 0],
