@@ -55,8 +55,12 @@ class TVACPSO(BaseSolver):
     def initial_adapted_CPs(self):
         return dict(zip(self.adapted_CP_names, self.initial_CPs, strict=True))
 
-    def adapt(self, t):
-        # Set the CPs for the next step, t + 1.
+    def required_data(self):
+        return ("t",)
+
+    def adapt(self):
+        # Set the CPs for the next step, t + 1 (t is the step just completed).
+        t = self._get_required_data()["t"]
         CPs = self.scheduled_CPs(iteration=t + 1, max_iterations=self.max_iterations)
         self._set_adapted_CPs(self.adapted_CP_names, CPs)
 

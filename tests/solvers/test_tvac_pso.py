@@ -43,7 +43,7 @@ def test_every_step_uses_the_scheduled_values():
             solver.optimizer.adaptable_CPs, np.tile(expected_CPs(t), (N_S, 1))
         )
         solver.optimizer.step(t)
-        solver.adapt(t)
+        solver.adapt()
 
 
 def test_run_ends_on_the_final_values():

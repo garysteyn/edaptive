@@ -15,7 +15,7 @@ class EDASolver(BaseSolver):
         super().__init__(*args, **kwargs)
         self.adapter.start(**self._get_required_data())
 
-    def adapt(self, t):
+    def adapt(self):
         data = self._get_required_data()
         elite_CPs = self.adapter.check_update(**data)
 

@@ -128,7 +128,13 @@ class BSSAPSO(BaseSolver):
 
     setting_names = ("update_freq", "selection", "n_e", "n_e_min")
     selections = ("elitist", "improvement")
-    required_data_names = ("feasible", "f_X", "adaptable_CPs", "adaptable_CP_names")
+    required_data_names = (
+        "t",
+        "feasible",
+        "f_X",
+        "adaptable_CPs",
+        "adaptable_CP_names",
+    )
 
     def __init__(
         self, optimizer_type=None, adapter_type=None, *, problem, config, rnd_seed=0
@@ -213,12 +219,12 @@ class BSSAPSO(BaseSolver):
         }
         return f_best, history
 
-    def adapt(self, t):
+    def adapt(self):
         # After the collapse (see _select) the CPs never change again.
         if self._collapse_step is not None:
             return
 
-        selected_CPs, n_feasible = self._select(t, self._get_required_data())
+        selected_CPs, n_feasible = self._select(self._get_required_data())
         if selected_CPs is None:
             return
 
@@ -238,10 +244,11 @@ class BSSAPSO(BaseSolver):
         return masked_fitness(data["f_X"], data["feasible"])
 
     @timed
-    def _select(self, t, data):
+    def _select(self, data):
         """Steps 2-4 of the timeline up to the selection: the selected particles'
         CPs (best first) and the number of feasible particles if the box is
-        updated after step ``t``, else ``(None, None)``."""
+        updated after step ``t = data["t"]``, else ``(None, None)``."""
+        t = data["t"]
         masked_f_X = masked_fitness(data["f_X"], data["feasible"])
         previous_masked_f_X = self._previous_masked_f_X
         self._previous_masked_f_X = masked_f_X

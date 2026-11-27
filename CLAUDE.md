@@ -332,14 +332,16 @@ learning rate `eta`, minimum standard deviation `sigma_min`, and rank-based elit
   → `initial_adapted_CPs()` (hook; default: `adapter.sample(n_s)` by name, `{}` without an adapter) →
   `_build_optimizer()` (`problem`, `rng`, `**(config.fixed_CPs | initial_adapted_CPs)`). `n_s` is read from
   `config.fixed_CPs["n_s"]`.
-- `run(max_iterations=5000)`: `for t: optimizer.step(t); self.adapt(t)` (so `(max_iterations + 1)·n_s`
+- `run(max_iterations=5000)`: `for t: optimizer.step(t); self.adapt()` (so `(max_iterations + 1)·n_s`
   evaluations including the initial swarm; keep this in mind when matching budgets with calypso), then stores `self.timings()` in
-  `history["timings"]` and returns `(min(history["f_best"]), history)`. `adapt(t)` is a no-op hook by default.
+  `history["timings"]` and returns `(min(history["f_best"]), history)`. `adapt()` is a no-op hook by default. It takes no step index: a solver
+  that needs it reads the optimizer's `t` (the step just completed; `PSO.step` sets it before iterating) through
+  `_get_required_data()`. Code that calls `adapt()` without `step` (tests) sets `optimizer.t` first.
 - Solvers exchange data with the optimizer through the timed helpers `_get_required_data()` and
   `_set_adapted_CPs(names, values)`, so this interaction lands in the solver's own timings.
   `_get_required_data()` reads the optimizer attributes named by the solver's `required_data()`: by default the
   adapter's `required_data()`, `[]` without an adapter. Adapter-free solvers that read optimizer state
-  (`SACSAPSO`, `BSSAPSO`) override `required_data()`.
+  (`TVACPSO`, `SACSAPSO`, `BSSAPSO`) override `required_data()`.
 - `BasicSolver`: no overrides; all CPs come from `fixed_CPs` (which must include w, c_1, c_2).
 - `EDASolver.__init__` then calls `adapter.start(**_get_required_data())` (uses no RNG).
   `EDASolver.adapt`: `check_update` → if elites: `update`, resample the adapted CPs of **all** `n_s` particles
@@ -352,7 +354,8 @@ learning rate `eta`, minimum standard deviation `sigma_min`, and rank-based elit
 - `TVACPSO` (Ratnaweera, Halgamuge & Watson 2004, PSO-TVAC): all particles share `w`, `c_1`, `c_2`, which move
   linearly from `initial_CPs = (0.9, 2.5, 0.5)` to `final_CPs = (0.4, 0.5, 2.5)` (class attributes, the paper's
   values) as `initial + (final - initial)·iter/MAXITR`. Step `t` uses `iter = t` (`MAXITR = max_iterations`, which
-  `run` stores before the loop), so step 0 uses the initial values. `scheduled_CPs` is timed. No RNG use beyond the
+  `run` stores before the loop), so step 0 uses the initial values: after step `t`, `adapt` reads `t`
+  (`required_data()` = `t`) and sets the CPs for `iter = t + 1`. `_get_required_data` and `scheduled_CPs` are timed. No RNG use beyond the
   PSO's own. Clamping comes from the config: `tvac_pso.json` sets
   `V_max_fraction = 0.5`. The paper sets `V_max` to the upper bound of the search range (§IV-B, Table III; citing
   Eberhart & Shi 2000). On its symmetric benchmark domains `[−X_max, X_max]` that equals half the width, but on
@@ -390,7 +393,7 @@ PSO velocities and Poli's criterion), not an adapter.
   from step `t+1`.
 - RNG order: stochastic first action (in `initial_adapted_CPs`, before the PSO is built) → PSO init → after each
   decision step's PSO draws, one `standard_normal(3)`.
-- `required_data()` = `feasible`, `V`, `problem_lb`, `problem_ub` (the bounds normalise `V`).
+- `required_data()` = `t`, `feasible`, `V`, `problem_lb`, `problem_ub` (the bounds normalise `V`).
 - Timed: `_load_policy`, `_get_required_data` (every iteration), `_observation`, `_policy_action`, `_shared_CPs`
   (the action tiled to `(n_s, 3)`), `_set_adapted_CPs`. Results written before `_get_required_data` replaced it
   have the key `_swarm_data` instead (e.g. `results/experiment_results/sac_sapso_timing.pkl`).
@@ -476,7 +479,7 @@ particle, uniformly and independently, from a box (the belief space), refitted t
   derived: update `k` after step `k·update_freq − 1`; particles selected `max(n_e − (k − 1), n_e_min)` (elitist) or
   `n_e` (improvement); the box in force at step `t` is that of the last update `k ≤ t // update_freq` (the CP
   bounds before the first); the collapse from the update count. Recording it is not timed.
-- `required_data()` = `feasible`, `f_X`, `adaptable_CPs`, `adaptable_CP_names` (there is no adapter).
+- `required_data()` = `t`, `feasible`, `f_X`, `adaptable_CPs`, `adaptable_CP_names` (there is no adapter).
 - Timed: `_get_required_data`, `_initial_masked_fitness`, `_select` (masking, collapse check, schedule,
   selection), `_update_belief_space`, `_sample`, `_set_adapted_CPs`.
 - Configs: `bs_sapso.json` (tuned: `update_freq ∈ [21, 501]` integer, log scale, i.e. `p ∈ [20, 500]`;
@@ -518,7 +521,8 @@ particle, uniformly and independently, from a box (the belief space), refitted t
   leaf methods are timed, so nothing is counted twice. Each timed call adds about 0.5 µs of clock overhead.
 - `history["timings"]` = `{"optimizer": {...}, "adapter": {...}, "solver": {...}}` (adapter `{}` without one).
   Timed: optimizer `initialize`/`iterate`; adapter `initialize`/`check_update`/`update`/`sample`, plus `start`
-  for EDA adapters (where implemented); solver `_get_required_data`/`_set_adapted_CPs`, plus `sample_adapted_CPs` in
+  for EDA adapters (where implemented); solver `_get_required_data` (solvers that read optimizer state) and
+  `_set_adapted_CPs`, plus `sample_adapted_CPs` in
   `StabilityGuidedPSO`, `scheduled_CPs` in `TVACPSO`, `_load_policy`/`_observation`/`_policy_action`/`_shared_CPs` in
   `SACSAPSO`, `_initial_masked_fitness`/`_select`/`_update_belief_space`/`_sample` in `BSSAPSO`. Measured cost of the interaction helpers: about 3.5 µs per iteration, roughly 2% of
   core time (`n_s=n_x=30`, BetaEDA).

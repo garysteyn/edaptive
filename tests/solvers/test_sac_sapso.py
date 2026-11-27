@@ -93,6 +93,12 @@ def test_reset_observation():
     )
 
 
+def adapt_after(solver, t):
+    """``adapt`` as after step ``t``, for a state set without stepping."""
+    solver.optimizer.t = t
+    solver.adapt()
+
+
 def move_to(optimizer, X):
     """Set the positions and, as the PSO does, their feasibility mask."""
     optimizer.X = X
@@ -111,14 +117,14 @@ def test_infeasible_proportion_lags_one_step():
     X = optimizer.X.copy()
     X[:3] = optimizer.problem_ub + 1.0
     move_to(optimizer, X)
-    solver.adapt(NT - 1)  # decision: sees the positions before this step's move
+    adapt_after(solver, NT - 1)  # decision: sees the positions before this step's move
     assert observations[-1][1] == 0.0
 
     move_to(optimizer, np.tile(optimizer.problem_ub - 1e-3, (N_S, 1)))  # feasible
-    solver.adapt(2 * NT - 1)
+    adapt_after(solver, 2 * NT - 1)
     assert observations[-1][1] == np.float64(0.3)
-    solver.adapt(2 * NT)  # no decision, but records 0.0
-    solver.adapt(3 * NT - 1)
+    adapt_after(solver, 2 * NT)  # no decision, but records 0.0
+    adapt_after(solver, 3 * NT - 1)
     assert observations[-1][1] == 0.0
 
 
@@ -130,9 +136,9 @@ def test_decisions_every_nt_steps_and_none_after_the_last_iteration():
     step = {"t": None}
     original_adapt = solver.adapt
 
-    def adapt(t):
-        step["t"] = t
-        original_adapt(t)
+    def adapt():
+        step["t"] = solver.optimizer.t
+        original_adapt()
 
     def recording(observation):
         decided.append(step["t"])
@@ -153,7 +159,7 @@ def test_actions_are_shared_and_used_from_the_next_step():
     )
     for t in range(NT):
         solver.optimizer.step(t)
-        solver.adapt(t)
+        solver.adapt()
         if t < NT - 1:
             np.testing.assert_array_equal(solver.action, first)
     assert not np.array_equal(solver.action, first)
@@ -168,7 +174,7 @@ def test_observation_time_and_stability_match_calypso():
     in_force = solver.action.copy()
     for t in range(NT):
         solver.optimizer.step(t)
-        solver.adapt(t)
+        solver.adapt()
     observation = observations[0]
     assert observation[0] == np.float64((NT - 1 + 2) / MAX_ITERATIONS)
     w, c_1, c_2 = in_force

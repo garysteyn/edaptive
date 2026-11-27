@@ -94,7 +94,7 @@ def main():
     p_history = [adapter.p.copy()]
     for t in range(args.max_iter):
         solver.optimizer.step(t)
-        solver.adapt(t)
+        solver.adapt()
         p_history.append(adapter.p.copy())
     p_history = np.array(p_history)  # (iterations + 1, n_CPs, n_values)
     f_best = np.array(solver.optimizer.history["f_best"])

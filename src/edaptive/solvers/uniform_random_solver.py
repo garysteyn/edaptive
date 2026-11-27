@@ -8,6 +8,6 @@ class UniformRandomSolver(BaseSolver):
     uses_adapter = True
     fixed_adapter_type = UniformRandomAdapter
 
-    def adapt(self, t):
+    def adapt(self):
         new_adapted_CPs = self.adapter.sample(N=self.n_s)
         self._set_adapted_CPs(self.adapter.CP_names, new_adapted_CPs)

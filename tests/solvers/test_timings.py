@@ -35,7 +35,7 @@ EXPECTED_KEYS = {
     TVACPSO: {
         "optimizer": {"initialize", "iterate"},
         "adapter": set(),
-        "solver": {"scheduled_CPs", "_set_adapted_CPs"},
+        "solver": {"_get_required_data", "scheduled_CPs", "_set_adapted_CPs"},
     },
 }
 

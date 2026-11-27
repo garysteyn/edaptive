@@ -254,8 +254,9 @@ class SACSAPSO(BaseSolver):
             )
         return super().run(max_iterations)
 
-    def adapt(self, t):
+    def adapt(self):
         data = self._get_required_data()
+        t = data["t"]
         # The PSO makes a new mask each step, so keeping a reference is enough.
         feasible_before_move = self._feasible_before_move
         self._feasible_before_move = data["feasible"]
@@ -266,7 +267,7 @@ class SACSAPSO(BaseSolver):
         self._set_adapted_CPs(self.adapted_CP_names, self._shared_CPs(self.action))
 
     def required_data(self):
-        return ("feasible", "V", "problem_lb", "problem_ub")
+        return ("t", "feasible", "V", "problem_lb", "problem_ub")
 
     @timed
     def _load_policy(self, path):

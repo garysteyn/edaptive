@@ -68,6 +68,12 @@ def set_state(solver, f_X, CPs=None, outside=()):
         solver.optimizer.set_adaptable_CPs(NAMES, np.asarray(CPs, dtype=float))
 
 
+def adapt_after(solver, t):
+    """``adapt`` as after step ``t``, for a state set without stepping."""
+    solver.optimizer.t = t
+    solver.adapt()
+
+
 def distinct_CPs(n):
     """``n`` distinct CP rows, increasing in every CP; row k is ``(k+1)/(n+1)`` of
     the way from the lower to the upper bounds."""
@@ -101,7 +107,7 @@ def test_update_k_comes_after_step_k_update_freq_minus_one(update_freq):
     for t in range(5 * update_freq):
         before = CPs(solver)
         solver.optimizer.step(t)
-        solver.adapt(t)
+        solver.adapt()
         if not np.array_equal(CPs(solver), before):
             resampled_after.append(t)
     assert resampled_after == [k * update_freq - 1 for k in range(1, 6)]
@@ -123,10 +129,10 @@ def test_elitist_box_is_min_max_of_the_n_e_best_particles():
     initial = distinct_CPs(5)
     f_X = [5.0, 1.0, 4.0, 2.0, 3.0]  # best three: particles 1, 3, 4
     set_state(solver, f_X, initial)
-    solver.adapt(0)
+    adapt_after(solver, 0)
     assert belief_space(solver)["belief_lbs"] == []
     set_state(solver, f_X, initial)
-    solver.adapt(1)
+    adapt_after(solver, 1)
     history = belief_space(solver)
     np.testing.assert_array_equal(history["belief_lbs"], [initial[1]])
     np.testing.assert_array_equal(history["belief_ubs"], [initial[4]])
@@ -142,7 +148,7 @@ def run_with_fixed_state(solver, n_steps):
     fixed_CPs = distinct_CPs(solver.n_s)
     for t in range(n_steps):
         set_state(solver, np.arange(solver.n_s), fixed_CPs)
-        solver.adapt(t)
+        adapt_after(solver, t)
     return fixed_CPs
 
 
@@ -170,9 +176,9 @@ def test_improvement_selects_the_largest_one_step_decreases():
     solver = make_solver(n_s=4, selection="improvement", n_e=2)
     initial = distinct_CPs(4)
     set_state(solver, [10.0, 10.0, 10.0, 10.0], initial)
-    solver.adapt(0)  # f_{t-1}
+    adapt_after(solver, 0)  # f_{t-1}
     set_state(solver, [9.0, 7.0, 10.0, 8.0], initial)
-    solver.adapt(1)  # changes -1, -3, 0, -2: particles 1 and 3
+    adapt_after(solver, 1)  # changes -1, -3, 0, -2: particles 1 and 3
     np.testing.assert_array_equal(belief_space(solver)["belief_lbs"], [initial[1]])
     np.testing.assert_array_equal(belief_space(solver)["belief_ubs"], [initial[3]])
 
@@ -192,11 +198,11 @@ def test_improvement_ranks_infinite_changes_last():
     solver = make_solver(n_s=7, selection="improvement", n_e=2)
     initial = distinct_CPs(7)
     set_state(solver, [0, 0, 0, 0, 0, -max_float, max_float], initial, outside=(0, 2))
-    solver.adapt(0)
+    adapt_after(solver, 0)
     set_state(
         solver, [-100, -100, -100, 1, 2, max_float, -max_float], initial, outside=(0, 1)
     )
-    solver.adapt(1)
+    adapt_after(solver, 1)
     np.testing.assert_array_equal(belief_space(solver)["belief_lbs"], [initial[3]])
     np.testing.assert_array_equal(belief_space(solver)["belief_ubs"], [initial[4]])
 
@@ -207,9 +213,9 @@ def test_infeasible_particles_rank_last_with_ties_by_index():
     # Particles 0, 2 and 3 have the lowest fitness but lie outside the bounds.
     f_X = [-10.0, 2.0, -5.0, -20.0, 1.0]
     set_state(solver, f_X, initial, outside=(0, 2, 3))
-    solver.adapt(0)
+    adapt_after(solver, 0)
     set_state(solver, f_X, initial, outside=(0, 2, 3))
-    solver.adapt(1)
+    adapt_after(solver, 1)
     # Both feasible particles (4, then 1), then the lowest-index infeasible one.
     history = belief_space(solver)
     np.testing.assert_array_equal(history["belief_lbs"], [initial[0]])
@@ -224,9 +230,9 @@ def test_collapse_resamples_once_then_nothing_changes():
     point = np.array([0.5, 1.0, 3.0])
     near_point = point + 1e-13 * np.arange(4)[:, None]
     set_state(solver, np.arange(4), near_point)
-    solver.adapt(0)
+    adapt_after(solver, 0)
     set_state(solver, np.arange(4), near_point)
-    solver.adapt(1)
+    adapt_after(solver, 1)
     # The update collapsed the box; the CPs were still resampled once, in it.
     history = belief_space(solver)
     width = np.sum(history["belief_ubs"][0] - history["belief_lbs"][0])
@@ -240,7 +246,7 @@ def test_collapse_resamples_once_then_nothing_changes():
     # schedule), no resampling.
     for t in range(2, 12):
         set_state(solver, np.arange(4)[::-1])
-        solver.adapt(t)
+        adapt_after(solver, t)
     assert len(belief_space(solver)["belief_lbs"]) == 1
     np.testing.assert_array_equal(CPs(solver), after_update)
     # Private read: the collapse is detected after step 2, the step after the
@@ -251,10 +257,10 @@ def test_collapse_resamples_once_then_nothing_changes():
 def test_cps_never_change_after_a_collapse_in_a_real_run():
     update_freq, n_steps = 2, 300
     solver = make_solver(n_s=6, n_e=2, update_freq=update_freq)
-    CPs_after = []  # the CPs in use from step t + 1, i.e. after adapt(t)
+    CPs_after = []  # the CPs in use from step t + 1, i.e. after adapt()
     for t in range(n_steps):
         solver.optimizer.step(t)
-        solver.adapt(t)
+        solver.adapt()
         CPs_after.append(CPs(solver))
 
     history = belief_space(solver)
@@ -297,7 +303,7 @@ def test_adapts_a_named_subset_in_its_own_order():
     initial[:, 1] = 1.5
     for t in (0, 1):
         set_state(solver, np.arange(3), initial)
-        solver.adapt(t)
+        adapt_after(solver, t)
     # Particles 0 and 1 selected; the box is in (c_2, w) order.
     history = belief_space(solver)
     np.testing.assert_array_equal(history["belief_lbs"], [initial[0, [2, 0]]])

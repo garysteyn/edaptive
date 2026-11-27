@@ -28,7 +28,7 @@ class StabilityGuidedPSO(BaseSolver):
             for idx, name in enumerate(self.adapted_CP_names)
         }
 
-    def adapt(self, t):
+    def adapt(self):
         new_adapted_CPs = self.sample_adapted_CPs(N=self.n_s)
         self._set_adapted_CPs(self.adapted_CP_names, new_adapted_CPs)
 

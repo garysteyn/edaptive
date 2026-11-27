@@ -134,8 +134,11 @@ class BaseSolver:
         """Write ``values`` into the optimizer's adaptable CPs called ``names``."""
         self.optimizer.set_adaptable_CPs(names, values)
 
-    def adapt(self, t):
-        """Called after every ``optimizer.step(t)``. Does nothing by default."""
+    def adapt(self):
+        """Called after every ``optimizer.step(t)``. Does nothing by default.
+
+        A solver that needs the step index reads the optimizer's ``t`` (the step
+        just completed) through ``_get_required_data``."""
 
     def timings(self):
         """``{"optimizer": ..., "adapter": ..., "solver": ...}``, each mapping a
@@ -151,7 +154,7 @@ class BaseSolver:
 
         for t in range(max_iterations):
             optimizer.step(t)
-            self.adapt(t)
+            self.adapt()
 
         optimizer.history["timings"] = self.timings()
         return (np.min(optimizer.history["f_best"]), optimizer.history)
